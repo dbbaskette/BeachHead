@@ -72,7 +72,7 @@ export default function NavalGame({
     [steady, setSteady] = useState(false);
   const [markers, setMarkers] = useState<Marker[]>([]),
     [selected, setSelected] = useState(0);
-  const [reticle, setReticle] = useState({ x: 0, y: 0, visible: false });
+  const reticleElement = useRef<HTMLDivElement>(null);
   const mousePoint = useRef<{ x: number; y: number } | null>(null);
   const mouseFiring = useRef(false);
   const drag = useRef<{
@@ -221,6 +221,7 @@ export default function NavalGame({
         event.movementY,
         optic.current,
         event.shiftKey || (event.buttons & 2) !== 0,
+        battle.current.range,
       );
       aim(
         battle.current.heading + delta.heading,
@@ -345,14 +346,19 @@ export default function NavalGame({
                 name: s.name,
               })),
             );
+          }
+          if (reticleElement.current) {
             const a = (b.heading * Math.PI) / 180;
-            setReticle(
-              scene.current!.project(
-                Math.sin(a) * b.range,
-                4,
-                -Math.cos(a) * b.range,
-              ),
+            const point = scene.current!.project(
+              Math.sin(a) * b.range,
+              4,
+              -Math.cos(a) * b.range,
             );
+            reticleElement.current.style.left = `${point.x}px`;
+            reticleElement.current.style.top = `${point.y}px`;
+            reticleElement.current.style.visibility = point.visible
+              ? 'visible'
+              : 'hidden';
           }
           frame = requestAnimationFrame(animate);
         };
@@ -448,6 +454,7 @@ export default function NavalGame({
                 e.clientY - previous.y,
                 optic.current,
                 e.shiftKey || (e.buttons & 2) !== 0,
+                battle.current.range,
               );
               aim(
                 battle.current.heading + delta.heading,
@@ -616,11 +623,11 @@ export default function NavalGame({
                 </div>
               ))}
           </div>
-          {playing && reticle.visible && (
+          {playing && (
             <div
+              ref={reticleElement}
               className="aim-reticle"
               aria-hidden="true"
-              style={{ left: reticle.x, top: reticle.y }}
             >
               <span />
               <i />
@@ -666,7 +673,8 @@ export default function NavalGame({
             <ArrowUpRight size={22} />
           </Button>
           <p className="briefing-hint">
-            Click sea to capture mouse · Hold left to fire · Esc releases mouse
+            Keyboard recommended: W/S range · A/D bearing · Space fire. Mouse:
+            click sea to capture; wheel adjusts range.
           </p>
           <button className="stage-practice" onClick={onPractice}>
             Stage 2 practice — Hold the beach <ArrowUpRight size={14} />
@@ -898,8 +906,8 @@ export default function NavalGame({
       <div className="controls-strip">
         <span>
           <MoveHorizontal size={14} />
-          Click sea: capture mouse · Left: fire · Shift / right: fine aim · Esc:
-          release
+          Keyboard recommended · Mouse: wheel for range · Shift / right: fine
+          aim
         </span>
         <span>
           <kbd>A</kbd>
