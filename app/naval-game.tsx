@@ -423,7 +423,6 @@ export default function NavalGame({
         onPointerDown={(e) => {
           if (!playing || e.button !== 0) return;
           root.current?.focus();
-          e.currentTarget.setPointerCapture(e.pointerId);
           if (e.pointerType === 'mouse') {
             if (document.pointerLockElement !== e.currentTarget) {
               void e.currentTarget.requestPointerLock?.()?.catch(() => {
@@ -435,6 +434,9 @@ export default function NavalGame({
             shoot();
             return;
           }
+          // Pointer capture is for touch/pen dragging. It throws while mouse
+          // pointer lock is active, which otherwise prevents the next shot.
+          e.currentTarget.setPointerCapture(e.pointerId);
           drag.current = {
             x: e.clientX,
             y: e.clientY,
