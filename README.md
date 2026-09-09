@@ -78,3 +78,5 @@ Stage 2 infantry now use a WWII-inspired field-grey uniform treatment, webbing a
 [Source repository](https://github.com/dbbaskette/BeachHead)
 
 GitHub Actions tests and publishes the game to GitHub Pages whenever `main` is pushed. To reproduce the Pages build locally, run `NEXT_PUBLIC_BASE_PATH=/BeachHead npm run build`. The static website is generated in `dist/client`. Normal `npm run dev` continues to work at the root URL.
+
+The naval battle now uses one visible aiming cursor. Click the sea to capture the mouse where the browser supports pointer lock; Escape releases it and pauses. The OS cursor is hidden only over the active sea, while menus retain normal cursor behavior. Shift/right-button fine aiming is preserved.

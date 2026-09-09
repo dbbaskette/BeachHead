@@ -1269,3 +1269,6 @@ kbd {
   .pillbox-objective { top:88px; }
   .pillbox-radio { bottom:165px; }
 }
+
+/* A single gun reticle replaces the system cursor over the active sea. */
+.scene.single-aim-cursor { cursor: none; }

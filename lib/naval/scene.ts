@@ -291,7 +291,8 @@ export class NavalScene {
       0.4,
       -Math.cos(angle) * battle.range,
     );
-    this.reticle.visible = battle.status === 'playing';
+    // The screen-space reticle is the sole aim cursor.
+    this.reticle.visible = false;
     this.renderer.render(this.scene, this.camera);
   }
   dispose() {

@@ -126,6 +126,8 @@ export default function NavalGame({
     const b = battle.current;
     if (b.status === 'playing') b.status = 'paused';
     else if (b.status === 'paused') b.status = 'playing';
+    if (b.status === 'paused' && document.pointerLockElement === host.current)
+      document.exitPointerLock();
     audio.current?.setPaused(b.status === 'paused');
     mousePoint.current = null;
     mouseFiring.current = false;
@@ -208,6 +210,32 @@ export default function NavalGame({
     const releaseMouse = () => {
       mouseFiring.current = false;
     };
+    const lockedMove = (event: MouseEvent) => {
+      if (
+        document.pointerLockElement !== host.current ||
+        battle.current.status !== 'playing'
+      )
+        return;
+      const delta = mouseAimDelta(
+        event.movementX,
+        event.movementY,
+        optic.current,
+        event.shiftKey || (event.buttons & 2) !== 0,
+      );
+      aim(
+        battle.current.heading + delta.heading,
+        battle.current.range + delta.range,
+      );
+    };
+    let ownedPointer = false;
+    const lockChanged = () => {
+      const locked = document.pointerLockElement === host.current;
+      if (ownedPointer && !locked) blur();
+      ownedPointer = locked;
+      mousePoint.current = null;
+    };
+    document.addEventListener('mousemove', lockedMove);
+    document.addEventListener('pointerlockchange', lockChanged);
     window.addEventListener('pointerup', releaseMouse);
     window.addEventListener('pointercancel', releaseMouse);
     const wheelHost = host.current;
@@ -294,6 +322,11 @@ export default function NavalGame({
               }
             }
           } else accumulator = 0;
+          if (
+            b.status !== 'playing' &&
+            document.pointerLockElement === host.current
+          )
+            document.exitPointerLock();
           scene.current?.render(
             b,
             dt,
@@ -334,6 +367,9 @@ export default function NavalGame({
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', blur);
+      document.removeEventListener('mousemove', lockedMove);
+      document.removeEventListener('pointerlockchange', lockChanged);
+      if (document.pointerLockElement === wheelHost) document.exitPointerLock();
       window.removeEventListener('pointerup', releaseMouse);
       window.removeEventListener('pointercancel', releaseMouse);
       wheelHost?.removeEventListener('wheel', wheel);
@@ -368,7 +404,7 @@ export default function NavalGame({
     >
       <div
         ref={host}
-        className="scene"
+        className={`scene ${playing ? 'single-aim-cursor' : ''}`}
         aria-label="3D naval battlefield"
         onContextMenu={(e) => e.preventDefault()}
         onPointerEnter={(e) => {
@@ -383,6 +419,11 @@ export default function NavalGame({
           root.current?.focus();
           e.currentTarget.setPointerCapture(e.pointerId);
           if (e.pointerType === 'mouse') {
+            if (document.pointerLockElement !== e.currentTarget) {
+              void e.currentTarget.requestPointerLock?.()?.catch(() => {
+                /* Keep relative aiming when capture is unavailable. */
+              });
+            }
             mousePoint.current = { x: e.clientX, y: e.clientY };
             mouseFiring.current = true;
             shoot();
@@ -397,6 +438,7 @@ export default function NavalGame({
           };
         }}
         onPointerMove={(e) => {
+          if (document.pointerLockElement === e.currentTarget) return;
           if (e.pointerType === 'mouse') {
             const previous = mousePoint.current;
             mousePoint.current = { x: e.clientX, y: e.clientY };
@@ -624,8 +666,7 @@ export default function NavalGame({
             <ArrowUpRight size={22} />
           </Button>
           <p className="briefing-hint">
-            Move mouse to aim · Hold left to fire · Hold Shift or right mouse
-            for fine aim
+            Click sea to capture mouse · Hold left to fire · Esc releases mouse
           </p>
           <button className="stage-practice" onClick={onPractice}>
             Stage 2 practice — Hold the beach <ArrowUpRight size={14} />
@@ -857,7 +898,8 @@ export default function NavalGame({
       <div className="controls-strip">
         <span>
           <MoveHorizontal size={14} />
-          Mouse aim · Left fire · Wheel range · Shift / right mouse: fine aim
+          Click sea: capture mouse · Left: fire · Shift / right: fine aim · Esc:
+          release
         </span>
         <span>
           <kbd>A</kbd>
