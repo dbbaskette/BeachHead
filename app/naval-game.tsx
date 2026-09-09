@@ -1,8 +1,10 @@
 'use client';
+import { mouseAimDelta, mouseWheelRange } from '../lib/naval/mouse-aim';
 import { useEffect, useRef, useState } from 'react';
 import {
   Anchor,
   Crosshair,
+  ScanEye,
   Volume2,
   VolumeX,
   Pause,
@@ -46,7 +48,13 @@ const bearing = (x: number, z: number) => (Math.atan2(x, -z) * 180) / Math.PI;
 const number = (n: number) => Math.round(n).toLocaleString('en-US');
 const time = (n: number) =>
   `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(Math.floor(n % 60)).padStart(2, '0')}`;
-export default function NavalGame() {
+export default function NavalGame({
+  onContinue,
+  onPractice,
+}: {
+  onContinue: () => void;
+  onPractice: () => void;
+}) {
   const host = useRef<HTMLDivElement>(null),
     root = useRef<HTMLElement>(null);
   const battle = useRef<Battle>(createBattle()),
@@ -54,7 +62,9 @@ export default function NavalGame() {
     audio = useRef<NavalAudio | null>(null);
   const keys = useRef(new Set<string>()),
     reduced = useRef(false),
+    optic = useRef(false),
     targetIndex = useRef(0);
+  const [scoped, setScoped] = useState(false);
   const [hud, setHud] = useState<Battle>(createBattle);
   const [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
@@ -63,6 +73,8 @@ export default function NavalGame() {
   const [markers, setMarkers] = useState<Marker[]>([]),
     [selected, setSelected] = useState(0);
   const [reticle, setReticle] = useState({ x: 0, y: 0, visible: false });
+  const mousePoint = useRef<{ x: number; y: number } | null>(null);
+  const mouseFiring = useRef(false);
   const drag = useRef<{
     x: number;
     y: number;
@@ -96,10 +108,16 @@ export default function NavalGame() {
   const start = () => {
     battle.current = createBattle();
     battle.current.status = 'playing';
+    optic.current = false;
+    setScoped(false);
     targetIndex.current = 0;
     setSelected(0);
     scene.current?.reset();
+    mousePoint.current = null;
+    mouseFiring.current = false;
+    drag.current = null;
     keys.current.clear();
+    audio.current?.setPaused(false);
     void audio.current?.start();
     publish();
     root.current?.focus();
@@ -108,6 +126,10 @@ export default function NavalGame() {
     const b = battle.current;
     if (b.status === 'playing') b.status = 'paused';
     else if (b.status === 'paused') b.status = 'playing';
+    audio.current?.setPaused(b.status === 'paused');
+    mousePoint.current = null;
+    mouseFiring.current = false;
+    drag.current = null;
     keys.current.clear();
     publish();
     root.current?.focus();
@@ -121,6 +143,7 @@ export default function NavalGame() {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     reduced.current = media.matches;
     audio.current = new NavalAudio();
+    void audio.current.preload();
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
       const b = battle.current;
@@ -139,6 +162,12 @@ export default function NavalGame() {
         return;
       if (e.shiftKey && e.code === 'Tab') return;
       if (b.status !== 'playing') return;
+      if (e.code === 'KeyZ' && !e.repeat) {
+        optic.current = !optic.current;
+        setScoped(optic.current);
+        e.preventDefault();
+        return;
+      }
       if (
         [
           'KeyA',
@@ -161,8 +190,12 @@ export default function NavalGame() {
     const keyUp = (e: KeyboardEvent) => keys.current.delete(e.code);
     const blur = () => {
       keys.current.clear();
+      mousePoint.current = null;
+      mouseFiring.current = false;
+      drag.current = null;
       if (battle.current.status === 'playing') {
         battle.current.status = 'paused';
+        audio.current?.setPaused(true);
         publish();
       }
     };
@@ -172,6 +205,26 @@ export default function NavalGame() {
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', keyUp);
     window.addEventListener('blur', blur);
+    const releaseMouse = () => {
+      mouseFiring.current = false;
+    };
+    window.addEventListener('pointerup', releaseMouse);
+    window.addEventListener('pointercancel', releaseMouse);
+    const wheelHost = host.current;
+    const wheel = (event: WheelEvent) => {
+      if (battle.current.status !== 'playing') return;
+      event.preventDefault();
+      aim(
+        battle.current.heading,
+        battle.current.range +
+          mouseWheelRange(
+            event.deltaY,
+            event.deltaMode,
+            event.shiftKey || optic.current,
+          ),
+      );
+    };
+    wheelHost?.addEventListener('wheel', wheel, { passive: false });
     document.addEventListener('visibilitychange', visibility);
     import('@/lib/naval/scene')
       .then(({ NavalScene }) => {
@@ -204,7 +257,7 @@ export default function NavalGame() {
               (held('KeyW', 'ArrowUp') ? 1 : 0) -
               (held('KeyS', 'ArrowDown') ? 1 : 0);
             setAim(b, b.heading + turn * 18 * dt, b.range + range * 230 * dt);
-            if (held('Space')) fire(b);
+            if (held('Space') || mouseFiring.current) fire(b);
             accumulator += dt;
             while (accumulator >= 1 / 60) {
               const events = step(b, 1 / 60);
@@ -212,14 +265,41 @@ export default function NavalGame() {
               for (const event of events) {
                 scene.current?.event(event, b);
                 if (event.type === 'fired') audio.current?.play('fire');
-                if (event.type === 'hit' || event.type === 'sunk')
-                  audio.current?.play('impact');
-                if (event.type === 'miss') audio.current?.play('splash');
+                if (event.type === 'hit' || event.type === 'enemy-fired') {
+                  const ship = b.ships.find((s) => s.id === event.shipId);
+                  if (ship)
+                    audio.current?.play(
+                      event.type === 'hit' ? 'impact' : 'fire',
+                      {
+                        pan: Math.sin(
+                          Math.atan2(ship.x, -ship.z) -
+                            (b.heading * Math.PI) / 180,
+                        ),
+                        distance: Math.min(
+                          1,
+                          Math.hypot(ship.x, ship.z) / 1600,
+                        ),
+                      },
+                    );
+                }
+                if (event.type === 'miss')
+                  audio.current?.play('splash', {
+                    pan: Math.sin(
+                      Math.atan2(event.x, -event.z) -
+                        (b.heading * Math.PI) / 180,
+                    ),
+                    distance: Math.min(1, Math.hypot(event.x, event.z) / 1600),
+                  });
                 if (event.type === 'damaged') audio.current?.play('damage');
               }
             }
           } else accumulator = 0;
-          scene.current?.render(b, dt, reduced.current);
+          scene.current?.render(
+            b,
+            dt,
+            reduced.current,
+            optic.current && b.status === 'playing',
+          );
           if (now - lastHud > 60) {
             lastHud = now;
             publish();
@@ -254,6 +334,9 @@ export default function NavalGame() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', blur);
+      window.removeEventListener('pointerup', releaseMouse);
+      window.removeEventListener('pointercancel', releaseMouse);
+      wheelHost?.removeEventListener('wheel', wheel);
       document.removeEventListener('visibilitychange', visibility);
       scene.current?.dispose();
       scene.current = null;
@@ -287,10 +370,24 @@ export default function NavalGame() {
         ref={host}
         className="scene"
         aria-label="3D naval battlefield"
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerEnter={(e) => {
+          if (e.pointerType === 'mouse')
+            mousePoint.current = { x: e.clientX, y: e.clientY };
+        }}
+        onPointerLeave={() => {
+          mousePoint.current = null;
+        }}
         onPointerDown={(e) => {
           if (!playing || e.button !== 0) return;
           root.current?.focus();
           e.currentTarget.setPointerCapture(e.pointerId);
+          if (e.pointerType === 'mouse') {
+            mousePoint.current = { x: e.clientX, y: e.clientY };
+            mouseFiring.current = true;
+            shoot();
+            return;
+          }
           drag.current = {
             x: e.clientX,
             y: e.clientY,
@@ -300,6 +397,23 @@ export default function NavalGame() {
           };
         }}
         onPointerMove={(e) => {
+          if (e.pointerType === 'mouse') {
+            const previous = mousePoint.current;
+            mousePoint.current = { x: e.clientX, y: e.clientY };
+            if (playing && previous) {
+              const delta = mouseAimDelta(
+                e.clientX - previous.x,
+                e.clientY - previous.y,
+                optic.current,
+                e.shiftKey || (e.buttons & 2) !== 0,
+              );
+              aim(
+                battle.current.heading + delta.heading,
+                battle.current.range + delta.range,
+              );
+            }
+            return;
+          }
           const d = drag.current;
           if (!d || !playing) return;
           const dx = e.clientX - d.x,
@@ -308,14 +422,26 @@ export default function NavalGame() {
           aim(d.heading + dx * 0.055, d.range - dy * 2);
         }}
         onPointerUp={() => {
+          mouseFiring.current = false;
           if (drag.current && !drag.current.moved) shoot();
           drag.current = null;
         }}
         onPointerCancel={() => {
+          mouseFiring.current = false;
+          mousePoint.current = null;
+          drag.current = null;
+        }}
+        onLostPointerCapture={() => {
+          mouseFiring.current = false;
           drag.current = null;
         }}
       />
       <div className="vignette" />
+      {scoped && playing && (
+        <div className="optic-overlay" aria-hidden="true">
+          <span>Gunnery optic / 2.1×</span>
+        </div>
+      )}
       <header className="topbar">
         <div className="brand">
           <Anchor size={22} />
@@ -332,6 +458,7 @@ export default function NavalGame() {
             onClick={() => {
               setSound(!sound);
               audio.current?.setEnabled(!sound);
+              if (!sound) void audio.current?.start();
             }}
           >
             {sound ? <Volume2 /> : <VolumeX />}
@@ -364,6 +491,23 @@ export default function NavalGame() {
           >
             <Maximize />
           </Button>
+          {!ready && (
+            <Button
+              variant="ghost"
+              className="optic-button"
+              aria-label={scoped ? 'Return to deck view' : 'Use gunnery optic'}
+              aria-pressed={scoped}
+              disabled={!playing}
+              onClick={() => {
+                optic.current = !optic.current;
+                setScoped(optic.current);
+                root.current?.focus();
+              }}
+            >
+              <ScanEye />
+              <span>{scoped ? 'Deck view' : '2× optic'}</span>
+            </Button>
+          )}
           {!ready && (
             <Button
               variant="ghost"
@@ -479,7 +623,13 @@ export default function NavalGame() {
             {loaded ? 'Take command' : 'Preparing the guns…'}
             <ArrowUpRight size={22} />
           </Button>
-          <p className="briefing-hint">Headphones recommended</p>
+          <p className="briefing-hint">
+            Move mouse to aim · Hold left to fire · Hold Shift or right mouse
+            for fine aim
+          </p>
+          <button className="stage-practice" onClick={onPractice}>
+            Stage 2 practice — Hold the beach <ArrowUpRight size={14} />
+          </button>
           <div className="legacy-note">
             Inspired by the 1983 classic.
             <br />A new landing begins here.
@@ -508,7 +658,7 @@ export default function NavalGame() {
               {paused
                 ? 'Your guns are ready when you are.'
                 : hud.status === 'won'
-                  ? 'Enemy ships neutralized. The fleet can approach the island.'
+                  ? 'Enemy ships neutralized. The fleet has secured the landing. Take the captured pillbox and hold the beach against the counterattack.'
                   : 'The blockade held. Adjust your range, lead your targets, and try again.'}
             </p>
             {!paused && (
@@ -529,9 +679,24 @@ export default function NavalGame() {
                 </div>
               </div>
             )}
-            <Button className="start-button" onClick={paused ? pause : start}>
-              {paused ? <Play /> : <RotateCcw />}
-              {paused ? 'Resume battle' : 'Sail again'}
+            <Button
+              className="start-button"
+              onClick={
+                paused ? pause : hud.status === 'won' ? onContinue : start
+              }
+            >
+              {paused ? (
+                <Play />
+              ) : hud.status === 'won' ? (
+                <ArrowUpRight />
+              ) : (
+                <RotateCcw />
+              )}
+              {paused
+                ? 'Resume battle'
+                : hud.status === 'won'
+                  ? 'Stage 2 — Hold the beach'
+                  : 'Sail again'}
             </Button>
           </section>
         </div>
@@ -646,12 +811,12 @@ export default function NavalGame() {
               size="icon"
               aria-label="Turn guns left"
               disabled={!playing}
-              onClick={() => aim(hud.heading - 1, hud.range)}
+              onClick={() => aim(hud.heading - 0.2, hud.range)}
             >
               <ChevronLeft />
             </Button>
             <b>
-              {String(Math.round((hud.heading + 360) % 360)).padStart(3, '0')}
+              {((hud.heading + 360) % 360).toFixed(1).padStart(5, '0')}
               <small>°</small>
             </b>
             <Button
@@ -659,7 +824,7 @@ export default function NavalGame() {
               size="icon"
               aria-label="Turn guns right"
               disabled={!playing}
-              onClick={() => aim(hud.heading + 1, hud.range)}
+              onClick={() => aim(hud.heading + 0.2, hud.range)}
             >
               <ChevronRight />
             </Button>
@@ -692,7 +857,7 @@ export default function NavalGame() {
       <div className="controls-strip">
         <span>
           <MoveHorizontal size={14} />
-          Drag to aim
+          Mouse aim · Left fire · Wheel range · Shift / right mouse: fine aim
         </span>
         <span>
           <kbd>A</kbd>

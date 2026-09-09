@@ -1,4 +1,4 @@
-import NavalGame from './naval-game';
+import Campaign from './campaign';
 export default function Home() {
-  return <NavalGame />;
+  return <Campaign />;
 }

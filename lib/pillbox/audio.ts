@@ -1,37 +1,36 @@
 import { assetUrl } from '../asset-url';
-export type NavalSound = 'fire' | 'impact' | 'splash' | 'damage';
+export type PillboxSound = 'fire' | 'impact' | 'damage';
 
-export interface NavalSoundOptions {
+export interface PillboxSoundOptions {
   /** Stereo position from full left (-1) to full right (1). */
   pan?: number;
   /** Normalized listener distance: 0 is close and 1 is far away. */
   distance?: number;
 }
 
-const ASSET_URLS: Record<NavalSound, string> = {
-  fire: assetUrl('/audio/naval-cannon-fire.mp3'),
+const ASSET_URLS: Record<PillboxSound, string> = {
+  fire: assetUrl('/audio/pillbox-machine-gun-fire.mp3'),
   impact: assetUrl('/audio/naval-ship-impact.mp3'),
-  splash: assetUrl('/audio/naval-water-splash.mp3'),
   damage: assetUrl('/audio/naval-metal-damage.mp3'),
 };
 
-const DEFAULT_DISTANCE: Record<NavalSound, number> = {
-  fire: 0,
-  impact: 0.42,
-  splash: 0.5,
-  damage: 0.08,
+const SOURCE_GAIN: Record<PillboxSound, number> = {
+  fire: 0.52,
+  impact: 0.38,
+  damage: 0.52,
 };
 
-const SOURCE_GAIN: Record<NavalSound, number> = {
-  fire: 0.9,
-  impact: 0.82,
-  splash: 0.72,
-  damage: 0.82,
+const DEFAULT_DISTANCE: Record<PillboxSound, number> = {
+  fire: 0.12,
+  impact: 0.45,
+  damage: 0.1,
 };
 
-const MAX_VOICES = 10;
-const MASTER_GAIN = 0.58;
-const SOUND_KINDS = Object.keys(ASSET_URLS) as NavalSound[];
+// Four short voices allow a little natural tail at 8 shots/second without a
+// sustained burst growing louder on every shot.
+const MAX_VOICES = 4;
+const MASTER_GAIN = 0.48;
+const SOUND_KINDS = Object.keys(ASSET_URLS) as PillboxSound[];
 
 interface ActiveVoice {
   stop: () => void;
@@ -40,21 +39,14 @@ interface ActiveVoice {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-/**
- * Asset-backed naval sound effects with a small synthesized fallback.
- *
- * `preload()` only fetches bytes, so it is safe to call during page setup.
- * `start()` is the sole method that creates or resumes an AudioContext and must
- * be called from a user gesture. Calls to `play()` made while assets are still
- * decoding use the preallocated fallback, keeping the first volley audible.
- */
-export class NavalAudio {
+/** Short, voice-limited effects for the Stage 2 pillbox sequence. */
+export class PillboxAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private output: DynamicsCompressorNode | null = null;
   private fallbackBuffer: AudioBuffer | null = null;
-  private readonly assetBytes = new Map<NavalSound, ArrayBuffer>();
-  private readonly buffers = new Map<NavalSound, AudioBuffer>();
+  private readonly assetBytes = new Map<PillboxSound, ArrayBuffer>();
+  private readonly buffers = new Map<PillboxSound, AudioBuffer>();
   private readonly voices = new Set<ActiveVoice>();
   private preloadPromise: Promise<void> | null = null;
   private decodePromise: Promise<void> | null = null;
@@ -64,7 +56,7 @@ export class NavalAudio {
   private disposed = false;
   enabled = true;
 
-  /** Fetches the audio assets without creating an AudioContext. */
+  /** Fetch assets without creating an AudioContext. */
   async preload(): Promise<void> {
     if (this.disposed) return;
     if (!this.preloadPromise) {
@@ -78,19 +70,18 @@ export class NavalAudio {
             const bytes = await response.arrayBuffer();
             if (!this.disposed) this.assetBytes.set(kind, bytes);
           } catch {
-            // A missing asset is non-fatal: play() retains an audible fallback.
+            // Missing assets are non-fatal; play() uses a synthesized fallback.
           }
         }),
       ).then(() => undefined);
     }
-
     await this.preloadPromise;
     if (this.context) await this.decodeAssets(this.context);
   }
 
+  /** Create/resume Web Audio from a user gesture, then finish preloading. */
   async start(): Promise<void> {
     if (this.disposed) return;
-
     try {
       if (!this.context) this.createAudioGraph();
       if (this.context?.state === 'suspended') await this.context.resume();
@@ -99,9 +90,6 @@ export class NavalAudio {
       this.enabled = false;
       return;
     }
-
-    // The context is running before network/decode work begins. Callers do not
-    // need to await this method for play() to produce the fallback sound.
     await this.preload();
   }
 
@@ -117,7 +105,7 @@ export class NavalAudio {
     this.updateMasterGain();
   }
 
-  play(kind: NavalSound, options: NavalSoundOptions = {}): void {
+  play(kind: PillboxSound, options: PillboxSoundOptions = {}): void {
     const context = this.context;
     const master = this.master;
     if (
@@ -130,8 +118,8 @@ export class NavalAudio {
     )
       return;
 
-    const distance = clamp(options.distance ?? DEFAULT_DISTANCE[kind], 0, 1);
     const pan = clamp(options.pan ?? 0, -1, 1);
+    const distance = clamp(options.distance ?? DEFAULT_DISTANCE[kind], 0, 1);
     const buffer = this.buffers.get(kind);
     if (buffer) this.playBuffer(kind, buffer, pan, distance);
     else this.playFallback(kind, pan, distance);
@@ -158,11 +146,11 @@ export class NavalAudio {
     const master = context.createGain();
     const output = context.createDynamicsCompressor();
     master.gain.value = this.enabled && !this.paused ? MASTER_GAIN : 0;
-    output.threshold.value = -14;
-    output.knee.value = 12;
-    output.ratio.value = 4;
-    output.attack.value = 0.003;
-    output.release.value = 0.22;
+    output.threshold.value = -18;
+    output.knee.value = 10;
+    output.ratio.value = 6;
+    output.attack.value = 0.002;
+    output.release.value = 0.1;
     master.connect(output).connect(context.destination);
     this.context = context;
     this.master = master;
@@ -178,13 +166,11 @@ export class NavalAudio {
         const bytes = this.assetBytes.get(kind);
         if (!bytes) return;
         try {
-          // Safari historically detaches the supplied ArrayBuffer while
-          // decoding; retain the fetched bytes so a new context can decode too.
           const buffer = await context.decodeAudioData(bytes.slice(0));
           if (!this.disposed && context === this.context)
             this.buffers.set(kind, buffer);
         } catch {
-          // Keep the per-kind fallback if decoding is unsupported or fails.
+          // Retain the per-kind fallback when decoding fails.
         }
       }),
     )
@@ -196,7 +182,7 @@ export class NavalAudio {
   }
 
   private playBuffer(
-    kind: NavalSound,
+    kind: PillboxSound,
     buffer: AudioBuffer,
     pan: number,
     distance: number,
@@ -204,81 +190,49 @@ export class NavalAudio {
     const context = this.context;
     const master = this.master;
     if (!context || !master) return;
-
-    const now = context.currentTime;
     const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const panner = context.createStereoPanner();
     const gain = context.createGain();
     source.buffer = buffer;
-    source.playbackRate.value = 1 + ((this.variation++ % 5) - 2) * 0.007;
+    source.playbackRate.value = 1 + ((this.variation++ % 7) - 3) * 0.006;
     filter.type = 'lowpass';
-    filter.frequency.value = 18000 - distance * 14500;
-    filter.Q.value = 0.35;
+    filter.frequency.value = 17500 - distance * 13750;
+    filter.Q.value = 0.3;
     panner.pan.value = pan;
-    gain.gain.value = SOURCE_GAIN[kind] * (1 - distance * 0.58);
+    gain.gain.value = SOURCE_GAIN[kind] * (1 - distance * 0.62);
     source.connect(filter).connect(panner).connect(gain).connect(master);
     this.registerVoice(source, [filter, panner, gain]);
-    this.addRumble(kind, pan, distance, gain);
-    source.start(now);
+    source.start(context.currentTime);
   }
 
-  private playFallback(kind: NavalSound, pan: number, distance: number): void {
+  private playFallback(
+    kind: PillboxSound,
+    pan: number,
+    distance: number,
+  ): void {
     const context = this.context;
     const master = this.master;
     const buffer = this.fallbackBuffer;
     if (!context || !master || !buffer) return;
-
     const now = context.currentTime;
-    const duration = kind === 'splash' ? 0.42 : kind === 'fire' ? 0.72 : 0.6;
+    const duration = kind === 'fire' ? 0.11 : 0.22;
     const source = context.createBufferSource();
     const filter = context.createBiquadFilter();
     const panner = context.createStereoPanner();
     const gain = context.createGain();
     source.buffer = buffer;
-    filter.type = kind === 'splash' ? 'bandpass' : 'lowpass';
+    filter.type = 'bandpass';
     filter.frequency.value =
-      (kind === 'splash' ? 2100 : kind === 'fire' ? 850 : 620) *
-      (1 - distance * 0.35);
-    filter.Q.value = kind === 'splash' ? 0.7 : 0.4;
+      (kind === 'fire' ? 1900 : 850) * (1 - distance * 0.35);
+    filter.Q.value = kind === 'fire' ? 0.55 : 0.35;
     panner.pan.value = pan;
-    gain.gain.setValueAtTime(SOURCE_GAIN[kind] * 0.48, now);
+    gain.gain.setValueAtTime(SOURCE_GAIN[kind] * 0.55, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
     source.connect(filter).connect(panner).connect(gain).connect(master);
     this.registerVoice(source, [filter, panner, gain]);
-    this.addRumble(kind, pan, distance, gain);
     source.start(now);
     source.stop(now + duration);
-  }
-
-  private addRumble(
-    kind: NavalSound,
-    pan: number,
-    distance: number,
-    destination: AudioNode,
-  ): void {
-    if (kind === 'splash') return;
-    const context = this.context;
-    if (!context) return;
-    const now = context.currentTime;
-    const oscillator = context.createOscillator();
-    const panner = context.createStereoPanner();
-    const gain = context.createGain();
-    const duration = kind === 'fire' ? 0.72 : 0.58;
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(kind === 'fire' ? 76 : 66, now);
-    oscillator.frequency.exponentialRampToValueAtTime(31, now + duration);
-    panner.pan.value = pan * 0.55;
-    gain.gain.setValueAtTime(0.16 * (1 - distance * 0.5), now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-    oscillator.connect(panner).connect(gain).connect(destination);
-    oscillator.start(now);
-    oscillator.stop(now + duration);
-    oscillator.onended = () => {
-      oscillator.disconnect();
-      panner.disconnect();
-      gain.disconnect();
-    };
   }
 
   private registerVoice(
@@ -292,7 +246,6 @@ export class NavalAudio {
       if (!oldest) break;
       oldest.stop();
     }
-
     let active = true;
     const cleanup = () => {
       if (!active) return;
@@ -307,7 +260,7 @@ export class NavalAudio {
         try {
           source.stop();
         } catch {
-          // The source may already have ended between checks.
+          // The source may have ended between checks.
         }
         cleanup();
       },
@@ -326,21 +279,21 @@ export class NavalAudio {
     const target = this.enabled && !this.paused ? MASTER_GAIN : 0;
     const gain = this.master.gain;
     gain.cancelScheduledValues(this.context.currentTime);
-    gain.setTargetAtTime(target, this.context.currentTime, 0.012);
+    gain.setTargetAtTime(target, this.context.currentTime, 0.01);
   }
 
   private makeFallbackBuffer(context: AudioContext): AudioBuffer {
     const buffer = context.createBuffer(
       1,
-      Math.ceil(context.sampleRate * 0.75),
+      Math.ceil(context.sampleRate * 0.24),
       context.sampleRate,
     );
     const data = buffer.getChannelData(0);
-    let seed = 0x2f6e2b1;
+    let seed = 0x71af821;
     for (let i = 0; i < data.length; i++) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const noise = (seed / 0xffffffff) * 2 - 1;
-      data[i] = noise * Math.exp((-i / data.length) * 5.5);
+      data[i] = noise * Math.exp((-i / data.length) * 7.5);
     }
     return buffer;
   }

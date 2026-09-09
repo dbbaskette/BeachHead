@@ -11,7 +11,7 @@
     "start": "vinext start",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test": "node --import tsx --test lib/naval/*.test.ts",
+    "test": "node --import tsx --test lib/naval/*.test.ts lib/pillbox/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

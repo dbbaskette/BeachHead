@@ -1,43 +1,78 @@
+import { assetUrl } from '../asset-url';
 import * as THREE from 'three';
+import { Water } from 'three/addons/objects/Water.js';
+import type { Battle } from './simulation';
+
 export function makeOcean() {
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uSun: { value: new THREE.Vector3(-0.5, 0.27, -0.72).normalize() },
-    },
-    vertexShader: `
-      uniform float uTime; varying vec3 vWorld;
-      void main(){
-        vec3 p=position;
-        p.z=sin(p.x*.012+uTime*.7)*1.1+sin(p.y*.018-uTime*.52)*.8+sin((p.x+p.y)*.029+uTime)*.35;
-        vec4 world=modelMatrix*vec4(p,1.);vWorld=world.xyz;
-        gl_Position=projectionMatrix*viewMatrix*world;
-      }`,
-    fragmentShader: `
-      uniform float uTime;uniform vec3 uSun;varying vec3 vWorld;
-      float waves(vec2 p){return sin(p.x*.11+uTime*1.2)*.3+sin(p.y*.15-uTime)*.25+sin(p.x*.32+p.y*.21+uTime*1.8)*.12+sin(p.x*.61-p.y*.34-uTime*2.)*.045;}
-      void main(){
-        vec2 p=vWorld.xz;float h=waves(p);float e=.35;
-        vec3 n=normalize(vec3((h-waves(p+vec2(e,0.)))/e,1.,(h-waves(p+vec2(0.,e)))/e));
-        vec3 v=normalize(cameraPosition-vWorld);float fres=pow(1.-max(dot(n,v),0.),3.);
-        vec3 deep=vec3(.027,.135,.19);vec3 sky=vec3(.51,.66,.7);
-        vec3 c=mix(deep,sky,fres*.72);
-        float spec=pow(max(dot(reflect(-uSun,n),v),0.),130.);
-        c+=vec3(1.,.84,.55)*spec*1.15;
-        float ripple=smoothstep(.56,.65,h)*.13*(1.-fres*.6);c+=vec3(.43,.67,.7)*ripple;
-        float fog=1.-exp(-length(cameraPosition-vWorld)*.00018);c=mix(c,vec3(.62,.73,.75),fog);
-        gl_FragColor=vec4(c,1.);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
-  });
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(18000, 18000, 240, 240),
-    material,
+  const normal = new THREE.TextureLoader().load(
+    assetUrl('/textures/water-normal.jpg'),
   );
+  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
+  normal.anisotropy = 8;
+  const mesh = new Water(new THREE.PlaneGeometry(20000, 20000, 1, 1), {
+    textureWidth: 768,
+    textureHeight: 768,
+    waterNormals: normal,
+    sunDirection: new THREE.Vector3(-0.5, 0.38, 0.75).normalize(),
+    sunColor: '#ffe1b0',
+    waterColor: '#0c5360',
+    distortionScale: 1.8,
+    fog: true,
+  });
   mesh.rotation.x = -Math.PI / 2;
-  mesh.position.z = -3500;
-  return { mesh, material };
+  mesh.position.z = -3000;
+  const material = mesh.material as THREE.ShaderMaterial;
+  material.uniforms.size.value = 3.5;
+  material.uniforms.uWakes = {
+    value: Array.from({ length: 4 }, () => new THREE.Vector4()),
+  };
+  // Keep reflections readable without mirror-flat island and ship silhouettes.
+  material.fragmentShader = material.fragmentShader.replace(
+    'reflectionSample + specularLight, reflectance',
+    'reflectionSample + specularLight, reflectance * .58',
+  );
+  material.fragmentShader = material.fragmentShader.replace(
+    'uniform float size;',
+    `uniform float size;
+    uniform vec4 uWakes[4];
+    float wakeFoam(vec2 p,vec4 ship){
+      if(ship.w<1.)return 0.;
+      vec2 d=p-ship.xy;vec2 forward=vec2(sin(ship.z),-cos(ship.z));
+      float aft=-dot(d,forward),side=dot(d,vec2(cos(ship.z),sin(ship.z)));
+      float start=ship.w*.38,tail=max(0.,aft-start),width=ship.w*.055+tail*.055;
+      float trail=smoothstep(start,start+6.,aft)*exp(-tail/(ship.w*1.6))*exp(-pow(side/width,2.));
+      float v=exp(-pow((abs(side)-(tail*.24+ship.w*.08))/2.5,2.))*exp(-tail/(ship.w*1.3))*smoothstep(start,start+8.,aft);
+      float bow=exp(-pow((aft+ship.w*.43)/5.,2.))*exp(-pow((abs(side)-ship.w*.06)/2.,2.));
+      float breakup=.78+.22*sin(tail*.15-time*.65)*sin(side*.4+tail*.07);
+      return clamp((trail*.15+v*.035+bow*.12)*breakup,0.,.24);
+    }`,
+  );
+  material.fragmentShader = material.fragmentShader.replace(
+    'vec3 outgoingLight = albedo;',
+    `
+    float foam=0.;for(int i=0;i<4;i++)foam+=wakeFoam(worldPosition.xz,uWakes[i]);
+    float crest=smoothstep(.55,.84,noise.y)*.11;
+    vec3 outgoingLight=mix(albedo*vec3(.74,.92,1.03),vec3(.72,.87,.86),clamp(foam+crest,0.,.85));
+  `,
+  );
+  return {
+    mesh,
+    material,
+    update(time: number, battle: Battle) {
+      material.uniforms.time.value = time * 0.68;
+      const wakes = material.uniforms.uWakes.value as THREE.Vector4[];
+      battle.ships.forEach((s, i) =>
+        wakes[i].set(s.x, s.z, s.heading, s.health > 0 ? s.length : 0),
+      );
+      wakes[3].set(0, 0, 0, 0);
+    },
+    dispose() {
+      normal.dispose();
+      material.uniforms.mirrorSampler.value.dispose();
+      mesh.geometry.dispose();
+      material.dispose();
+    },
+  };
 }
 export function makeSky() {
   return new THREE.Mesh(
@@ -49,8 +84,8 @@ export function makeSky() {
       fragmentShader: `varying vec3 vDir;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+1.),f.x),f.y);}
-      void main(){vec3 d=normalize(vDir);float h=max(d.y,0.);vec3 c=mix(vec3(.73,.8,.79),vec3(.29,.47,.60),pow(h,.5));
-        float sun=max(dot(d,normalize(vec3(-.5,.27,-.72))),0.);c+=vec3(1.,.76,.43)*pow(sun,180.)*.75;c+=vec3(1.,.91,.7)*pow(sun,1300.);
+      void main(){vec3 d=normalize(vDir);float h=max(d.y,0.);vec3 c=mix(vec3(.56,.72,.78),vec3(.14,.35,.53),pow(h,.5));
+        float sun=max(dot(d,normalize(vec3(-.5,.38,.75))),0.);c+=vec3(1.,.76,.43)*pow(sun,180.)*.75;c+=vec3(1.,.91,.7)*pow(sun,1300.);
         vec2 uv=d.xz/max(.06,d.y)*2.;float n=noise(uv)+noise(uv*2.)*.5+noise(uv*4.)*.25;
         float cloud=smoothstep(.91,1.35,n)*smoothstep(.02,.16,h)*.7;c=mix(c,vec3(.9,.91,.86),cloud);
         gl_FragColor=vec4(c,1.);#include <tonemapping_fragment>

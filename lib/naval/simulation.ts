@@ -50,6 +50,8 @@ export type BattleEvent =
   | {
       type: 'miss';
       shipId?: string;
+      x: number;
+      z: number;
       shortLong: 'short' | 'long' | 'on-range';
       lateral: 'left' | 'right' | 'center';
     }
@@ -350,6 +352,8 @@ function resolvePlayerImpact(
     events.push({
       type: 'miss',
       shipId: nearest?.id,
+      x: shell.targetX,
+      z: shell.targetZ,
       ...correction,
     });
     events.push({ type: 'message', message: state.message });
