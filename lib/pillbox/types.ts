@@ -11,7 +11,28 @@ export interface Infantry {
   waypoint: number;
   offset: number;
   speed: number;
+  grenadeState: 'ready' | 'windup' | 'spent';
+  grenadeTimer: number;
 }
+export interface Jeep {
+  id: number;
+  x: number;
+  z: number;
+  side: number;
+  waypoint: number;
+  health: number;
+  passengers: number;
+  timer: number;
+  phase: 'driving' | 'unloading' | 'leaving' | 'wreck' | 'gone';
+}
+export interface Grenade {
+  id: number;
+  x: number;
+  z: number;
+  age: number;
+}
+export const JEEP_HEALTH = 18;
+export const GRENADE_FLIGHT = 2.2;
 export interface PillboxBattle {
   status: PillboxStatus;
   time: number;
@@ -31,12 +52,19 @@ export interface PillboxBattle {
   aimZ: number;
   message: string;
   soldiers: Infantry[];
+  jeeps: Jeep[];
+  grenades: Grenade[];
+  jeepSpawned: number;
+  jeepTimer: number;
+  vehiclesStopped: number;
 }
 export type PillboxEvent =
-  | { type: 'shot'; x: number; z: number; hit: boolean }
+  | { type: 'shot'; x: number; z: number; hit: boolean; vehicle?: boolean }
   | { type: 'down'; id: number; x: number; z: number }
   | { type: 'breach'; x: number; z: number }
   | { type: 'wave'; wave: number }
+  | { type: 'jeep-destroyed'; x: number; z: number }
+  | { type: 'grenade-impact'; x: number; z: number }
   | { type: 'won' | 'lost' | 'overheat' };
 export const WAVE_COUNTS = [18, 24, 30] as const;
 export const COVER_ROWS = [-86, -50] as const;

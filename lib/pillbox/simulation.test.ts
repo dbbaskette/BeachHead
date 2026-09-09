@@ -151,6 +151,7 @@ void describe('pillbox simulation', () => {
     advance(battle, 0.01);
     battle.spawnTimer = 100;
     const soldier = battle.soldiers[0];
+    battle.jeepSpawned = battle.wave;
     for (let i = 0; i < 2000 && soldier.phase !== 'breached'; i++) {
       const before = { x: soldier.x, z: soldier.z };
       stepPillbox(battle, 0.05, false);
@@ -188,9 +189,13 @@ void describe('pillbox simulation', () => {
       ticks < 4_000 && battle.status === 'playing';
       ticks += 1
     ) {
-      const target = battle.soldiers.find(
-        (soldier) => soldier.phase === 'advance',
-      );
+      const target =
+        battle.jeeps.find(
+          (j) => j.phase === 'driving' || j.phase === 'unloading',
+        ) ??
+        battle.soldiers
+          .filter((s) => s.phase === 'advance')
+          .sort((a, b) => b.z - a.z)[0];
       if (target) aimPillbox(battle, target.x, target.z);
 
       if (battle.heat >= 84 || battle.overheated) cooling = true;
@@ -206,6 +211,7 @@ void describe('pillbox simulation', () => {
     );
     assert.equal(battle.health, 100);
     assert.equal(sawVictory, true);
+    assert.equal(battle.vehiclesStopped, 6);
     assert.ok(
       battle.soldiers.filter((soldier) => soldier.phase === 'down').length <=
         18,

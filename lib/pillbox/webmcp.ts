@@ -55,11 +55,20 @@ export function registerPillboxTools(actions: {
       shots: b.shots,
       kills: b.kills,
       message: b.message,
+      jeeps: b.jeeps,
+      grenades: b.grenades,
+      vehiclesStopped: b.vehiclesStopped,
       aimX: b.aimX,
       aimZ: b.aimZ,
       soldiers: b.soldiers
         .filter((s) => s.phase === 'advance' || s.phase === 'cover')
-        .map((s) => ({ id: s.id, x: s.x, z: s.z, phase: s.phase })),
+        .map((s) => ({
+          id: s.id,
+          x: s.x,
+          z: s.z,
+          phase: s.phase,
+          grenadeState: s.grenadeState,
+        })),
     };
   };
   const tools = [

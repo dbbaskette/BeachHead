@@ -1,3 +1,4 @@
+import { VehicleRenderer } from './vehicles';
 import { BEACH_OBSTACLES } from './navigation';
 import * as THREE from 'three';
 import { InfantryRenderer } from './infantry';
@@ -63,6 +64,7 @@ export class PillboxScene {
   private height = 1;
   private observer: ResizeObserver;
   private infantry: InfantryRenderer;
+  private vehicles = new VehicleRenderer(this.scene);
   private detail: BeachDetail;
   private surfaceMaps: PillboxSurfaceMaps | null = null;
   readonly ready: Promise<void>;
@@ -745,6 +747,8 @@ export class PillboxScene {
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    const vehicle = this.vehicles.pick(this.raycaster);
+    if (vehicle) return vehicle;
     const soldier = this.infantry.pick(this.raycaster);
     if (soldier) return soldier;
     const hit = new THREE.Vector3();
@@ -796,8 +800,24 @@ export class PillboxScene {
         life: 0.055,
         grow: 0,
       });
-      if (event.hit) this.spawnBlood(event.x, event.z);
+      if (event.vehicle)
+        this.spawnFlash(
+          new THREE.Vector3(event.x, 1.2, event.z),
+          '#ffd295',
+          0.8,
+          0.12,
+        );
+      else if (event.hit) this.spawnBlood(event.x, event.z);
       else this.spawnDust(event.x, event.z, '#806a48');
+    }
+    if (event.type === 'jeep-destroyed' || event.type === 'grenade-impact') {
+      this.spawnFlash(
+        new THREE.Vector3(event.x, 1, event.z),
+        '#ff9e42',
+        event.type === 'jeep-destroyed' ? 5 : 3,
+        0.3,
+      );
+      this.spawnDust(event.x, event.z, '#3d3933');
     }
     if (event.type === 'down') {
       this.spawnDust(event.x, event.z, '#756348');
@@ -1002,6 +1022,7 @@ export class PillboxScene {
     );
     this.camera.lookAt(0, reducedMotion ? 0 : this.recoil * 0.04, -48);
     this.infantry.render(battle, activeDt, reducedMotion);
+    this.vehicles.render(battle, activeDt);
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const e = this.effects[i];
       e.age += activeDt;
@@ -1042,6 +1063,7 @@ export class PillboxScene {
     this.disposed = true;
     this.observer.disconnect();
     this.infantry.dispose();
+    this.vehicles.dispose();
     this.detail.dispose();
     this.surfaceMaps?.dispose();
     this.environment?.dispose();

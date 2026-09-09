@@ -673,8 +673,8 @@ export default function NavalGame({
             <ArrowUpRight size={22} />
           </Button>
           <p className="briefing-hint">
-            Keyboard recommended: W/S range · A/D bearing · Space fire. Mouse:
-            click sea to capture; wheel adjusts range.
+            W/S range · A/D bearing · Space fire. Mouse: click sea to capture;
+            wheel adjusts range.
           </p>
           <button className="stage-practice" onClick={onPractice}>
             Stage 2 practice — Hold the beach <ArrowUpRight size={14} />
@@ -906,8 +906,7 @@ export default function NavalGame({
       <div className="controls-strip">
         <span>
           <MoveHorizontal size={14} />
-          Keyboard recommended · Mouse: wheel for range · Shift / right: fine
-          aim
+          Mouse: wheel for range · Shift / right: fine aim
         </span>
         <span>
           <kbd>A</kbd>

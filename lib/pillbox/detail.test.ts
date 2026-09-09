@@ -21,9 +21,13 @@ void test('battlefield dressing releases its geometry, materials and instance bu
     if (object instanceof THREE.InstancedMesh) resources.add(object);
   });
   for (const resource of resources) {
-    const onDispose = () => { released.add(resource); };
-    if (resource instanceof THREE.InstancedMesh) resource.addEventListener('dispose', onDispose);
-    else if (resource instanceof THREE.Material) resource.addEventListener('dispose', onDispose);
+    const onDispose = () => {
+      released.add(resource);
+    };
+    if (resource instanceof THREE.InstancedMesh)
+      resource.addEventListener('dispose', onDispose);
+    else if (resource instanceof THREE.Material)
+      resource.addEventListener('dispose', onDispose);
     else resource.addEventListener('dispose', onDispose);
   }
   assert.ok(resources.size > 20);

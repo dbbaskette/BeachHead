@@ -81,4 +81,6 @@ GitHub Actions tests and publishes the game to GitHub Pages whenever `main` is p
 
 The naval battle now uses one visible aiming cursor. Click the sea to capture the mouse where the browser supports pointer lock; Escape releases it and pauses. The OS cursor is hidden only over the active sea, while menus retain normal cursor behavior. Shift/right-button fine aiming is preserved.
 
-Keyboard is recommended for naval aiming: W/S changes range, A/D changes bearing, and Space fires. Vertical mouse aiming now compensates for perspective at longer ranges, retains usable sensitivity in precision/optic modes, and updates the aim reticle every rendered frame. The wheel also makes larger range adjustments, with Shift retaining fine steps.
+Naval keyboard controls: W/S changes range, A/D changes bearing, and Space fires. Vertical mouse aiming now compensates for perspective at longer ranges, retains usable sensitivity in precision/optic modes, and updates the aim reticle every rendered frame. The wheel also makes larger range adjustments, with Shift retaining fine steps.
+
+Stage 2 now adds 1/2/3 reinforcement jeeps per wave (18 hits each, four passengers) and close-range grenade throwers. Stop jeeps before they unload, and prioritize soldiers marked GRENADE before they release. See `docs/stage-2-threats.md` for the rules and tuning.

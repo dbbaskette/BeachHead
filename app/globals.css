@@ -1272,3 +1272,7 @@ kbd {
 
 /* A single gun reticle replaces the system cursor over the active sea. */
 .scene.single-aim-cursor { cursor: none; }
+
+.jeep-marker,.grenade-marker { position:absolute; z-index:5; pointer-events:none; transform:translate(-50%,-100%); background:#192620dc; color:#f8d28c; padding:4px 6px; font:10px monospace; white-space:nowrap; }
+.jeep-marker progress { display:block; width:70px; height:4px; margin-top:3px; accent-color:#e6ba74; }
+.grenade-marker { color:#fff; background:#a93727; font-weight:bold; }

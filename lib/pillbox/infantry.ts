@@ -7,9 +7,9 @@ import type { Infantry, PillboxBattle } from './types';
 
 const MODEL_URL = assetUrl('/models/Soldier.glb');
 const SOLDIER_HEIGHT = 2.3;
-const MAX_ACTIVE = 30;
+const MAX_ACTIVE = 48;
 const MAX_CORPSES = 18;
-const MAX_VISIBLE = 48;
+const MAX_VISIBLE = 66;
 
 type Pose = 'run' | 'cover' | 'down';
 
@@ -26,6 +26,7 @@ type RenderedSoldier = {
   head: THREE.Object3D | undefined;
   helmet: THREE.Mesh;
   chest: THREE.Object3D | undefined;
+  throwingArm: THREE.Object3D | undefined;
   webbing: THREE.Group;
 };
 
@@ -227,11 +228,13 @@ export class InfantryRenderer {
       webbing.add(part);
     }
     root.add(webbing);
+    let throwingArm: THREE.Object3D | undefined;
     let chest: THREE.Object3D | undefined;
     let head: THREE.Object3D | undefined;
     model.traverse((o) => {
       if (o.name.endsWith('Head')) head = o;
       if (o.name.endsWith('Spine1')) chest = o;
+      if (o.name.endsWith('RightArm')) throwingArm = o;
     });
     root.position.set(soldier.x, 0.02, soldier.z);
     this.scene.add(root);
@@ -261,6 +264,7 @@ export class InfantryRenderer {
       head,
       helmet,
       chest,
+      throwingArm,
       webbing,
     };
     this.instances.set(soldier.id, instance);
@@ -356,7 +360,7 @@ export class InfantryRenderer {
       const pose: Pose =
         soldier.phase === 'down'
           ? 'down'
-          : soldier.phase === 'cover'
+          : soldier.phase === 'cover' || soldier.grenadeState === 'windup'
             ? 'cover'
             : 'run';
       this.setPose(instance, pose);
@@ -382,6 +386,15 @@ export class InfantryRenderer {
       instance.actions.run.setEffectiveTimeScale(soldier.speed / 4.2);
       // Pausing freezes both locomotion and death reactions.
       if (pose !== 'down') instance.mixer.update(frameDt);
+      if (
+        soldier.phase === 'advance' &&
+        soldier.grenadeState === 'windup' &&
+        instance.throwingArm
+      ) {
+        instance.throwingArm.rotation.z -=
+          Math.sin(Math.min(1, soldier.grenadeTimer / 1.4) * Math.PI * 0.8) *
+          1.8;
+      }
       if (instance.chest) {
         instance.root.updateWorldMatrix(true, true);
         instance.chest.getWorldPosition(this.headPosition);

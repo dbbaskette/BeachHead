@@ -1,6 +1,8 @@
 import { infantryRoute } from './navigation';
 import {
   AIM_BOUNDS,
+  JEEP_HEALTH,
+  GRENADE_FLIGHT,
   LANES,
   WAVE_COUNTS,
   type Infantry,
@@ -47,6 +49,11 @@ export function createPillboxBattle(): PillboxBattle {
     aimZ: -70,
     message: 'Hold the beach. Press and hold to fire.',
     soldiers: [],
+    jeeps: [],
+    grenades: [],
+    jeepSpawned: 0,
+    jeepTimer: 5,
+    vehiclesStopped: 0,
   };
 }
 
@@ -78,8 +85,151 @@ function spawnSoldier(battle: PillboxBattle): void {
     waypoint: 0,
     offset: ((id % 3) - 1) * 1.1,
     speed: ADVANCE_SPEED * (0.92 + (id % 5) * 0.04),
+    grenadeState: 'ready',
+    grenadeTimer: 0,
   });
   battle.spawned += 1;
+}
+
+export function jeepRoute(side: number) {
+  return [
+    { x: side * 10, z: -80 },
+    { x: side * 18, z: -78 },
+    { x: side * 18, z: -63 },
+    { x: side * 10, z: -59 },
+    { x: side * 10, z: -38 },
+  ];
+}
+
+function reinforce(
+  battle: PillboxBattle,
+  jeep: PillboxBattle['jeeps'][number],
+) {
+  const slot = 4 - jeep.passengers;
+  const id = 1000 + jeep.id * 10 + slot;
+  const lane = jeep.side > 0 ? 3 : 1;
+  const offset = ((slot % 3) - 1) * 1.1;
+  battle.soldiers.push({
+    id,
+    x: jeep.x + (slot % 2 ? 2 : -2),
+    z: jeep.z + slot * 0.6,
+    lane,
+    offset,
+    health: 2,
+    phase: 'advance',
+    timer: 0,
+    coverIndex: 2,
+    waypoint: infantryRoute(lane, offset).length - 1,
+    speed: ADVANCE_SPEED,
+    grenadeState: 'ready',
+    grenadeTimer: 0,
+  });
+  jeep.passengers--;
+}
+
+function updateJeeps(battle: PillboxBattle, dt: number) {
+  battle.jeepTimer -= dt;
+  if (battle.jeepSpawned < battle.wave && battle.jeepTimer <= 0) {
+    const id = battle.wave * 10 + battle.jeepSpawned;
+    const side = id % 2 ? -1 : 1;
+    battle.jeeps.push({
+      id,
+      x: side * 10,
+      z: -132,
+      side,
+      waypoint: 0,
+      health: JEEP_HEALTH,
+      passengers: 4,
+      timer: 0.45,
+      phase: 'driving',
+    });
+    battle.jeepSpawned++;
+    battle.jeepTimer = 7;
+  }
+  for (const jeep of battle.jeeps) {
+    if (jeep.phase === 'leaving') {
+      const route = [{ x: jeep.side * 10, z: -145 }, ...jeepRoute(jeep.side)];
+      let travel = dt * 10;
+      while (travel > 0 && jeep.phase === 'leaving') {
+        const point = route[jeep.waypoint];
+        const dx = point.x - jeep.x,
+          dz = point.z - jeep.z,
+          distance = Math.hypot(dx, dz);
+        if (distance > travel) {
+          jeep.x += (dx / distance) * travel;
+          jeep.z += (dz / distance) * travel;
+          break;
+        }
+        jeep.x = point.x;
+        jeep.z = point.z;
+        travel -= distance;
+        jeep.waypoint--;
+        if (jeep.waypoint < 0) jeep.phase = 'gone';
+      }
+      continue;
+    }
+    if (jeep.phase === 'unloading') {
+      jeep.timer -= dt;
+      while (jeep.timer <= 0 && jeep.passengers > 0) {
+        reinforce(battle, jeep);
+        jeep.timer += 0.45;
+      }
+      if (!jeep.passengers) {
+        jeep.phase = 'leaving';
+        jeep.waypoint = jeepRoute(jeep.side).length - 1;
+      }
+      continue;
+    }
+    if (jeep.phase !== 'driving') continue;
+    let remaining = dt * 9;
+    const route = jeepRoute(jeep.side);
+    while (remaining > 0 && jeep.phase === 'driving') {
+      const point = route[jeep.waypoint];
+      const dx = point.x - jeep.x,
+        dz = point.z - jeep.z,
+        distance = Math.hypot(dx, dz);
+      if (distance > remaining) {
+        jeep.x += (dx / distance) * remaining;
+        jeep.z += (dz / distance) * remaining;
+        break;
+      }
+      jeep.x = point.x;
+      jeep.z = point.z;
+      remaining -= distance;
+      jeep.waypoint++;
+      if (jeep.waypoint === route.length) jeep.phase = 'unloading';
+    }
+  }
+}
+
+function damageBunker(
+  battle: PillboxBattle,
+  amount: number,
+  events: PillboxEvent[],
+) {
+  battle.health = Math.max(0, battle.health - amount);
+  if (battle.health === 0) {
+    battle.status = 'lost';
+    battle.message = 'The pillbox has fallen.';
+    events.push({ type: 'lost' });
+  }
+}
+
+function updateGrenades(
+  battle: PillboxBattle,
+  dt: number,
+  events: PillboxEvent[],
+) {
+  for (const grenade of battle.grenades) {
+    grenade.age += dt;
+    if (grenade.age >= GRENADE_FLIGHT) {
+      events.push({ type: 'grenade-impact', x: 0, z: 2 });
+      battle.message = 'Grenade hit! Stop throwers before they release.';
+      damageBunker(battle, 12, events);
+      if (battle.status === 'lost') break;
+    }
+  }
+  battle.grenades = battle.grenades.filter((g) => g.age < GRENADE_FLIGHT);
 }
 
 function moveSoldier(
@@ -88,6 +238,26 @@ function moveSoldier(
   events: PillboxEvent[],
   battle: PillboxBattle,
 ): void {
+  if (
+    soldier.phase === 'advance' &&
+    soldier.z > -42 &&
+    soldier.z < -13 &&
+    soldier.grenadeState !== 'spent'
+  ) {
+    soldier.grenadeState = 'windup';
+    soldier.grenadeTimer += dt;
+    if (soldier.grenadeTimer >= 1.4) {
+      soldier.grenadeState = 'spent';
+      battle.grenades.push({
+        id: soldier.id,
+        x: soldier.x,
+        z: soldier.z,
+        age: 0,
+      });
+      battle.message = 'Grenade incoming!';
+    }
+    return;
+  }
   let remaining = dt;
   while (remaining > 1e-9 && soldier.phase !== 'breached') {
     if (soldier.phase === 'cover') {
@@ -140,6 +310,34 @@ function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
   battle.shots += 1;
   battle.heat = Math.min(OVERHEAT_AT, battle.heat + HEAT_PER_SHOT);
 
+  const vehicle = battle.jeeps.find(
+    (j) =>
+      (j.phase === 'driving' || j.phase === 'unloading') &&
+      Math.hypot(j.x - battle.aimX, j.z - battle.aimZ) <= 3,
+  );
+  if (vehicle) {
+    vehicle.health--;
+    battle.hits++;
+    events.push({
+      type: 'shot',
+      x: vehicle.x,
+      z: vehicle.z,
+      hit: true,
+      vehicle: true,
+    });
+    battle.message = `Jeep hit — ${vehicle.health} armor remaining.`;
+    if (vehicle.health <= 0) {
+      vehicle.phase = 'wreck';
+      vehicle.passengers = 0;
+      battle.vehiclesStopped++;
+      battle.score += 400;
+      battle.message = 'Jeep stopped. Reinforcements denied.';
+      events.push({ type: 'jeep-destroyed', x: vehicle.x, z: vehicle.z });
+    }
+    checkHeat(battle, events);
+    return;
+  }
+
   let target: Infantry | undefined;
   let nearest = Number.POSITIVE_INFINITY;
   for (const soldier of battle.soldiers) {
@@ -183,6 +381,9 @@ function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
     hit,
   });
 
+  checkHeat(battle, events);
+}
+function checkHeat(battle: PillboxBattle, events: PillboxEvent[]) {
   if (battle.heat >= OVERHEAT_AT) {
     battle.overheated = true;
     battle.message = 'Gun overheated. Cease fire.';
@@ -199,7 +400,16 @@ function updateWave(
   const active = battle.soldiers.some(
     (soldier) => soldier.phase === 'advance' || soldier.phase === 'cover',
   );
-  if (battle.spawned < waveCount || active) return;
+  if (
+    battle.spawned < waveCount ||
+    active ||
+    battle.jeepSpawned < battle.wave ||
+    battle.jeeps.some(
+      (j) => j.phase === 'driving' || j.phase === 'unloading',
+    ) ||
+    battle.grenades.length
+  )
+    return;
 
   if (battle.wave === WAVE_COUNTS.length) {
     battle.status = 'won';
@@ -217,6 +427,8 @@ function updateWave(
     battle.wave += 1;
     battle.spawned = 0;
     battle.spawnTimer = 0;
+    battle.jeepSpawned = 0;
+    battle.jeepTimer = 5;
     battle.message = `Wave ${battle.wave} incoming.`;
     events.push({ type: 'wave', wave: battle.wave });
   }
@@ -240,6 +452,9 @@ export function stepPillbox(
       battle.spawnTimer += battle.spawned % 6 === 0 ? 2.4 : SPAWN_INTERVAL;
     }
   }
+
+  if (battle.intermission <= 0) updateJeeps(battle, dt);
+  updateGrenades(battle, dt, events);
 
   for (const soldier of battle.soldiers) {
     if (battle.status !== 'playing') break;
