@@ -1,3 +1,4 @@
+import { beachHeight } from './terrain';
 import * as THREE from 'three';
 import { GRENADE_FLIGHT, type PillboxBattle } from './types';
 
@@ -144,9 +145,10 @@ export class VehicleRenderer {
       }
       v.root.position.set(
         jeep.x,
-        jeep.phase === 'wreck'
-          ? -0.2
-          : Math.sin(battle.time * 18 + jeep.id) * 0.025,
+        beachHeight(jeep.x, jeep.z) +
+          (jeep.phase === 'wreck'
+            ? -0.2
+            : Math.sin(battle.time * 18 + jeep.id) * 0.025),
         jeep.z,
       );
       v.root.rotation.z = jeep.phase === 'wreck' ? 0.18 : 0;

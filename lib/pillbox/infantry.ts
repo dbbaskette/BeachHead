@@ -1,3 +1,4 @@
+import { beachHeight } from './terrain';
 import { assetUrl } from '../asset-url';
 import { deathPose } from './death-pose';
 import * as THREE from 'three';
@@ -236,7 +237,11 @@ export class InfantryRenderer {
       if (o.name.endsWith('Spine1')) chest = o;
       if (o.name.endsWith('RightArm')) throwingArm = o;
     });
-    root.position.set(soldier.x, 0.02, soldier.z);
+    root.position.set(
+      soldier.x,
+      beachHeight(soldier.x, soldier.z) + 0.02,
+      soldier.z,
+    );
     this.scene.add(root);
 
     const mixer = new THREE.AnimationMixer(model);
@@ -357,6 +362,8 @@ export class InfantryRenderer {
         positionBlend,
       );
 
+      instance.root.position.y =
+        beachHeight(instance.root.position.x, instance.root.position.z) + 0.02;
       const pose: Pose =
         soldier.phase === 'down'
           ? 'down'

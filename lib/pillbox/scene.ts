@@ -1,3 +1,10 @@
+import {
+  beachHeight,
+  createBeachGeometry,
+  naturalSand,
+  CoastalWater,
+} from './terrain';
+import { WreckSmoke } from './smolder';
 import { VehicleRenderer } from './vehicles';
 import { BEACH_OBSTACLES } from './navigation';
 import * as THREE from 'three';
@@ -57,13 +64,15 @@ function canvasTexture(draw: (ctx: CanvasRenderingContext2D) => void) {
 export class PillboxScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(55, 1, 0.25, 700);
+  private camera = new THREE.PerspectiveCamera(55, 1, 0.25, 2800);
   private raycaster = new THREE.Raycaster();
   private aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1);
   private width = 1;
   private height = 1;
   private observer: ResizeObserver;
   private infantry: InfantryRenderer;
+  private coast = new CoastalWater(this.scene);
+  private wreckSmoke = new WreckSmoke(this.scene);
   private vehicles = new VehicleRenderer(this.scene);
   private detail: BeachDetail;
   private surfaceMaps: PillboxSurfaceMaps | null = null;
@@ -97,8 +106,8 @@ export class PillboxScene {
     host.appendChild(this.renderer.domElement);
 
     this.scene.background = new THREE.Color('#abc0c1');
-    this.scene.fog = new THREE.Fog('#b2bab6', 125, 320);
-    this.camera.position.set(0, 7.1, 8.2);
+    this.scene.fog = new THREE.Fog('#a7b7b5', 180, 1100);
+    this.camera.position.set(0, 9.2, 8.2);
     this.camera.lookAt(0, 0, -48);
 
     const random = seeded(1944);
@@ -153,6 +162,7 @@ export class PillboxScene {
     };
     // Keep the map's authored hue: tinting it tan again produced a burnt orange beach.
     const sand = material({ color: '#eee9da', map: sandMap, roughness: 1 });
+    naturalSand(sand);
     const concrete = material({
       color: '#8b8a78',
       map: concreteMap,
@@ -208,46 +218,11 @@ export class PillboxScene {
       metalness: 0.78,
     });
     const wood = material({ color: '#593c27', roughness: 0.78 });
-    const water = material({
-      color: '#456d73',
-      roughness: 0.28,
-      metalness: 0.08,
-    });
-
     const geo = <T extends THREE.BufferGeometry>(g: T) => {
       this.geometries.push(g);
       return g;
     };
-    this.scene.add(
-      mesh(
-        geo(new THREE.PlaneGeometry(240, 170)),
-        sand,
-        [0, 0, -67],
-        [-Math.PI / 2, 0, 0],
-      ),
-    );
-    this.scene.add(
-      mesh(
-        geo(new THREE.PlaneGeometry(260, 100)),
-        water,
-        [0, 0.12, -184],
-        [-Math.PI / 2, 0, 0],
-      ),
-    );
-    for (let i = 0; i < 7; i++) {
-      const foam = mesh(
-        geo(new THREE.PlaneGeometry(230, 0.22 + random() * 0.25)),
-        material({
-          color: '#d6d8c5',
-          transparent: true,
-          opacity: 0.42,
-          roughness: 1,
-        }),
-        [0, 0.17, -139 - i * 4],
-        [-Math.PI / 2, 0, 0],
-      );
-      this.scene.add(foam);
-    }
+    this.scene.add(mesh(geo(createBeachGeometry()), sand, [0, 0, 0]));
 
     // Heavy embrasure: the darkness and close framing make the player visibly occupy a bunker.
     this.scene.add(
@@ -294,12 +269,12 @@ export class PillboxScene {
         }
         this.surfaceMaps = maps;
         for (const texture of Object.values(maps.sand))
-          texture.repeat.set(60, 42.5);
+          texture.repeat.set(40, 31.67);
         for (const texture of Object.values(maps.concrete))
           texture.repeat.set(1, 1);
         Object.assign(sand, maps.sand);
         sand.color.set('#ffffff');
-        sand.normalScale.set(0.8, 0.8);
+        sand.normalScale.set(0.4, 0.4);
         sand.needsUpdate = true;
         for (const mat of [concrete, concreteDark]) {
           Object.assign(mat, maps.concrete);
@@ -944,7 +919,11 @@ export class PillboxScene {
       }),
     );
     stain.rotation.x = -Math.PI / 2;
-    stain.position.set(x, 0.025 + Math.random() * 0.005, z - 0.5);
+    stain.position.set(
+      x,
+      beachHeight(x, z - 0.5) + 0.025 + Math.random() * 0.005,
+      z - 0.5,
+    );
     this.scene.add(stain);
     this.effects.push({
       mesh: stain,
@@ -1003,6 +982,8 @@ export class PillboxScene {
     this.lastBattleTime = battle.time;
     const activeDt = battle.status === 'paused' ? 0 : Math.min(dt, 0.1);
     this.visualTime += activeDt;
+    this.coast.update(this.visualTime);
+    this.wreckSmoke.update(battle);
     this.recoil = Math.max(0, this.recoil - activeDt * 11);
     this.muzzleLight.intensity = Math.max(
       0,
@@ -1017,7 +998,7 @@ export class PillboxScene {
     this.barrel.position.z = this.recoil * 0.38;
     this.camera.position.set(
       0,
-      7.1 + (reducedMotion ? 0 : Math.sin(this.visualTime * 1.3) * 0.025),
+      9.2 + (reducedMotion ? 0 : Math.sin(this.visualTime * 1.3) * 0.025),
       8.2,
     );
     this.camera.lookAt(0, reducedMotion ? 0 : this.recoil * 0.04, -48);
@@ -1040,8 +1021,9 @@ export class PillboxScene {
         e.mesh.rotation.y += e.spin.y * activeDt;
         e.mesh.rotation.z += e.spin.z * activeDt;
       }
-      if (e.ground && e.mesh.position.y < 0.12) {
-        e.mesh.position.y = 0.12;
+      const ground = beachHeight(e.mesh.position.x, e.mesh.position.z) + 0.12;
+      if (e.ground && e.mesh.position.y < ground) {
+        e.mesh.position.y = ground;
         if (e.velocity.y < -1) {
           e.velocity.y *= -0.28;
           e.velocity.x *= 0.5;
@@ -1064,6 +1046,8 @@ export class PillboxScene {
     this.observer.disconnect();
     this.infantry.dispose();
     this.vehicles.dispose();
+    this.coast.dispose();
+    this.wreckSmoke.dispose();
     this.detail.dispose();
     this.surfaceMaps?.dispose();
     this.environment?.dispose();

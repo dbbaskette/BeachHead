@@ -1,3 +1,4 @@
+import { beachHeight } from './terrain';
 import { assetUrl } from '../asset-url';
 import * as THREE from 'three';
 
@@ -104,7 +105,6 @@ export class BeachDetail {
       return value;
     };
     const sandDark = material({ color: '#574936', roughness: 1 });
-    const sandRim = material({ color: '#8f7b55', roughness: 1 });
     const stone = material({ color: '#625f51', roughness: 0.97 });
     const concrete = material({ color: '#77766a', roughness: 1 });
     const concreteFace = material({ color: '#969184', roughness: 0.96 });
@@ -120,44 +120,6 @@ export class BeachDetail {
       side: THREE.DoubleSide,
     });
 
-    // Shell holes are broad and shallow so they read strongly without blocking fire.
-    const craterPositions: Array<[number, number, number]> = [
-      [-55, -32, 4.8],
-      [-27, -40, 3.4],
-      [10, -31, 3.1],
-      [28, -39, 4.6],
-      [53, -52, 3.7],
-      [-47, -63, 3.2],
-      [-9, -65, 4.1],
-      [48, -76, 4.9],
-      [-57, -92, 3.8],
-      [-28, -101, 4.3],
-      [10, -95, 3.6],
-      [29, -111, 3.5],
-      [55, -119, 4.6],
-      [-9, -128, 3.2],
-    ];
-    this.addInstances(
-      geometry(new THREE.CircleGeometry(1, 24)),
-      sandDark,
-      craterPositions,
-      ([x, z, radius], object) => {
-        object.position.set(x, 0.018, z);
-        object.rotation.x = -Math.PI / 2;
-        object.scale.set(radius * 0.78, radius * 0.56, 1);
-      },
-    );
-    this.addInstances(
-      geometry(new THREE.TorusGeometry(1, 0.18, 5, 24)),
-      sandRim,
-      craterPositions,
-      ([x, z, radius], object, index) => {
-        object.position.set(x, 0.12, z);
-        object.rotation.set(Math.PI / 2, 0, (index * 1.71) % Math.PI);
-        object.scale.set(radius, radius * (0.72 + random() * 0.12), 0.55);
-      },
-    );
-
     const rockData = Array.from({ length: 62 }, () => {
       let x = 0;
       do x = -65 + random() * 130;
@@ -169,7 +131,7 @@ export class BeachDetail {
       ];
     });
     this.addInstances(
-      geometry(new THREE.DodecahedronGeometry(1, 0)),
+      geometry(new THREE.DodecahedronGeometry(1, 1)),
       stone,
       rockData,
       ([x, z, size], object) => {
@@ -327,6 +289,7 @@ export class BeachDetail {
       object.rotation.set(0, 0, 0);
       object.scale.set(1, 1, 1);
       place(datum, object, index);
+      object.position.y += beachHeight(object.position.x, object.position.z);
       object.updateMatrix();
       mesh.setMatrixAt(index, object.matrix);
     });
