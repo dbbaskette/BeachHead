@@ -1343,18 +1343,18 @@ kbd {
 .touch-layout .brand,.touch-layout .pillbox-brand { gap:6px; }
 .touch-layout .brand>span:first-of-type,.touch-layout .pillbox-brand strong { font-size:20px; }
 .touch-layout .instruments,.touch-layout .pillbox-instruments,.touch-layout .controls-strip,.touch-layout .pillbox-controls { display:none; }
-.touch-controls { position:absolute; z-index:6; bottom:var(--station-bottom); left:max(10px,env(safe-area-inset-left,0px)); right:max(10px,env(safe-area-inset-right,0px)); display:grid; grid-template-columns:104px minmax(0,1fr) 104px; align-items:center; gap:12px; padding:12px 4px; background:linear-gradient(transparent,#10252aed 24%); touch-action:none; }
-.touch-controls button { -webkit-touch-callout:none; touch-action:none; user-select:none; color:#f1d5a5; }
-.touch-aim { position:relative; display:grid; place-items:center; width:104px; height:104px; border:1px solid #b7cac87a; border-radius:50%; background:radial-gradient(circle,#25474ecc,#102b38ed); overflow:visible; }
+.touch-controls { position:absolute; z-index:6; bottom:var(--station-bottom); left:max(10px,env(safe-area-inset-left,0px)); right:max(10px,env(safe-area-inset-right,0px)); display:grid; grid-template-columns:104px minmax(0,1fr) 104px; align-items:end; gap:12px; padding:8px 4px; background:none; pointer-events:none; }
+.touch-controls button { pointer-events:auto; -webkit-touch-callout:none; touch-action:none; user-select:none; color:#f1d5a5; }
+.touch-aim { position:relative; display:grid; place-items:center; width:104px; height:104px; border:1px solid #b7cac87a; border-radius:50%; background:radial-gradient(circle,#25474e88,#102b3866); overflow:visible; }
 .touch-aim>svg { opacity:.4; }
 .touch-aim>i { position:absolute; width:34px; height:34px; border:1px solid #f0d09c; border-radius:50%; background:#efd09b40; pointer-events:none; }
 .touch-aim>span { position:absolute; bottom:9px; font-size:11px; color:#dae2d9; }
-.touch-fire { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; width:104px; height:104px; border:2px solid #e8bb78b3; border-radius:50%; background:#644a26b8; }
+.touch-fire { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; width:104px; height:104px; border:2px solid #e8bb78b3; border-radius:50%; background:#644a268c; }
 .touch-fire.pressed { background:#b07b34; border-color:#ffe0a9; }
 .touch-fire b { font-size:14px; font-weight:700; }
 .touch-fire small { font-size:10px; color:#e1d5bb; }
 .touch-fire.hot { background:#673729c9; border-color:#df8e70; }
-.touch-readouts { width:100%; max-width:220px; justify-self:center; display:flex; flex-direction:column; gap:7px; color:#b9cdcb; font-size:11px; }
+.touch-readouts { width:100%; max-width:220px; justify-self:center; display:flex; flex-direction:column; gap:5px; color:#dae3df; font-size:11px; padding:5px 8px; border-radius:4px; background:#10252a88; text-shadow:0 1px 2px #05181d; }
 .touch-readouts>span { display:flex; flex-wrap:wrap; justify-content:space-between; gap:3px; }
 .touch-readouts b { color:#f0eadb; font-size:13px; font-variant-numeric:tabular-nums; }
 .touch-readouts small { font-size:10px; }
@@ -1362,8 +1362,8 @@ kbd {
 .touch-readouts meter::-webkit-meter-bar { background:#64715b55; border:0; border-radius:0; }
 .touch-readouts meter::-webkit-meter-optimum-value { background:#a2c9bd; }
 .touch-readouts .touch-heat::-webkit-meter-optimum-value { background:#e9b96b; }
-.touch-layout .pillbox-tactics { bottom:calc(138px + var(--station-bottom)); left:max(14px,env(safe-area-inset-left,0px)); right:max(14px,env(safe-area-inset-right,0px)); justify-content:space-between; gap:12px; }
-.touch-layout .pillbox-tactics button { min-height:44px; padding:9px 12px; font-size:12px; }
+.touch-layout .pillbox-tactics { pointer-events:none; bottom:calc(138px + var(--station-bottom)); left:max(14px,env(safe-area-inset-left,0px)); right:max(14px,env(safe-area-inset-right,0px)); justify-content:space-between; gap:12px; }
+.touch-layout .pillbox-tactics button { pointer-events:auto; min-height:44px; padding:9px 12px; font-size:12px; }
 .touch-layout .pillbox-tactics kbd { display:none; }
 .touch-layout .overlay { inset:var(--station-top) 0 0; padding:16px 16px calc(16px + var(--station-bottom)); overflow-y:auto; align-items:safe center; }
 .touch-layout .result-panel { padding:18px 0; max-width:100%; flex-shrink:0; }
@@ -1407,11 +1407,15 @@ kbd {
   .touch-layout .mission-tile-action { padding-top:5px; }
   .touch-layout .mission-tile>span:not(.mission-stage):not(.mission-tile-action):not(.mission-tile-copy) { display:none; }
   .touch-layout .campaign-tile strong { font-size:25px; }
-  .touch-controls { grid-template-columns:88px minmax(0,1fr) 88px; padding:6px 4px; }
-  .touch-aim,.touch-fire { width:88px; height:88px; }
+  .touch-layout { --station-top:calc(44px + env(safe-area-inset-top,0px)); }
+  .touch-controls { grid-template-columns:76px minmax(0,1fr) 76px; padding:6px 4px; }
+  .touch-layout .touch-readouts { max-width:220px; }
+  .touch-aim,.touch-fire { width:76px; height:76px; }
   .touch-fire>svg { width:20px; height:20px; }
   .touch-aim>span { bottom:4px; }
-  .touch-layout .pillbox-tactics { bottom:calc(104px + var(--station-bottom)); }
+  .touch-layout .pillbox-tactics { bottom:calc(8px + var(--station-bottom)); left:calc(104px + env(safe-area-inset-left,0px)); right:calc(104px + env(safe-area-inset-right,0px)); }
+  .touch-fire b { font-size:12px; }
+  .touch-fire small { font-size:9px; }
   .touch-layout .pillbox-tactics button { min-height:44px; }
   .touch-layout .pillbox-result h2 { font-size:26px; margin:12px 0; }
   .touch-layout .pillbox-result .pillbox-primary { margin-top:14px; }
@@ -1436,7 +1440,16 @@ kbd {
   .touch-layout .pillbox-credit { grid-column:1 / -1; margin-top:0; }
 }
 .touch-layout .top-actions:has(.view-results-control) .motion-control { display:none!important; }
-.touch-target { position:absolute; z-index:6; bottom:calc(138px + var(--station-bottom)); left:max(14px,env(safe-area-inset-left,0px)); right:max(14px,env(safe-area-inset-right,0px)); min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border:1px solid #a5bec05c; background:#142b35ed; color:#c5d3d6; font-size:11px; touch-action:manipulation; }
-.touch-target b { color:#f0d09c; font-size:12px; margin-left:5px; }
-.touch-target small { margin-left:auto; font-size:11px; white-space:nowrap; }
-@media(max-height:500px) { .touch-target { bottom:calc(104px + var(--station-bottom)); max-width:340px; margin:auto; } }
+.touch-nav-status { display:flex; flex-direction:column; gap:3px; }
+.touch-nav-status>span { display:flex; justify-content:space-between; flex-wrap:wrap; gap:3px; }
+.touch-readouts .touch-target { position:static; width:100%; min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:6px; padding:3px 6px; border:1px solid #a5bec04a; background:#142b3580; color:#c5d3d6; font-size:11px; touch-action:manipulation; }
+.touch-target>span { display:flex; flex-wrap:wrap; gap:3px 10px; align-items:center; }
+.touch-target b { color:#f0d09c; font-size:12px; }
+.touch-target small { font-size:10px; white-space:nowrap; }
+@media(max-height:500px) {
+  .touch-nav-status { flex-direction:row; justify-content:space-between; gap:12px; }
+  .touch-nav-status>span { font-size:10px; flex-direction:column; }
+  .touch-readouts .touch-target { min-height:44px; }
+  .touch-nav-status b { font-size:12px; }
+  .pillbox-game.touch-layout .touch-readouts { max-width:190px; }
+}

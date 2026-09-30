@@ -74,3 +74,50 @@ void test('keyboard, wheel, menu and pause handoffs discard queued mouse aim and
   );
   assert.deepEqual(pointer.screen({ left: 20, top: 10 }), { x: 410, y: 220 });
 });
+
+void test('touch swipes travel in screen pixels and cannot stick to assisted targets', () => {
+  const pointer = new PointerAim();
+  const sameRamp = () => ({ x: 0, z: -134 });
+  pointer.moveRelative(12, -6, { x: 200, y: 170 });
+  assert.deepEqual(pointer.resolve(sameRamp), { x: 0, z: -134 });
+  assert.deepEqual(pointer.screen({ left: 0, top: 0 }), { x: 212, y: 164 });
+  pointer.moveRelative(12, -6, { x: 200, y: 170 });
+  pointer.resolve(sameRamp);
+  assert.deepEqual(pointer.screen({ left: 0, top: 0 }), { x: 224, y: 158 });
+  // A stationary finger never queues continued motion or another target query.
+  assert.equal(
+    pointer.resolve(() => {
+      throw new Error('Aim drifted while held');
+    }),
+    null,
+  );
+});
+
+void test('touch events coalesce into one pick without losing fine drag distance', () => {
+  const pointer = new PointerAim();
+  for (let i = 0; i < 30; i++)
+    pointer.moveRelative(0.5, -0.25, { x: 100, y: 200 });
+  let picks = 0;
+  pointer.resolve((x, y) => {
+    picks++;
+    return { x, z: -y };
+  });
+  assert.equal(picks, 1);
+  assert.deepEqual(pointer.screen({ left: 0, top: 0 }), { x: 115, y: 192.5 });
+});
+
+void test('touch aim stops at the reachable edge and reverses without dead travel', () => {
+  const pointer = new PointerAim();
+  const pick = (x: number, y: number) =>
+    x <= 100 && x >= 0 && y >= 50 ? { x, z: -y } : null;
+  pointer.moveRelative(60, 0, { x: 80, y: 100 });
+  const edge = pointer.resolve(pick)!;
+  assert.ok(edge.x <= 100 && edge.x > 99.5);
+  pointer.moveRelative(-3, 0, { x: 0, y: 0 });
+  const reversed = pointer.resolve(pick)!;
+  assert.ok(Math.abs(reversed.x - (edge.x - 3)) < 1e-8);
+  pointer.clear();
+  assert.equal(pointer.screen({ left: 0, top: 0 }), null);
+  pointer.moveRelative(1, 1, { x: 10, y: 60 });
+  assert.deepEqual(pointer.resolve(pick), { x: 11, z: -61 });
+});

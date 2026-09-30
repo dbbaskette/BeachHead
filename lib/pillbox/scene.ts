@@ -24,7 +24,12 @@ import {
   createSurfaceMaps,
   type PillboxSurfaceMaps,
 } from './detail';
-import { COVER_ROWS, type PillboxBattle, type PillboxEvent } from './types';
+import {
+  AIM_BOUNDS,
+  COVER_ROWS,
+  type PillboxBattle,
+  type PillboxEvent,
+} from './types';
 
 export type PillboxScreenPoint = { x: number; y: number; visible: boolean };
 
@@ -752,6 +757,17 @@ export class PillboxScene {
       visible:
         p.z > -1 && p.z < 1 && Math.abs(p.x) < 0.98 && Math.abs(p.y) < 0.98,
     };
+  }
+
+  aimTouch(clientX: number, clientY: number) {
+    const point = this.aim(clientX, clientY);
+    return point &&
+      point.x >= AIM_BOUNDS.minX &&
+      point.x <= AIM_BOUNDS.maxX &&
+      point.z >= AIM_BOUNDS.minZ &&
+      point.z <= AIM_BOUNDS.maxZ
+      ? point
+      : null;
   }
 
   event(event: PillboxEvent) {
