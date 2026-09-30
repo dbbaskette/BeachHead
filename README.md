@@ -15,7 +15,7 @@ Open the local URL printed by the server. WebGL 2 and hardware acceleration are 
 
 ## Play
 
-Select **Take command**. Sink all three warships before they destroy your ship. Adjust bearing and range, fire, then correct using the impact report. The center ship starts near the initial gun setting. You have unlimited shells, with a 2.2-second reload. Enemy ships take two or three hits.
+Select **Play campaign** to play both stages in order, or use either of the equally sized **Stage 1** and **Stage 2** tiles to jump directly to that mission. A standalone Stage 1 victory returns to mission selection. Sink all three warships before they destroy your ship. Adjust bearing and range, fire, then correct using the impact report. The center ship starts near the initial gun setting. You have unlimited shells, with a 2.2-second reload. Enemy ships take two or three hits.
 
 - Move the mouse over the sea to adjust bearing and range. Hold the left button for repeated volleys; use the mouse wheel for fine range adjustment. Touch controls retain drag-to-aim and tap-to-fire.
 - A/D or left/right arrows: bearing.
@@ -27,7 +27,7 @@ Select **Take command**. Sink all three warships before they destroy your ship. 
 - Visible controls also support bearing, range, firing, target selection, mute, reduced camera motion, and fullscreen.
 - W/A/S/D continue to work after button actions. Click the sea to return full keyboard gunnery; focused sliders and Space/Tab on buttons retain standard control behavior. Shift+Tab leaves the game surface.
 
-After naval victory, select **Stage 2 — Hold the beach**. The opening briefing also offers **Stage 2 practice** for direct access.
+After naval victory, select **Stage 2 — Hold the beach**. The main menu also offers **Play Stage 2 — Hold the beach** for direct access.
 
 In Stage 2, move the pointer to aim and hold the left mouse button or Space to fire. The mouse wheel adjusts range. Touch players can drag while firing or use the traverse/range sliders and hold-fire control. W/A/S/D and arrows also aim. Infantry use ridges, alternate covering fire and movement, and occupy foxholes for 9–15 seconds before rushing. Shoot them while exposed or use a rifle grenade to clear cover. Fire controlled bursts: overheating locks the gun until it cools. Five breaches lose the position. Hold through three waves to complete the campaign; retry resumes from the Stage 2 briefing flow without requiring another naval victory. Escape and the pause button pause/resume; leaving the window pauses automatically.
 
@@ -84,3 +84,5 @@ The naval battle now uses one visible aiming cursor. Click the sea to capture th
 Naval keyboard controls: W/S changes range, A/D changes bearing, and Space fires. Vertical mouse aiming now compensates for perspective at longer ranges, retains usable sensitivity in precision/optic modes, and updates the aim reticle every rendered frame. The wheel also makes larger range adjustments, with Shift retaining fine steps.
 
 Stage 2 adds 1/2/3 reinforcement jeeps per wave (18 hits each, four passengers), smoke screens throughout the assault, soldiers crawling into barricades and dug-in foxholes, and close-range grenade throwers. Stop jeeps before they unload, watch smoke edges, and prioritize soldiers marked GRENADE before they release. Bullets pass through smoke. Press **G** for a rifle grenade (three per wave, 115 m range) and **V** for earned air support. Watch for MG and mortar teams setting up, silence landing-craft gunners, and shoot ramps to delay unloading. Between waves, choose bunker repair, an improved barrel or extra grenades. The standard barrel overheats after 35 continuous rounds and takes 2.5 seconds to unlock. See `docs/stage-2-threats.md` for the rules and tuning.
+
+Stage 2 mouse aiming keeps the visible reticle under the pointer even while target assistance selects a small gunner or ramp. Mouse movement is sampled once per rendered frame, and the reticle updates independently of the slower status displays. Keyboard, wheel, sliders, pause and retry clear pending mouse input when they take control.
