@@ -1,4 +1,5 @@
 import { MIN_RANGE, MAX_RANGE, playerGunSolution } from './gunnery';
+import { shipImpactSite } from './ship-impact';
 export { MIN_RANGE, MAX_RANGE, rangeToElevation } from './gunnery';
 
 export type BattleStatus = 'ready' | 'playing' | 'paused' | 'won' | 'lost';
@@ -12,6 +13,7 @@ export interface EnemyShip {
   heading: number;
   health: number;
   maxHealth: number;
+  damageSites: ShellPoint[];
   length: number;
   width: number;
   /** Seconds until this ship launches its next shell. */
@@ -54,7 +56,7 @@ export interface Battle {
 
 export type BattleEvent =
   | { type: 'fired'; shellId: string; enemy: false }
-  | { type: 'hit'; shipId: string; damage: number }
+  | { type: 'hit'; shipId: string; damage: number; localPoint: ShellPoint }
   | {
       type: 'miss';
       shipId?: string;
@@ -65,7 +67,7 @@ export type BattleEvent =
     }
   | { type: 'enemy-fired'; shellId: string; shipId: string }
   | { type: 'damaged'; damage: number }
-  | { type: 'sunk'; shipId: string }
+  | { type: 'sunk'; shipId: string; localPoint: ShellPoint }
   | { type: 'won' }
   | { type: 'lost' }
   | { type: 'message'; message: string };
@@ -183,6 +185,7 @@ function createEnemyShip(definition: ShipDefinition): EnemyShip {
     heading: degreesToRadians(definition.heading),
     health: definition.health,
     maxHealth: definition.health,
+    damageSites: [],
     length: definition.length,
     width: definition.width,
     nextFire: definition.nextFire,
@@ -374,12 +377,19 @@ function resolvePlayerImpact(
   hitShip.health = Math.max(0, hitShip.health - PLAYER_SHELL_DAMAGE);
   state.hits += 1;
   state.score += 100;
-  events.push({ type: 'hit', shipId: hitShip.id, damage: PLAYER_SHELL_DAMAGE });
+  const localPoint = shipImpactSite(hitShip, shell.targetX, shell.targetZ);
+  hitShip.damageSites.push(localPoint);
+  events.push({
+    type: 'hit',
+    shipId: hitShip.id,
+    damage: PLAYER_SHELL_DAMAGE,
+    localPoint,
+  });
 
   if (wasAlive && hitShip.health === 0) {
     state.score += 250;
     state.message = `${hitShip.name} sunk.`;
-    events.push({ type: 'sunk', shipId: hitShip.id });
+    events.push({ type: 'sunk', shipId: hitShip.id, localPoint });
   } else {
     state.message = `Hit on ${hitShip.name}.`;
   }

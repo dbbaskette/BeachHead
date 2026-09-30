@@ -5,6 +5,7 @@ import { makeShip, makePlayerDeck, makeIsland, aimPlayerDeck } from './models';
 import { createNavalMaterials } from './materials';
 import { makeOcean, makeSky } from './ocean';
 import { NavalEffects } from './effects';
+import { ShipDamageVisuals } from './ship-damage';
 import { shellPosition, type Battle, type BattleEvent } from './simulation';
 
 export type ScreenPoint = { x: number; y: number; visible: boolean };
@@ -18,6 +19,7 @@ export class NavalScene {
   private ocean = makeOcean();
   private player = makePlayerDeck(this.materials);
   private effects = new NavalEffects(this.scene);
+  private shipDamage = new ShipDamageVisuals(this.scene, this.effects);
   private ships = new Map<string, THREE.Group>();
   private shells = new Map<string, THREE.Group>();
   private shellGeo = new THREE.CapsuleGeometry(0.36, 4, 3, 8);
@@ -140,13 +142,19 @@ export class NavalScene {
       this.muzzleLight.intensity = 90;
     }
     if (event.type === 'hit' || event.type === 'sunk') {
-      // A sink emits both hit and sunk; render one substantial blast.
       const ship = battle.ships.find((s) => s.id === event.shipId);
-      if (ship && (event.type === 'sunk' || ship.health > 0))
+      const mesh = this.ships.get(event.shipId);
+      if (ship && mesh && (event.type === 'sunk' || ship.health > 0)) {
+        mesh.position.x = ship.x;
+        mesh.position.z = ship.z;
+        mesh.rotation.y = -ship.heading;
+        mesh.updateWorldMatrix(true, false);
+        const p = event.localPoint;
         this.effects.explosion(
-          new THREE.Vector3(ship.x, 10, ship.z),
+          mesh.localToWorld(new THREE.Vector3(p.x, p.y, p.z)),
           event.type === 'sunk',
         );
+      }
     }
     if (event.type === 'enemy-fired') {
       const ship = battle.ships.find((s) => s.id === event.shipId);
@@ -167,12 +175,13 @@ export class NavalScene {
     // Ships have stable identities: reset their transforms instead of rebuilding shared resources.
     for (const mesh of this.ships.values()) {
       mesh.position.y = 0;
-      mesh.rotation.z = 0;
+      mesh.rotation.x = mesh.rotation.z = 0;
       mesh.visible = true;
     }
     for (const mesh of this.shells.values()) this.scene.remove(mesh);
     this.shells.clear();
     this.effects.reset();
+    this.shipDamage.reset();
     this.recoil = 0;
     this.damage = 0;
     this.muzzleLight.intensity = 0;
@@ -221,31 +230,24 @@ export class NavalScene {
       mesh.position.x = ship.x;
       mesh.position.z = ship.z;
       mesh.rotation.y = -ship.heading;
-      if (ship.health <= 0) {
-        mesh.position.y = Math.max(-43, mesh.position.y - activeDt * 2.6);
-        mesh.rotation.z = Math.min(0.65, mesh.rotation.z + activeDt * 0.035);
-        mesh.visible = mesh.position.y > -42;
-      } else {
+      if (ship.health > 0) {
         mesh.position.y = Math.sin(t * 0.7 + i) * 0.24;
+        mesh.rotation.x = 0;
         mesh.rotation.z = Math.sin(t * 0.5 + i) * 0.006;
       }
+      this.shipDamage.updateShip(ship, mesh, activeDt);
       if (
         activeDt > 0 &&
-        mesh.visible &&
+        ship.health > 0 &&
         Math.floor(t * 2) !== Math.floor((t - activeDt) * 2)
       ) {
-        const damaged = ship.health < ship.maxHealth;
-        mesh.updateWorldMatrix(true, false);
         const exhaust = mesh.localToWorld(
-          new THREE.Vector3(
-            0,
-            damaged ? 9 : 20,
-            damaged ? 0 : ship.length * 0.04,
-          ),
+          new THREE.Vector3(0, 20, ship.length * 0.04),
         );
-        this.effects.smoke(exhaust, damaged);
+        this.effects.smoke(exhaust);
       }
     }
+    this.shipDamage.update(activeDt);
     const live = new Set(battle.shells.map((s) => s.id));
     for (const [id, mesh] of this.shells)
       if (!live.has(id)) {
@@ -312,6 +314,7 @@ export class NavalScene {
       'webglcontextlost',
       this.onLost,
     );
+    this.shipDamage.dispose();
     this.effects.dispose();
     this.atmosphere.dispose();
     this.ocean.dispose();

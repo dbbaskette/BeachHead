@@ -138,6 +138,19 @@ export class NavalEffects {
       damaged ? 3 : 0.8,
     );
   }
+  burn(p: THREE.Vector3) {
+    this.smoke(p.clone(), true);
+    for (let i = 0; i < 2; i++)
+      this.add(
+        'flame',
+        p.clone().add(new THREE.Vector3((i - 0.5) * 1.8, 0.5, 0)),
+        new THREE.Vector3(0.6, 5 + i * 2, 0.4),
+        4.5,
+        0.6,
+        '#ff9d39',
+        4,
+      );
+  }
   explosion(p: THREE.Vector3, large = false) {
     this.add(
       'flash',

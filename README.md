@@ -1,92 +1,156 @@
-# Beach Head — Battle Stations
+<div align="center">
+  <a href="https://dbbaskette.github.io/BeachHead/">
+    <img src="docs/images/beach-head-banner.svg" width="100%" alt="Beach Head — Battle Stations. Two playable stages, with an air assault planned. Play in your browser." />
+  </a>
 
-A two-stage 3D browser-game prototype inspired by Beach-Head and Beach-Head II. Break a naval blockade, then defend a captured pillbox against an infantry counterattack. Stage 2 uses textured skeletal soldiers, scanned sand and concrete surfaces, battlefield rubble and tracks, detailed gun hardware, and recorded weapon effects.
+  <p><strong>A coastal battle, from the gun deck to the pillbox—and soon, the cockpit.</strong></p>
 
-## Run
+  <a href="https://github.com/dbbaskette/BeachHead/actions/workflows/pages.yml"><img src="https://github.com/dbbaskette/BeachHead/actions/workflows/pages.yml/badge.svg?branch=main" alt="Live build and GitHub Pages deployment status" /></a>
+  <a href="https://github.com/dbbaskette/BeachHead/issues?q=is%3Aissue+is%3Aopen+label%3Astage-3-task"><img src="https://img.shields.io/github/issues/dbbaskette/BeachHead/stage-3-task?label=Stage%203%20tasks%20open&amp;color=d0ad73&amp;style=flat-square" alt="Live count of open Stage 3 tasks" /></a>
+  <a href="https://github.com/dbbaskette/BeachHead/issues?q=is%3Aissue+is%3Aclosed+label%3Astage-3-task"><img src="https://img.shields.io/github/issues-closed/dbbaskette/BeachHead/stage-3-task?label=Stage%203%20tasks%20done&amp;color=619d8c&amp;style=flat-square" alt="Live count of completed Stage 3 tasks" /></a>
 
-Use Node 22.13 or newer and npm.
+  <p><a href="https://dbbaskette.github.io/BeachHead/"><strong>▶ PLAY NOW</strong></a> &nbsp; · &nbsp; <a href="https://github.com/dbbaskette/BeachHead/issues/3">Stage 3 roadmap</a> &nbsp; · &nbsp; <a href="#controls">Controls</a> &nbsp; · &nbsp; <a href="#run-locally">Run locally</a></p>
+</div>
+
+A 3D browser game inspired by **Beach-Head** and **Beach-Head II**. Break a naval blockade, then hold a captured pillbox against a landing force. Textured battlefields, physically consistent weapon origins, smoke, persistent wrecks and spatial weapon effects bring the classic idea into a modern browser.
+
+**Two stages are playable today. Stage 3 is planned.** Choose **Play campaign** for both current missions in order, or jump straight into either stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
+
+## The campaign
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-1-naval.png" width="100%" alt="Stage 1 gameplay through the gunnery optic: a warship, sea reflections and drifting wreckage without floating target labels." /></a>
+      <h3>01 / Break the blockade</h3>
+      <p><strong>PLAYABLE · NAVAL GUNNERY</strong></p>
+      <p>Set bearing and range, lead moving warships, and correct your next salvo from the splashes. Both shells leave the actual barrels along their bore direction. Use the magnified optic for distant targets.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-2-beach.png" width="100%" alt="Stage 2 gameplay: a clear view from the pillbox across foxholes, infantry, a jeep and landing craft, without enemy labels or hit counters." /></a>
+      <h3>02 / Hold the beach</h3>
+      <p><strong>PLAYABLE · PILLBOX DEFENSE</strong></p>
+      <p>Repel three waves. Infantry shelter in foxholes, crawl behind cover and use smoke. Stop jeeps and landing-craft gunners; manage gun heat, rifle grenades and earned air support.</p>
+    </td>
+  </tr>
+</table>
+
+Actual gameplay captures. Both stages keep floating enemy labels, health bars and hit reports out of the battlefield. Read damage from impacts, smoke and wreckage; weapon instruments stay at the edges.
+
+## Next: 03 / Break the landing
+
+**PLANNED · GUIDED FIGHTER-BOMBER MISSION**
+
+Stage 3 has a **Coming soon** card on the main menu; the mission itself is not playable yet.
+
+Take a fictional WWII-inspired aircraft over the same coastline. Forward flight is automatic; you control banking, altitude, strafing and bomb release. Six bombs must last three attack passes. Destroy flak early to make the final run safer. The field of view stays free of floating enemy names, armor bars and hit counts.
+
+```mermaid
+flowchart LR
+    A["01 · ACROSS THE BAY<br/>Strafe landing craft<br/>Lead the first bomb drop"] --> B["02 · ALONG THE SHORE<br/>Hit vehicles and supplies<br/>Silence the flak"]
+    B --> C["03 · BREAK THE LANDING<br/>Destroy the command transport<br/>Survive the exit"]
+    style A fill:#173642,stroke:#83a9a8,color:#f2eddd
+    style B fill:#35473b,stroke:#b8ae84,color:#f2eddd
+    style C fill:#524635,stroke:#d6b47b,color:#f2eddd
+```
+
+The issue badges above update from GitHub; closing a `stage-3-task` issue updates the completed count after badge caching refreshes. The plan is tracked in [epic #3](https://github.com/dbbaskette/BeachHead/issues/3), with nine issues containing dependencies, acceptance criteria and verification responsibilities.
+
+| Delivery milestone | Work |
+| --- | --- |
+| **One playable pass** | [Flight and controls #4](https://github.com/dbbaskette/BeachHead/issues/4), [guns and bombs #5](https://github.com/dbbaskette/BeachHead/issues/5), first [targets #6](https://github.com/dbbaskette/BeachHead/issues/6) |
+| **Complete the mission** | [Target persistence #6](https://github.com/dbbaskette/BeachHead/issues/6), [flak #7](https://github.com/dbbaskette/BeachHead/issues/7), [three-pass mission #8](https://github.com/dbbaskette/BeachHead/issues/8) |
+| **Bring it to life** | [Cockpit and coast #9](https://github.com/dbbaskette/BeachHead/issues/9), [effects and audio #10](https://github.com/dbbaskette/BeachHead/issues/10), [campaign and menu #11](https://github.com/dbbaskette/BeachHead/issues/11) |
+| **Playtest and ship** | [Balance, performance and release #12](https://github.com/dbbaskette/BeachHead/issues/12) |
+
+[Read the mission design](docs/stage-3-air-assault-plan.md) · [Implementation plan](docs/superpowers/plans/2026-09-30-stage-3-air-assault.md) · [Issue dependency index](docs/stage-3-issues.md)
+
+## Controls
+
+| Action | Stage 1 — Naval battle | Stage 2 — Beach defense |
+| --- | --- | --- |
+| Aim | Mouse; WASD / arrows | Mouse; WASD / arrows |
+| Fire | Hold left mouse or Space | Hold left mouse or Space |
+| Adjust range | Mouse wheel; W/S | Mouse wheel; W/S |
+| Fine aiming | Shift / right mouse button | Small pointer movements |
+| Special actions | Z: gunnery optic · Tab: tracked target | G: rifle grenade · V: earned strafing run |
+| Pause | Escape / pause button | Escape / pause button |
+| Leave the mission | Main menu button or pause menu | Pause menu → main menu |
+
+Both stages have visible controls, mute and reduced camera motion. Leaving the tab pauses combat. Touch supports aiming and firing controls. Focused buttons and sliders retain normal keyboard behavior; Shift+Tab leaves the game surface.
+
+<details>
+<summary><strong>Field notes: naval gunnery</strong></summary>
+
+- Sink all three warships before your ship is destroyed. You have unlimited shells and a 2.2-second reload. Impact fires follow the struck part of the hull; sinking ships list, flood and leave drifting wreckage.
+- Lead a moving target, then watch where the splashes fall to correct bearing and range. Tracking reports a target's position without automatically aiming at it.
+- The gun pose, muzzle flashes and shell launch share one firing solution. Flight timing and gun elevations are compressed for arcade play.
+- Vertical mouse aiming compensates for perspective at longer ranges. The visible cursor updates every rendered frame.
+- Standalone Stage 1 ends at mission selection; a campaign victory continues to Stage 2.
+
+</details>
+
+<details>
+<summary><strong>Field notes: holding the beach</strong></summary>
+
+- Fire controlled bursts. Overheating locks the gun until it cools; a better barrel can be chosen between waves.
+- Soldiers occupy foxholes, peek and duck. Catch them exposed or use a rifle grenade to clear cover. Bullets pass through smoke; terrain and cover can protect soldiers.
+- Stop reinforcement jeeps before they unload, silence craft gunners, and damage ramps to delay the landing. Watch for grenade throws and mortar or MG crews.
+- G throws a rifle grenade toward your aim point, up to 115 m. V calls earned air support along the aimed line. Both actions also have buttons.
+- After each wave, choose bunker repair, an improved barrel or extra grenades. Hold through three waves; retry starts Stage 2 again.
+- Enemy labels, health bars, setup timers and hit reports are intentionally absent from the battlefield.
+
+[Detailed combat rules and tuning](docs/stage-2-threats.md)
+
+</details>
+
+## Run locally
+
+Use **Node 22.13+** and npm.
 
 ```sh
 npm ci
 npm run dev -- --port 3077
 ```
 
-Open the local URL printed by the server. WebGL 2 and hardware acceleration are required.
+Open the local URL printed by the server. The game uses React, TypeScript, Three.js and Vinext/Vite. Combat simulation is separated from rendering and audio.
 
-## Play
-
-Select **Play campaign** to play both stages in order, or use either of the equally sized **Stage 1** and **Stage 2** tiles to jump directly to that mission. A standalone Stage 1 victory returns to mission selection. Sink all three warships before they destroy your ship. Adjust bearing and range, fire, then correct using the impact report. The center ship starts near the initial gun setting. You have unlimited shells, with a 2.2-second reload. Enemy ships take two or three hits.
-
-- Move the mouse over the sea to adjust bearing and range. Hold the left button for repeated volleys; use the mouse wheel for fine range adjustment. Touch controls retain drag-to-aim and tap-to-fire.
-- A/D or left/right arrows: bearing.
-- W/S or up/down arrows: range.
-- Space: fire (hold for repeated volleys).
-- Tab: cycle the tracked target; tracking reports range and bearing without aiming for you.
-- Escape: pause/resume. Leaving the tab pauses the battle.
-- Z or the optic button: toggle the magnified gunnery view.
-- Visible controls also support bearing, range, firing, target selection, mute, reduced camera motion, and fullscreen.
-- W/A/S/D continue to work after button actions. Click the sea to return full keyboard gunnery; focused sliders and Space/Tab on buttons retain standard control behavior. Shift+Tab leaves the game surface.
-
-After naval victory, select **Stage 2 — Hold the beach**. The main menu also offers **Play Stage 2 — Hold the beach** for direct access.
-
-In Stage 2, move the pointer to aim and hold the left mouse button or Space to fire. The mouse wheel adjusts range. Touch players can drag while firing or use the traverse/range sliders and hold-fire control. W/A/S/D and arrows also aim. Infantry use ridges, alternate covering fire and movement, and occupy foxholes for 9–15 seconds before rushing. Shoot them while exposed or use a rifle grenade to clear cover. Fire controlled bursts: overheating locks the gun until it cools. Five breaches lose the position. Hold through three waves to complete the campaign; retry resumes from the Stage 2 briefing flow without requiring another naval victory. Escape and the pause button pause/resume; leaving the window pauses automatically.
-
-## Checks
+<details>
+<summary><strong>Checks, deployment and project map</strong></summary>
 
 ```sh
 npm test
 npm run typecheck
-npm run build
+npm exec oxlint -- app lib/naval lib/pillbox
+NEXT_PUBLIC_BASE_PATH=/BeachHead npm run build
 ```
 
-The export is written to `dist/client/`. `.openai/hosting.json` identifies the private Sites deployment. The simulation is deterministic and independent of React or Three.js.
+The Pages workflow runs these checks and publishes `dist/client/` after a push to `main`. Its live badge is at the top of this README. A normal development build uses the root URL. Asset paths use `lib/asset-url.ts` so the public game works under `/BeachHead/`.
 
-## Structure
+| Area | Location |
+| --- | --- |
+| Campaign routing and game interfaces | `app/campaign.tsx`, `app/naval-game.tsx`, `app/pillbox-game.tsx` |
+| Naval simulation, gun solution, scene, models and audio | `lib/naval/` |
+| Infantry, cover, landing craft, terrain and beach combat | `lib/pillbox/` |
+| Local textures, models and sound effects | `public/` |
+| Designs, validation notes and asset provenance | `docs/` |
+| Planned air-combat modules | `lib/air/` — not implemented yet |
 
-- `lib/naval/simulation.ts`: combat state, ship motion, hit detection, shell timing, score and results.
-- `lib/naval/scene.ts`: scene lifecycle, camera, effects, screen projection.
-- `lib/naval/models.ts`, `ocean.ts`: original ship geometry, islands, ocean and sky shaders.
-- `lib/naval/audio.ts`: user-initiated audio effects.
-- `app/naval-game.tsx`: game loop, controls and HUD.
+Simulation tests cover combat, progression, pause/retry, trajectories and resource cleanup. Browser checks cover rendering and input. Frame rate, balance and subjective sound quality still need measurement on the intended player hardware. The generated component catalog has existing lint findings outside the authored game paths; the scoped check above is the release gate.
 
-## Scope and validation limits
+Optional WebMCP controls support game status and actions in compatible browsers. Ordinary play does not depend on them. `.openai/hosting.json` retains the separate Sites deployment configuration; the public play link above uses GitHub Pages.
 
-This is a two-stage prototype, not the full original multi-stage remake. Distances, gun elevations, and flight times are compressed for arcade play. Anti-aircraft combat, fleet routing, tank landings, and the fortress remain possible subsequent milestones. Procedural graphics establish direction; they are not final production assets.
+</details>
 
-Automated simulation/audio tests and compilation/build checks are provided. Browser playtesting covered the deck and optic views, firing, hit/miss feedback, sinking, pause and muted combat. Performance targets still require measurement on the intended player hardware; subjective audio quality requires listening on the player's speakers or headphones.
+## Credits and provenance
 
-Optional WebMCP tools expose battle status, starting, aiming, and firing in supporting browsers. Status, aiming, firing and paused-fire rejection were verified in the in-app browser. Unsupported browsers retain the complete visible game.
+Inspired by the original **Beach-Head** games. This is an evolving two-stage prototype with a third-stage design, not a reproduction of every original mission or a full flight simulator.
 
-Asset sources and licenses are documented in [visual-assets.md](docs/visual-assets.md) and [audio-assets.md](docs/audio-assets.md).
+- [Naval visuals and textures](docs/visual-assets.md) · [Naval audio](docs/audio-assets.md)
+- [Infantry assets](docs/infantry-assets.md) · [Beach surfaces and detail](docs/pillbox-visual-assets.md)
+- [Pillbox audio sources and adaptations](docs/pillbox-audio-assets.md), including **Light Machine Gun** by **KuraiWolf**, CC BY 4.0
+- README banner: original SVG artwork. Screenshots: current game captures. Live issue badges: [Shields.io](https://shields.io/).
 
-Stage 2 character provenance: [infantry-assets.md](docs/infantry-assets.md). Scanned surfaces and battlefield dressing: [pillbox-visual-assets.md](docs/pillbox-visual-assets.md). All assets are served locally with the game. Stage 2 waits for its character and surface assets before enabling the start button.
+---
 
-Stage 2 gunshot: **Light Machine Gun** by **KuraiWolf**, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), adapted for automatic fire. [Source and changes](docs/pillbox-audio-assets.md).
-
-Linting the authored game files (`npm exec oxlint -- app lib/naval`) passes. The unmodified generated component catalog has pre-existing accessibility and React-compiler lint failures under `npm run lint`.
-
-### Latest control and art pass
-
-Stage 1 uses lower mouse sensitivity, with Shift or the right mouse button for fine aiming; the optic also slows aiming. Wheel adjustments are finer, and bearing buttons move in 0.2-degree increments. Water wakes, reflections, exhaust and splash effects are restrained to keep ships visible.
-
-Stage 2 infantry now use a WWII-inspired field-grey uniform treatment, webbing and smaller helmets, with four different procedural death reactions. The proposed aircraft stage is documented in `docs/stage-3-air-assault-plan.md`; it is not yet implemented.
-
-## Play online
-
-[Play Beach Head](https://dbbaskette.github.io/BeachHead/)
-
-[Source repository](https://github.com/dbbaskette/BeachHead)
-
-GitHub Actions tests and publishes the game to GitHub Pages whenever `main` is pushed. To reproduce the Pages build locally, run `NEXT_PUBLIC_BASE_PATH=/BeachHead npm run build`. The static website is generated in `dist/client`. Normal `npm run dev` continues to work at the root URL.
-
-The naval battle now uses one visible aiming cursor. Click the sea to capture the mouse where the browser supports pointer lock; Escape releases it and pauses. The OS cursor is hidden only over the active sea, while menus retain normal cursor behavior. Shift/right-button fine aiming is preserved.
-
-Naval keyboard controls: W/S changes range, A/D changes bearing, and Space fires. Vertical mouse aiming now compensates for perspective at longer ranges, retains usable sensitivity in precision/optic modes, and updates the aim reticle every rendered frame. The wheel also makes larger range adjustments, with Shift retaining fine steps.
-
-Stage 2 adds 1/2/3 reinforcement jeeps per wave (18 hits each, four passengers), smoke screens throughout the assault, soldiers crawling into barricades and dug-in foxholes, and close-range grenade throwers. Stop jeeps before they unload, watch smoke edges, and watch for soldiers winding up a grenade throw. Bullets pass through smoke. Press **G** for a rifle grenade (three per wave, 115 m range) and **V** for earned air support. Watch for MG and mortar teams setting up, silence landing-craft gunners, and shoot ramps to delay unloading. Between waves, choose bunker repair, an improved barrel or extra grenades. The standard barrel overheats after 35 continuous rounds and takes 2.5 seconds to unlock. See `docs/stage-2-threats.md` for the rules and tuning.
-
-Stage 2 mouse aiming keeps the visible reticle under the pointer even while target assistance selects a small gunner or ramp. Mouse movement is sampled once per rendered frame, and the reticle updates independently of the slower status displays. Keyboard, wheel, sliders, pause and retry clear pending mouse input when they take control.
-
-Stage 1 shells now leave both visible muzzles along the barrel direction. The gun elevation, muzzle flashes and parabolic flight share one firing solution; flight timing remains compressed for arcade play. Re-aiming does not bend shells already in flight.
-
-Stage 2 keeps the battlefield free of floating labels, enemy health bars, setup timers, target counts and hit reports. Read enemy actions and damage from the soldiers, vehicles, smoke and impacts. Wave progress stays in the header; weapon heat, bunker condition and support controls remain at the edges.
+<p align="center"><a href="https://dbbaskette.github.io/BeachHead/"><strong>TAKE YOUR STATION → PLAY BEACH HEAD</strong></a></p>
