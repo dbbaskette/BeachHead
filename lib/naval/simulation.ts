@@ -1,3 +1,6 @@
+import { MIN_RANGE, MAX_RANGE, playerGunSolution } from './gunnery';
+export { MIN_RANGE, MAX_RANGE, rangeToElevation } from './gunnery';
+
 export type BattleStatus = 'ready' | 'playing' | 'paused' | 'won' | 'lost';
 
 export interface EnemyShip {
@@ -26,6 +29,11 @@ export interface Shell {
   duration: number;
   enemy: boolean;
   targetShipId?: string;
+  /** Immutable launch pose for the player's twin-barrel salvo. */
+  y?: number;
+  elevation?: number;
+  muzzles?: ShellPoint[];
+  direction?: ShellPoint;
 }
 
 export interface Battle {
@@ -70,8 +78,6 @@ export interface ShellPoint {
 
 export const MIN_HEADING = -55;
 export const MAX_HEADING = 55;
-export const MIN_RANGE = 250;
-export const MAX_RANGE = 1600;
 export const RELOAD_SECONDS = 2.2;
 
 const PLAYER_SHELL_DAMAGE = 50;
@@ -214,25 +220,27 @@ export function setAim(
   }
 }
 
-/** Returns a display elevation in degrees for the selected compressed range. */
-export function rangeToElevation(range: number): number {
-  const normalized =
-    (clamp(range, MIN_RANGE, MAX_RANGE) - MIN_RANGE) / (MAX_RANGE - MIN_RANGE);
-  return 8 + normalized * 30;
-}
-
-/** Returns the current point on a shell's exact launch-to-target arc. */
-export function shellPosition(shell: Shell): ShellPoint {
+/** Ballistic parabola with the exact muzzle tangent; flight time remains compressed for play. */
+export function shellPosition(shell: Shell, barrel?: number): ShellPoint {
   const progress = clamp(
     shell.duration > 0 ? shell.age / shell.duration : 1,
     0,
     1,
   );
   const range = distance(shell.x, shell.z, shell.targetX, shell.targetZ);
+  const height = shell.y ?? 0;
+  const rise =
+    shell.elevation === undefined
+      ? undefined
+      : range * Math.tan(degreesToRadians(shell.elevation));
+  const muzzle = barrel === undefined ? undefined : shell.muzzles?.[barrel];
   return {
-    x: shell.x + (shell.targetX - shell.x) * progress,
-    y: Math.sin(Math.PI * progress) * (42 + range * 0.11),
-    z: shell.z + (shell.targetZ - shell.z) * progress,
+    x: (muzzle?.x ?? shell.x) + (shell.targetX - shell.x) * progress,
+    y:
+      rise === undefined
+        ? Math.sin(Math.PI * progress) * (42 + range * 0.11)
+        : height + rise * progress - (height + rise) * progress * progress,
+    z: (muzzle?.z ?? shell.z) + (shell.targetZ - shell.z) * progress,
   };
 }
 
@@ -241,15 +249,17 @@ export function fire(state: Battle): boolean {
     return false;
   }
 
-  const target = polarPosition(state.heading, state.range);
+  const solution = playerGunSolution(state.heading, state.range);
   state.shots += 1;
   state.reload = RELOAD_SECONDS;
   state.shells.push({
     id: `player-${state.shots}`,
-    x: 0,
-    z: 0,
-    targetX: target.x,
-    targetZ: target.z,
+    ...solution.origin,
+    elevation: solution.elevation,
+    muzzles: solution.muzzles,
+    direction: solution.direction,
+    targetX: solution.target.x,
+    targetZ: solution.target.z,
     age: 0,
     duration: playerShellDuration(state.range),
     enemy: false,

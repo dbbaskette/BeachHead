@@ -1,16 +1,11 @@
 import { CoastalAtmosphere } from './atmosphere';
 import { COASTAL_SUN } from './daylight';
 import * as THREE from 'three';
-import { makeShip, makePlayerDeck, makeIsland } from './models';
+import { makeShip, makePlayerDeck, makeIsland, aimPlayerDeck } from './models';
 import { createNavalMaterials } from './materials';
 import { makeOcean, makeSky } from './ocean';
 import { NavalEffects } from './effects';
-import {
-  shellPosition,
-  rangeToElevation,
-  type Battle,
-  type BattleEvent,
-} from './simulation';
+import { shellPosition, type Battle, type BattleEvent } from './simulation';
 
 export type ScreenPoint = { x: number; y: number; visible: boolean };
 export class NavalScene {
@@ -24,7 +19,7 @@ export class NavalScene {
   private player = makePlayerDeck(this.materials);
   private effects = new NavalEffects(this.scene);
   private ships = new Map<string, THREE.Group>();
-  private shells = new Map<string, THREE.Mesh>();
+  private shells = new Map<string, THREE.Group>();
   private shellGeo = new THREE.CapsuleGeometry(0.36, 4, 3, 8);
   private shellMaterial = new THREE.MeshBasicMaterial({ color: '#ffdf98' });
   private enemyMaterial = new THREE.MeshBasicMaterial({ color: '#ff9e54' });
@@ -131,18 +126,17 @@ export class NavalScene {
   }
   event(event: BattleEvent, battle: Battle) {
     if (event.type === 'fired') {
+      const shell = battle.shells.find((s) => s.id === event.shellId);
+      if (!shell?.muzzles || !shell.direction) return;
       this.recoil = 1;
-      this.player.root.updateMatrixWorld(true);
       const d = new THREE.Vector3(
-        Math.sin((battle.heading * Math.PI) / 180),
-        0.08,
-        -Math.cos((battle.heading * Math.PI) / 180),
-      ).normalize();
-      for (const muzzle of this.player.muzzles)
-        this.effects.muzzle(muzzle.getWorldPosition(new THREE.Vector3()), d);
-      this.muzzleLight.position.copy(
-        this.player.muzzles[0].getWorldPosition(new THREE.Vector3()),
+        shell.direction.x,
+        shell.direction.y,
+        shell.direction.z,
       );
+      for (const muzzle of shell.muzzles)
+        this.effects.muzzle(new THREE.Vector3(muzzle.x, muzzle.y, muzzle.z), d);
+      this.muzzleLight.position.copy(shell.muzzles[0]);
       this.muzzleLight.intensity = 90;
     }
     if (event.type === 'hit' || event.type === 'sunk') {
@@ -211,10 +205,7 @@ export class NavalScene {
       this.camera.rotation.z =
         Math.sin(t * 0.45) * 0.0012 + Math.sin(t * 40) * this.damage * 0.003;
     this.player.root.visible = !scope;
-    this.player.turret.rotation.y = -angle;
-    this.player.guns.rotation.x =
-      THREE.MathUtils.degToRad(rangeToElevation(battle.range)) * 0.28;
-    this.player.guns.position.z = -2.5 + this.recoil * 0.65;
+    aimPlayerDeck(this.player, battle.heading, battle.range, this.recoil);
     for (const [i, ship] of battle.ships.entries()) {
       let mesh = this.ships.get(ship.id);
       if (!mesh) {
@@ -262,39 +253,48 @@ export class NavalScene {
         this.shells.delete(id);
       }
     for (const shell of battle.shells) {
-      let mesh = this.shells.get(shell.id);
-      if (!mesh) {
-        mesh = new THREE.Mesh(
-          this.shellGeo,
-          shell.enemy ? this.enemyMaterial : this.shellMaterial,
-        );
-        Object.assign(mesh.userData, {
-          targetX: shell.targetX,
-          targetZ: shell.targetZ,
-          enemy: shell.enemy,
-        });
-        this.shells.set(shell.id, mesh);
-        this.scene.add(mesh);
+      let salvo = this.shells.get(shell.id);
+      if (!salvo) {
+        salvo = new THREE.Group();
+        for (let barrel = 0; barrel < (shell.muzzles?.length ?? 1); barrel++) {
+          const mesh = new THREE.Mesh(
+            this.shellGeo,
+            shell.enemy ? this.enemyMaterial : this.shellMaterial,
+          );
+          Object.assign(mesh.userData, {
+            targetX: shell.targetX,
+            targetZ: shell.targetZ,
+            enemy: shell.enemy,
+          });
+          salvo.add(mesh);
+        }
+        this.shells.set(shell.id, salvo);
+        this.scene.add(salvo);
       }
-      const p = shellPosition(shell),
-        ahead = shellPosition({
-          ...shell,
-          age: Math.min(shell.duration, shell.age + 0.01),
-        });
-      mesh.position.set(p.x, p.y, p.z);
-      const dir = new THREE.Vector3(
-        ahead.x - p.x,
-        ahead.y - p.y,
-        ahead.z - p.z,
-      );
-      if (dir.lengthSq() > 0)
-        mesh.quaternion.setFromUnitVectors(
-          new THREE.Vector3(0, 1, 0),
-          dir.normalize(),
+      for (const [barrel, mesh] of salvo.children.entries()) {
+        const p = shellPosition(shell, barrel),
+          ahead = shellPosition(
+            {
+              ...shell,
+              age: Math.min(shell.duration, shell.age + 0.01),
+            },
+            barrel,
+          );
+        mesh.position.set(p.x, p.y, p.z);
+        const dir = new THREE.Vector3(
+          ahead.x - p.x,
+          ahead.y - p.y,
+          ahead.z - p.z,
         );
-      mesh.scale.setScalar(
-        Math.max(0.8, mesh.position.distanceTo(this.camera.position) / 500),
-      );
+        if (dir.lengthSq() > 0)
+          mesh.quaternion.setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            dir.normalize(),
+          );
+        mesh.scale.setScalar(
+          Math.max(0.8, mesh.position.distanceTo(this.camera.position) / 500),
+        );
+      }
     }
     this.effects.update(activeDt);
     this.reticle.position.set(
