@@ -7,6 +7,7 @@ import { createNavalMaterials } from './materials';
 import { makeOcean, makeSky } from './ocean';
 import { NavalEffects } from './effects';
 import { ShipDamageVisuals } from './ship-damage';
+import { ShellSplashVisuals, shellVisualScale } from './shell-splashes';
 import { shellPosition, type Battle, type BattleEvent } from './simulation';
 
 export type ScreenPoint = { x: number; y: number; visible: boolean };
@@ -20,6 +21,7 @@ export class NavalScene {
   private ocean = makeOcean();
   private player = makePlayerDeck(this.materials);
   private effects = new NavalEffects(this.scene);
+  private shellSplashes = new ShellSplashVisuals(this.scene);
   private shipDamage = new ShipDamageVisuals(this.scene, this.effects);
   private ships = new Map<string, THREE.Group>();
   private shells = new Map<string, THREE.Group>();
@@ -34,6 +36,7 @@ export class NavalScene {
   private recoil = 0;
   private damage = 0;
   private visualTime = 0;
+  private touch = window.matchMedia(TOUCH_LAYOUT_QUERY);
   private observer: ResizeObserver;
   private onLost = (event: Event) => {
     event.preventDefault();
@@ -173,7 +176,7 @@ export class NavalScene {
           new THREE.Vector3(-ship.x, 0, -ship.z).normalize(),
         );
     }
-    if (event.type === 'miss') this.effects.splash(event.x, event.z);
+    if (event.type === 'miss') this.shellSplashes.impact(event.x, event.z);
     if (event.type === 'damaged') {
       this.damage = 1;
       this.effects.explosion(new THREE.Vector3(11, 5, -12));
@@ -190,6 +193,7 @@ export class NavalScene {
     for (const mesh of this.shells.values()) this.scene.remove(mesh);
     this.shells.clear();
     this.effects.reset();
+    this.shellSplashes.reset();
     this.shipDamage.reset();
     this.recoil = 0;
     this.damage = 0;
@@ -302,12 +306,23 @@ export class NavalScene {
             new THREE.Vector3(0, 1, 0),
             dir.normalize(),
           );
-        mesh.scale.setScalar(
-          Math.max(0.8, mesh.position.distanceTo(this.camera.position) / 500),
+        const scale = shellVisualScale(
+          mesh.position.distanceTo(this.camera.position),
+          this.height,
+          this.camera.fov,
+          this.touch.matches && !shell.enemy,
         );
+        mesh.scale.set(scale.width, scale.length, scale.width);
       }
     }
     this.effects.update(activeDt);
+    this.shellSplashes.update(
+      activeDt,
+      this.camera,
+      this.height,
+      this.touch.matches,
+      this.renderer.getPixelRatio(),
+    );
     this.reticle.position.set(
       Math.sin(angle) * battle.range,
       0.4,
@@ -325,6 +340,7 @@ export class NavalScene {
     );
     this.shipDamage.dispose();
     this.effects.dispose();
+    this.shellSplashes.dispose();
     this.atmosphere.dispose();
     this.ocean.dispose();
     this.environment.dispose();

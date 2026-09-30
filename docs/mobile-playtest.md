@@ -38,4 +38,12 @@ A supplied iPhone screenshot exposed obstructed sea targets despite the original
 - Three new pointer regressions cover depth-independent swipes, event coalescing, and immediate reversal at the reachable edge. Existing mouse/craft aim behavior remains covered.
 - Final verification: all 78 tests passed, plus type checking, scoped lint, whitespace checks and the production build with the `/BeachHead` base path.
 
+## Shell landing visibility follow-up — 2026-09-30
+
+- Naval misses now create a dense white water column, falling spray and a ragged foam patch that fades over six seconds. Impacts keep the resolved shell coordinates even after the player changes aim.
+- A bounded, separate splash pool prevents ship smoke and sinking effects from exhausting the player's impact effects. Four simultaneous splashes share geometry; expiration, restart and disposal release materials.
+- Perspective-aware sizing makes distant plumes and player shells easier to see in short phone viewports. Zoom reduces the enlargement. Existing shell trajectories and hit resolution are unchanged.
+- Added regressions for minimum visual size across phone heights/ranges/optic settings, impact anchoring and pause/expiry, and bounded graphics cleanup.
+- Verified repeat-fire splashes around 620–640 m and at the 1,600 m range limit in Chrome at 873×348, plus portrait optics at 390×844. No rendering errors after the shader repair. All 81 tests, type checking, scoped lint, whitespace checks and the `/BeachHead` production build passed.
+
 These checks use desktop browser emulation; physical iOS/Android devices, device thermal limits, and real notch geometry have not been measured in this pass.
