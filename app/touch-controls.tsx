@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Crosshair, Move } from 'lucide-react';
 import {
   thumbAxis,
+  TouchDrag,
   TOUCH_LAYOUT_QUERY,
   type TouchAxis,
 } from '@/lib/touch-input';
@@ -21,6 +22,7 @@ export function useTouchLayout() {
 
 export function TouchControls({
   onAim,
+  onAimDrag,
   onFire,
   fireLabel,
   fireDetail,
@@ -28,22 +30,26 @@ export function TouchControls({
   children,
 }: {
   onAim: (axis: TouchAxis) => void;
+  onAimDrag?: (delta: TouchAxis) => void;
   onFire: (held: boolean) => void;
   fireLabel: string;
   fireDetail: string;
   hot?: boolean;
   children: ReactNode;
 }) {
-  const callbacks = useRef({ onAim, onFire });
+  const callbacks = useRef({ onAim, onAimDrag, onFire });
   useEffect(() => {
-    callbacks.current = { onAim, onFire };
-  }, [onAim, onFire]);
+    callbacks.current = { onAim, onAimDrag, onFire };
+  }, [onAim, onAimDrag, onFire]);
   const aimId = useRef<number | null>(null);
+  const aimGesture = useRef(new TouchDrag());
+  const aimOrigin = useRef({ x: 0, y: 0 });
   const fireId = useRef<number | null>(null);
   const [stick, setStick] = useState({ x: 0, y: 0 });
   const [firing, setFiring] = useState(false);
   const stopAim = () => {
     aimId.current = null;
+    aimGesture.current.clear();
     setStick({ x: 0, y: 0 });
     callbacks.current.onAim({ x: 0, y: 0 });
   };
@@ -60,26 +66,30 @@ export function TouchControls({
     [],
   );
   const move = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const dx = e.clientX - rect.left - rect.width / 2;
-    const dy = e.clientY - rect.top - rect.height / 2;
+    const delta = aimGesture.current.move(e.pointerId, e.clientX, e.clientY);
+    if (!delta) return;
+    const dx = e.clientX - aimOrigin.current.x;
+    const dy = e.clientY - aimOrigin.current.y;
     const distance = Math.hypot(dx, dy);
     const scale = distance > 32 ? 32 / distance : 1;
     setStick({ x: dx * scale, y: dy * scale });
-    callbacks.current.onAim(thumbAxis(dx, dy));
+    if (callbacks.current.onAimDrag) callbacks.current.onAimDrag(delta);
+    else callbacks.current.onAim(thumbAxis(dx, dy));
   };
   return (
     <div className="touch-controls" aria-label="Touch combat controls">
       <button
         className="touch-aim"
-        aria-label="Drag thumb pad to aim"
+        aria-label={onAimDrag ? 'Swipe pad to aim' : 'Drag thumb pad to aim'}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (aimId.current !== null || e.button !== 0) return;
           e.preventDefault();
           aimId.current = e.pointerId;
+          aimOrigin.current = { x: e.clientX, y: e.clientY };
+          aimGesture.current.begin(e.pointerId, e.clientX, e.clientY);
           e.currentTarget.setPointerCapture(e.pointerId);
-          move(e);
+          callbacks.current.onAim({ x: 0, y: 0 });
         }}
         onPointerMove={(e) => {
           if (aimId.current === e.pointerId) move(e);
@@ -97,7 +107,7 @@ export function TouchControls({
       >
         <Move size={46} aria-hidden="true" />
         <i style={{ transform: `translate(${stick.x}px, ${stick.y}px)` }} />
-        <span>Aim</span>
+        <span>{onAimDrag ? 'Swipe to aim' : 'Aim'}</span>
       </button>
       <div className="touch-readouts">{children}</div>
       <button

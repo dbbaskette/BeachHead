@@ -43,7 +43,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   const audio = useRef<PillboxAudio | null>(null);
   const held = useRef(false);
   const touch = useTouchLayout();
-  const touchAxis = useRef<TouchAxis>({ x: 0, y: 0 });
   const touchFiring = useRef(false);
   const touchDrag = useRef(new TouchDrag());
   const keys = useRef(new Set<string>());
@@ -59,7 +58,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
     setHud({ ...battle.current, soldiers: [...battle.current.soldiers] });
   const release = () => {
     held.current = false;
-    touchAxis.current = { x: 0, y: 0 };
     touchFiring.current = false;
     touchDrag.current.clear();
     keys.current.clear();
@@ -67,8 +65,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   };
   const applyPointerAim = () => {
     if (!scene.current) return;
-    const point = pointerAim.current.resolve((x, y) =>
-      scene.current!.aim(x, y),
+    const point = pointerAim.current.resolve(
+      (x, y) => scene.current!.aim(x, y),
+      (x, y) => scene.current!.aimTouch(x, y),
     );
     if (point) aimPillbox(battle.current, point.x, point.z);
   };
@@ -236,15 +235,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           const b = battle.current;
           if (b.status === 'playing') {
             applyPointerAim();
-            const thumb = touchAxis.current;
-            if (thumb.x || thumb.y) {
-              pointerAim.current.clear();
-              aimPillbox(
-                b,
-                b.aimX + thumb.x * 42 * dt,
-                b.aimZ + thumb.y * 56 * dt,
-              );
-            }
             const pressed = (...codes: string[]) =>
               codes.some((c) => keys.current.has(c));
             aimPillbox(
@@ -353,18 +343,25 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
     };
     // The animation and event listeners intentionally read the current battle through refs.
   }, []);
+  const swipeAim = (delta: TouchAxis) => {
+    if (battle.current.status !== 'playing' || !scene.current || !host.current)
+      return;
+    const rect = host.current.getBoundingClientRect();
+    const origin = scene.current.project(
+      battle.current.aimX,
+      battle.current.aimZ,
+    );
+    pointerAim.current.moveRelative(delta.x * 0.8, delta.y * 0.8, {
+      x: rect.left + origin.x,
+      y: rect.top + origin.y,
+    });
+  };
   const aimPointer = (e: React.PointerEvent<HTMLDivElement>) => {
     if (battle.current.status !== 'playing') return;
     if (e.pointerType === 'touch') {
       const delta = touchDrag.current.move(e.pointerId, e.clientX, e.clientY);
       if (!delta) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      pointerAim.current.clear();
-      aimPillbox(
-        battle.current,
-        battle.current.aimX + (delta.x * 80) / rect.width,
-        battle.current.aimZ + (delta.y * 120) / rect.height,
-      );
+      swipeAim(delta);
     } else pointerAim.current.move(e.clientX, e.clientY);
   };
   const playing = hud.status === 'playing',
@@ -388,15 +385,15 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
         className={`pillbox-aim-surface ${playing ? 'active-aim' : ''}`}
         aria-hidden="true"
         onPointerMove={aimPointer}
-        onPointerLeave={() => {
-          if (!held.current) pointerAim.current.clear();
+        onPointerLeave={(e) => {
+          if (e.pointerType === 'mouse' && !held.current)
+            pointerAim.current.clear();
         }}
         onPointerDown={(e) => {
           if (!playing || e.button !== 0) return;
           if (e.pointerType === 'touch') {
             if (!touchDrag.current.begin(e.pointerId, e.clientX, e.clientY))
               return;
-            pointerAim.current.clear();
           } else {
             aimPointer(e);
             held.current = true;
@@ -490,9 +487,10 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           </div>
           {touch && (
             <p className="touch-briefing-hint">
-              Left thumb aims. Right thumb fires. You can also drag the beach to
-              adjust your aim. Fire in short bursts and use grenades to clear
-              foxholes.
+              Swipe the left pad to aim; the sight stops when your thumb stops.
+              Lift and swipe again to keep moving. Hold Fire with your other
+              thumb. You can also drag the beach. Use short bursts and grenades
+              for foxholes.
             </p>
           )}
           <p className="pillbox-hint">
@@ -660,9 +658,8 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
       )}
       {touch && playing && (
         <TouchControls
-          onAim={(axis) => {
-            touchAxis.current = axis;
-          }}
+          onAim={() => {}}
+          onAimDrag={swipeAim}
           onFire={(value) => {
             touchFiring.current = value;
           }}

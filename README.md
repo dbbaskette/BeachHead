@@ -79,7 +79,7 @@ The issue badges above update from GitHub; closing a `stage-3-task` issue update
 
 Both stages have visible controls, mute and reduced camera motion. Leaving the tab pauses combat. Focused buttons and sliders retain normal keyboard behavior; Shift+Tab leaves the game surface.
 
-**Phones and tablets:** the game automatically switches to a thumb pad on the left and a hold-to-fire button on the right. Move the pad gently for fine aim, or drag the battlefield to adjust without firing. Both thumbs work independently. In Stage 1, hold fire to shoot again after reloading and tap the optic for a closer view. In Stage 2, use short bursts and the grenade / air-support buttons above the controls. Pause opens the route back to the menu.
+**Phones and tablets:** the game automatically switches to touch controls with a clear central view. In Stage 1, gently move and hold the left pad to aim; hold Fire to shoot again after reloading, tap the target readout to cycle ships, and tap the optic for a closer view. In Stage 2, swipe the left pad to aim: the sight stops when your thumb stops. Lift and swipe again to keep moving. Hold Fire with your other thumb, use short bursts, and tap the grenade / air-support buttons beside the controls (above them in portrait). Both thumbs work independently, and dragging the battlefield also adjusts aim without firing. Pause opens the route back to the menu.
 
 Portrait and landscape are supported; landscape offers the widest view. Menus scroll on small screens, controls respect screen notches, and rotating or leaving the app pauses combat. Mobile rendering uses a lower pixel-density cap and shadow resolution. Device performance and touch feel still depend on the browser and hardware.
 

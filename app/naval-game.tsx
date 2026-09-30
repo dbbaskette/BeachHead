@@ -805,23 +805,6 @@ export default function NavalGame({
         </div>
       )}
       {touch && playing && (
-        <button
-          className="touch-target"
-          onClick={cycle}
-          aria-label="Cycle tracked target"
-        >
-          <span>
-            Tracking <b>{target?.health > 0 ? target.name : 'Next target'}</b>
-          </span>
-          <small>
-            {target?.health > 0
-              ? `${number(Math.hypot(target.x, target.z))} m · ${Math.round((bearing(target.x, target.z) + 360) % 360)}°`
-              : 'Tap to switch'}
-          </small>
-          <ChevronRight size={18} aria-hidden="true" />
-        </button>
-      )}
-      {touch && playing && (
         <TouchControls
           onAim={(axis) => {
             touchAxis.current = axis;
@@ -834,19 +817,33 @@ export default function NavalGame({
             hud.reload > 0 ? `${hud.reload.toFixed(1)} s` : 'Hold to fire'
           }
         >
-          <span>
-            Hull <b>{Math.round(hud.health)}%</b>
-          </span>
-          <meter
-            aria-label="Hull integrity"
-            min={0}
-            max={100}
-            value={hud.health}
-          />
-          <span>
-            Range <b>{number(hud.range)} m</b>
-          </span>
-          <small>{((hud.heading + 360) % 360).toFixed(1)}° bearing</small>
+          <div className="touch-nav-status">
+            <span>
+              Hull <b>{Math.round(hud.health)}%</b>
+            </span>
+            <span>
+              Guns{' '}
+              <b>
+                {number(hud.range)} m · {((hud.heading + 360) % 360).toFixed(1)}
+                °
+              </b>
+            </span>
+          </div>
+          <button
+            className="touch-target"
+            onClick={cycle}
+            aria-label="Cycle tracked target"
+          >
+            <span>
+              <b>{target?.health > 0 ? target.name : 'Next target'}</b>
+              <small>
+                {target?.health > 0
+                  ? `${number(Math.hypot(target.x, target.z))} m · ${Math.round((bearing(target.x, target.z) + 360) % 360)}°`
+                  : 'Tap to switch'}
+              </small>
+            </span>
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
         </TouchControls>
       )}
       <footer className={`instruments ${ready ? 'preview-instruments' : ''}`}>
