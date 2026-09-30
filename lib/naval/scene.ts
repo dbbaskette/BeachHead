@@ -1,3 +1,4 @@
+import { mobilePixelRatio, TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { CoastalAtmosphere } from './atmosphere';
 import { COASTAL_SUN } from './daylight';
 import * as THREE from 'three';
@@ -49,7 +50,12 @@ export class NavalScene {
       alpha: false,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer.setPixelRatio(
+      mobilePixelRatio(
+        window.devicePixelRatio,
+        window.matchMedia(TOUCH_LAYOUT_QUERY).matches,
+      ),
+    );
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.9;
@@ -77,7 +83,10 @@ export class NavalScene {
       .add(new THREE.Vector3(0, 0, -16));
     sun.target.position.set(0, 0, -16);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    const shadowSize = window.matchMedia(TOUCH_LAYOUT_QUERY).matches
+      ? 1024
+      : 2048;
+    sun.shadow.mapSize.set(shadowSize, shadowSize);
     Object.assign(sun.shadow.camera, {
       left: -42,
       right: 42,

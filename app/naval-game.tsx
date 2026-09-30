@@ -1,4 +1,6 @@
 'use client';
+import { TouchControls, useTouchLayout } from './touch-controls';
+import { TouchDrag, type TouchAxis } from '@/lib/touch-input';
 import { mouseAimDelta, mouseWheelRange } from '../lib/naval/mouse-aim';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -69,13 +71,15 @@ export default function NavalGame({
   const reticleElement = useRef<HTMLDivElement>(null);
   const mousePoint = useRef<{ x: number; y: number } | null>(null);
   const mouseFiring = useRef(false);
-  const drag = useRef<{
-    x: number;
-    y: number;
-    heading: number;
-    range: number;
-    moved: boolean;
-  } | null>(null);
+  const touch = useTouchLayout();
+  const touchAxis = useRef<TouchAxis>({ x: 0, y: 0 });
+  const touchFiring = useRef(false);
+  const drag = useRef(new TouchDrag());
+  const clearTouch = () => {
+    touchAxis.current = { x: 0, y: 0 };
+    touchFiring.current = false;
+    drag.current.clear();
+  };
   const publish = () =>
     setHud({
       ...battle.current,
@@ -110,7 +114,7 @@ export default function NavalGame({
     scene.current?.reset();
     mousePoint.current = null;
     mouseFiring.current = false;
-    drag.current = null;
+    clearTouch();
     keys.current.clear();
     audio.current?.setPaused(false);
     void audio.current?.start();
@@ -125,7 +129,7 @@ export default function NavalGame({
     keys.current.clear();
     mouseFiring.current = false;
     mousePoint.current = null;
-    drag.current = null;
+    clearTouch();
     optic.current = false;
     setScoped(false);
     targetIndex.current = 0;
@@ -144,7 +148,7 @@ export default function NavalGame({
     audio.current?.setPaused(b.status === 'paused');
     mousePoint.current = null;
     mouseFiring.current = false;
-    drag.current = null;
+    clearTouch();
     keys.current.clear();
     publish();
     root.current?.focus();
@@ -208,7 +212,7 @@ export default function NavalGame({
       keys.current.clear();
       mousePoint.current = null;
       mouseFiring.current = false;
-      drag.current = null;
+      clearTouch();
       if (battle.current.status === 'playing') {
         battle.current.status = 'paused';
         audio.current?.setPaused(true);
@@ -221,6 +225,7 @@ export default function NavalGame({
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', keyUp);
     window.addEventListener('blur', blur);
+    window.addEventListener('orientationchange', blur);
     const releaseMouse = () => {
       mouseFiring.current = false;
     };
@@ -300,7 +305,16 @@ export default function NavalGame({
               (held('KeyW', 'ArrowUp') ? 1 : 0) -
               (held('KeyS', 'ArrowDown') ? 1 : 0);
             setAim(b, b.heading + turn * 18 * dt, b.range + range * 230 * dt);
-            if (held('Space') || mouseFiring.current) fire(b);
+            const thumb = mouseAimDelta(
+              touchAxis.current.x * 600 * dt,
+              touchAxis.current.y * 220 * dt,
+              optic.current,
+              false,
+              b.range,
+            );
+            setAim(b, b.heading + thumb.heading, b.range + thumb.range);
+            if (held('Space') || mouseFiring.current || touchFiring.current)
+              fire(b);
             accumulator += dt;
             while (accumulator >= 1 / 60) {
               const events = step(b, 1 / 60);
@@ -384,6 +398,7 @@ export default function NavalGame({
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', blur);
+      window.removeEventListener('orientationchange', blur);
       document.removeEventListener('mousemove', lockedMove);
       document.removeEventListener('pointerlockchange', lockChanged);
       if (document.pointerLockElement === wheelHost) document.exitPointerLock();
@@ -416,7 +431,7 @@ export default function NavalGame({
     <main
       ref={root}
       tabIndex={-1}
-      className={`naval-game ${ready ? 'briefing-state' : ''}`}
+      className={`naval-game ${ready ? 'briefing-state' : ''} ${touch ? 'touch-layout' : ''}`}
     >
       <div
         ref={host}
@@ -444,16 +459,8 @@ export default function NavalGame({
             shoot();
             return;
           }
-          // Pointer capture is for touch/pen dragging. It throws while mouse
-          // pointer lock is active, which otherwise prevents the next shot.
-          e.currentTarget.setPointerCapture(e.pointerId);
-          drag.current = {
-            x: e.clientX,
-            y: e.clientY,
-            heading: battle.current.heading,
-            range: battle.current.range,
-            moved: false,
-          };
+          if (drag.current.begin(e.pointerId, e.clientX, e.clientY))
+            e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
           if (document.pointerLockElement === e.currentTarget) return;
@@ -475,26 +482,31 @@ export default function NavalGame({
             }
             return;
           }
-          const d = drag.current;
-          if (!d || !playing) return;
-          const dx = e.clientX - d.x,
-            dy = e.clientY - d.y;
-          if (Math.abs(dx) + Math.abs(dy) > 5) d.moved = true;
-          aim(d.heading + dx * 0.055, d.range - dy * 2);
+          if (!playing) return;
+          const delta = drag.current.move(e.pointerId, e.clientX, e.clientY);
+          if (!delta) return;
+          const change = mouseAimDelta(
+            delta.x * 2,
+            delta.y,
+            optic.current,
+            false,
+            battle.current.range,
+          );
+          aim(
+            battle.current.heading + change.heading,
+            battle.current.range + change.range,
+          );
         }}
-        onPointerUp={() => {
-          mouseFiring.current = false;
-          if (drag.current && !drag.current.moved) shoot();
-          drag.current = null;
+        onPointerUp={(e) => {
+          if (e.pointerType === 'mouse') mouseFiring.current = false;
+          drag.current.end(e.pointerId);
         }}
-        onPointerCancel={() => {
-          mouseFiring.current = false;
-          mousePoint.current = null;
-          drag.current = null;
+        onPointerCancel={(e) => {
+          if (e.pointerType === 'mouse') mouseFiring.current = false;
+          drag.current.end(e.pointerId);
         }}
-        onLostPointerCapture={() => {
-          mouseFiring.current = false;
-          drag.current = null;
+        onLostPointerCapture={(e) => {
+          drag.current.end(e.pointerId);
         }}
       />
       <div className="vignette" />
@@ -510,7 +522,7 @@ export default function NavalGame({
           {hud.status === 'won' && !resultsReady && (
             <Button
               variant="ghost"
-              className="optic-button"
+              className="optic-button view-results-control"
               onClick={() => setResultsReady(true)}
             >
               View results
@@ -547,7 +559,7 @@ export default function NavalGame({
           <Button
             variant="ghost"
             size="icon"
-            className="icon-control"
+            className="icon-control fullscreen-control"
             aria-label="Toggle fullscreen"
             onClick={() => {
               if (document.fullscreenElement)
@@ -586,7 +598,7 @@ export default function NavalGame({
               <span>{scoped ? 'Deck view' : '2× optic'}</span>
             </Button>
           )}
-          {!ready && (
+          {!ready && !finished && (
             <Button
               variant="ghost"
               size="icon"
@@ -627,6 +639,11 @@ export default function NavalGame({
               <br />A new landing begins here.
             </div>
           </div>
+          {touch && (
+            <p className="touch-menu-hint">
+              Touch controls included · Landscape gives you a wider view
+            </p>
+          )}
           <nav className="mission-tiles" aria-label="Play modes">
             <button
               className="mission-tile campaign-tile"
@@ -711,7 +728,9 @@ export default function NavalGame({
               </h2>
               <p>
                 {paused
-                  ? 'Your guns are ready when you are.'
+                  ? touch
+                    ? 'Drag the aim pad gently for fine adjustments. Hold Fire guns to shoot as each salvo reloads. Use the optic for a closer view.'
+                    : 'Your guns are ready when you are.'
                   : hud.status === 'won'
                     ? singleStage
                       ? 'Enemy ships neutralized. Naval mission complete. Choose another battle from the main menu.'
@@ -784,6 +803,51 @@ export default function NavalGame({
             </Button>
           </section>
         </div>
+      )}
+      {touch && playing && (
+        <button
+          className="touch-target"
+          onClick={cycle}
+          aria-label="Cycle tracked target"
+        >
+          <span>
+            Tracking <b>{target?.health > 0 ? target.name : 'Next target'}</b>
+          </span>
+          <small>
+            {target?.health > 0
+              ? `${number(Math.hypot(target.x, target.z))} m · ${Math.round((bearing(target.x, target.z) + 360) % 360)}°`
+              : 'Tap to switch'}
+          </small>
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
+      )}
+      {touch && playing && (
+        <TouchControls
+          onAim={(axis) => {
+            touchAxis.current = axis;
+          }}
+          onFire={(value) => {
+            touchFiring.current = value;
+          }}
+          fireLabel={hud.reload > 0 ? 'Reloading' : 'Fire guns'}
+          fireDetail={
+            hud.reload > 0 ? `${hud.reload.toFixed(1)} s` : 'Hold to fire'
+          }
+        >
+          <span>
+            Hull <b>{Math.round(hud.health)}%</b>
+          </span>
+          <meter
+            aria-label="Hull integrity"
+            min={0}
+            max={100}
+            value={hud.health}
+          />
+          <span>
+            Range <b>{number(hud.range)} m</b>
+          </span>
+          <small>{((hud.heading + 360) % 360).toFixed(1)}° bearing</small>
+        </TouchControls>
       )}
       <footer className={`instruments ${ready ? 'preview-instruments' : ''}`}>
         <section className="hull-instrument">
