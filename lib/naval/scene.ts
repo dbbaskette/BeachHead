@@ -1,3 +1,5 @@
+import { CoastalAtmosphere } from './atmosphere';
+import { COASTAL_SUN } from './daylight';
 import * as THREE from 'three';
 import { makeShip, makePlayerDeck, makeIsland } from './models';
 import { createNavalMaterials } from './materials';
@@ -15,6 +17,8 @@ export class NavalScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(46, 1, 0.5, 18000);
+  private atmosphere = new CoastalAtmosphere(this.scene, 'naval');
+  private sky = makeSky();
   private materials = createNavalMaterials();
   private ocean = makeOcean();
   private player = makePlayerDeck(this.materials);
@@ -51,24 +55,29 @@ export class NavalScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.04;
+    this.renderer.toneMappingExposure = 0.9;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('webglcontextlost', this.onLost);
     this.scene.fog = new THREE.FogExp2('#9eb9c0', 0.00016);
-    const sky = makeSky();
+    const sky = this.sky;
     this.scene.add(sky, this.ocean.mesh, this.player.root);
     const environmentScene = new THREE.Scene();
     environmentScene.add(sky.clone());
     const pmrem = new THREE.PMREMGenerator(this.renderer);
+    sky.material.uniforms.showSunDisc.value = false;
     this.environment = pmrem.fromScene(environmentScene, 0.08, 0.1, 18000);
+    sky.material.uniforms.showSunDisc.value = true;
     pmrem.dispose();
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.72;
+    this.scene.environmentIntensity = 0.28;
     this.scene.add(new THREE.HemisphereLight('#c7e0e6', '#344a50', 0.8));
     const sun = new THREE.DirectionalLight('#ffe2b5', 3.1);
-    sun.position.set(-40, 52, 65);
+    sun.position
+      .copy(COASTAL_SUN)
+      .multiplyScalar(95)
+      .add(new THREE.Vector3(0, 0, -16));
     sun.target.position.set(0, 0, -16);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -179,6 +188,8 @@ export class NavalScene {
     this.visualTime += activeDt;
     const t = this.visualTime;
     this.ocean.update(t, battle);
+    this.sky.material.uniforms.time.value = t;
+    this.atmosphere.update(battle.time);
     this.recoil = Math.max(0, this.recoil - activeDt * 3.5);
     this.damage = Math.max(0, this.damage - activeDt * 2);
     this.muzzleLight.intensity = Math.max(
@@ -302,6 +313,7 @@ export class NavalScene {
       this.onLost,
     );
     this.effects.dispose();
+    this.atmosphere.dispose();
     this.ocean.dispose();
     this.environment.dispose();
     const materials = new Set<THREE.Material>(),

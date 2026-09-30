@@ -495,37 +495,67 @@ export function makeIsland(
   geo.rotateX(-Math.PI / 2);
   const p = geo.attributes.position,
     colors = [];
-  const heightAt = (px: number, pz: number) => {
-    const radial = Math.hypot(px / radius, pz / radius);
-    const ridge =
-      Math.sin(px * 0.007 + seed) * 0.22 +
-      Math.cos(pz * 0.01 + seed) * 0.16 +
-      Math.sin((px + pz) * 0.019) * 0.08;
-    return Math.max(
-      -5,
-      Math.pow(Math.max(0, 1 - radial), 1.9) * height * (1 + ridge) - 4,
+  const hash = (ix: number, iz: number) => {
+    const n = Math.sin(ix * 127.1 + iz * 311.7 + seed * 74.7) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  const noise = (px: number, pz: number) => {
+    const x = Math.floor(px),
+      z = Math.floor(pz),
+      fx = px - x,
+      fz = pz - z;
+    const u = fx * fx * (3 - 2 * fx),
+      v = fz * fz * (3 - 2 * fz);
+    return THREE.MathUtils.lerp(
+      THREE.MathUtils.lerp(hash(x, z), hash(x + 1, z), u),
+      THREE.MathUtils.lerp(hash(x, z + 1), hash(x + 1, z + 1), u),
+      v,
     );
+  };
+  const heightAt = (px: number, pz: number) => {
+    const angle = Math.atan2(pz, px);
+    const radial =
+      Math.hypot(px / radius, pz / radius) *
+      (1 + 0.12 * Math.sin(angle * 5 + seed));
+    const envelope = Math.pow(Math.max(0, 1 - radial), 1.55);
+    let detail = 0,
+      amplitude = 0.45,
+      frequency = 0.0025;
+    for (let octave = 0; octave < 5; octave++) {
+      detail +=
+        (1 - Math.abs(noise(px * frequency, pz * frequency) * 2 - 1)) *
+        amplitude;
+      frequency *= 2.1;
+      amplitude *= 0.48;
+    }
+    return Math.max(-5, envelope * height * (0.5 + detail) - 4);
   };
   for (let i = 0; i < p.count; i++) {
     const px = p.getX(i),
       pz = p.getZ(i),
       h = heightAt(px, pz);
     p.setY(i, h);
-    const rock = Math.sin(px * 0.025) * Math.cos(pz * 0.032);
-    const c = new THREE.Color(
-      h < 5
-        ? '#adab89'
-        : rock > 0.32 && h > 60
-          ? '#7b8277'
-          : h > height * 0.55
-            ? '#546552'
-            : '#405c43',
+    const dx = (heightAt(px + 3, pz) - heightAt(px - 3, pz)) / 6;
+    const dz = (heightAt(px, pz + 3) - heightAt(px, pz - 3)) / 6;
+    const slope = Math.hypot(dx, dz);
+    const variation =
+      0.5 +
+      0.25 * Math.sin(px * 0.025 + Math.sin(pz * 0.014) * 2) +
+      0.25 * Math.cos(pz * 0.032 + Math.sin(px * 0.009) * 2);
+    // Blend vegetation, exposed rock and shoreline continuously instead of colour bands.
+    const c = new THREE.Color('#3c513d').lerp(
+      new THREE.Color('#6a7059'),
+      variation * 0.65,
     );
-    c.multiplyScalar(
-      0.88 +
-        Math.sin(px * 0.13 + pz * 0.07) * 0.07 +
-        Math.sin(px * 0.032 - pz * 0.021) * 0.06,
+    c.lerp(
+      new THREE.Color('#77776b'),
+      THREE.MathUtils.smoothstep(slope, 0.2, 0.65),
     );
+    c.lerp(
+      new THREE.Color('#a5a081'),
+      1 - THREE.MathUtils.smoothstep(h, 2, 13),
+    );
+    c.multiplyScalar(0.88 + variation * 0.17);
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));

@@ -1,3 +1,5 @@
+import { CoastalAtmosphere } from '../naval/atmosphere';
+import { makeDaylightSky, COASTAL_SUN } from '../naval/daylight';
 import {
   beachHeight,
   createBeachGeometry,
@@ -71,6 +73,8 @@ export class PillboxScene {
   private height = 1;
   private observer: ResizeObserver;
   private infantry: InfantryRenderer;
+  private atmosphere = new CoastalAtmosphere(this.scene, 'beach');
+  private sky = makeDaylightSky();
   private coast = new CoastalWater(this.scene);
   private wreckSmoke = new WreckSmoke(this.scene);
   private vehicles = new VehicleRenderer(this.scene);
@@ -100,7 +104,7 @@ export class PillboxScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.22;
+    this.renderer.toneMappingExposure = 1.02;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
@@ -312,13 +316,16 @@ export class PillboxScene {
       }),
     ]).then(() => undefined);
 
-    this.makeSky(geo);
-    this.scene.add(new THREE.HemisphereLight('#e7e2cf', '#756b4e', 2.15));
+    this.makeSky();
+    this.scene.add(new THREE.HemisphereLight('#c4d9e4', '#726149', 0.75));
     const bunkerFill = new THREE.PointLight('#ffe0ae', 34, 42, 1.45);
     bunkerFill.position.set(-3, 9, 10);
     this.scene.add(bunkerFill);
-    const sun = new THREE.DirectionalLight('#ffd8a2', 3.25);
-    sun.position.set(-52, 70, 32);
+    const sun = new THREE.DirectionalLight('#fff0d8', 3.1);
+    sun.position
+      .copy(COASTAL_SUN)
+      .multiplyScalar(115)
+      .add(new THREE.Vector3(0, 0, -72));
     sun.target.position.set(0, 0, -72);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -428,44 +435,19 @@ export class PillboxScene {
       );
   }
 
-  private makeSky(geo: <T extends THREE.BufferGeometry>(g: T) => T) {
-    const skyMaterial = new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      vertexShader: `varying vec3 vWorld;void main(){vWorld=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
-      fragmentShader: `
-        varying vec3 vWorld;
-        float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-        float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+1.),f.x),f.y);}
-        void main(){
-          vec3 d=normalize(vWorld); float h=clamp(d.y*.78+.2,0.,1.);
-          vec3 horizon=vec3(.69,.75,.73), zenith=vec3(.28,.43,.53);
-          vec3 c=mix(horizon,zenith,pow(h,.62));
-          vec2 p=d.xz/max(.10,d.y+.18)*1.2;
-          float n=noise(p)+noise(p*2.1)*.52+noise(p*4.2)*.22;
-          float cloud=smoothstep(.79,1.28,n)*smoothstep(-.02,.3,d.y);
-          c=mix(c,vec3(.83,.82,.75),cloud*.74);
-          float glow=pow(max(dot(d,normalize(vec3(-.52,.35,.78))),0.),24.);
-          c+=vec3(.34,.23,.11)*glow;
-          gl_FragColor=vec4(c,1.);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }`,
-    });
-    this.materials.push(skyMaterial);
-    const sky = mesh(
-      geo(new THREE.SphereGeometry(500, 28, 16)),
-      skyMaterial,
-      [0, 0, 0],
-    );
-    sky.castShadow = sky.receiveShadow = false;
+  private makeSky() {
+    const sky = this.sky;
+    this.materials.push(sky.material);
+    this.geometries.push(sky.geometry);
     this.scene.add(sky);
     const surroundings = new THREE.Scene();
     surroundings.add(sky.clone());
     const generator = new THREE.PMREMGenerator(this.renderer);
-    this.environment = generator.fromScene(surroundings, 0.08, 0.1, 700);
+    sky.material.uniforms.showSunDisc.value = false;
+    this.environment = generator.fromScene(surroundings, 0.08, 0.1, 18000);
+    sky.material.uniforms.showSunDisc.value = true;
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.55;
+    this.scene.environmentIntensity = 0.3;
     generator.dispose();
   }
 
@@ -983,6 +965,8 @@ export class PillboxScene {
     const activeDt = battle.status === 'paused' ? 0 : Math.min(dt, 0.1);
     this.visualTime += activeDt;
     this.coast.update(this.visualTime);
+    this.sky.material.uniforms.time.value = this.visualTime;
+    this.atmosphere.update(battle.time);
     this.wreckSmoke.update(battle);
     this.recoil = Math.max(0, this.recoil - activeDt * 11);
     this.muzzleLight.intensity = Math.max(
@@ -1047,6 +1031,7 @@ export class PillboxScene {
     this.infantry.dispose();
     this.vehicles.dispose();
     this.coast.dispose();
+    this.atmosphere.dispose();
     this.wreckSmoke.dispose();
     this.detail.dispose();
     this.surfaceMaps?.dispose();
