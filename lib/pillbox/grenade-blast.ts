@@ -8,7 +8,7 @@ const MAX_BLASTS = 4;
 export class GrenadeBlast {
   readonly shake = new THREE.Vector3();
   roll = 0;
-  private blasts: Array<{ root: THREE.Group; age: number }> = [];
+  private blasts: Array<{ root: THREE.Group; age: number; force: number }> = [];
   private texture: THREE.DataTexture;
   private light = new THREE.PointLight('#ffc783', 0, 32, 2);
   private debrisGeometry = new THREE.IcosahedronGeometry(0.13, 0);
@@ -39,7 +39,7 @@ export class GrenadeBlast {
     this.scene.add(this.light);
   }
 
-  trigger(x: number, z: number) {
+  trigger(x: number, z: number, force = 1) {
     if (this.blasts.length >= MAX_BLASTS)
       this.remove(this.blasts.shift()!.root);
     const root = new THREE.Group();
@@ -71,7 +71,7 @@ export class GrenadeBlast {
     for (let i = 0; i < 8; i++)
       root.add(new THREE.Mesh(this.debrisGeometry, this.debrisMaterial));
     this.scene.add(root);
-    this.blasts.push({ root, age: 0 });
+    this.blasts.push({ root, age: 0, force });
   }
 
   update(dt: number, reducedMotion: boolean) {
@@ -93,7 +93,7 @@ export class GrenadeBlast {
           180 * Math.pow(1 - age / 0.24, 2),
         );
       }
-      const decay = Math.exp(-age * 5.5);
+      const decay = Math.exp(-age * 5.5) * blast.force;
       if (!reducedMotion) {
         this.shake.x += Math.sin(age * 53) * decay * 0.45;
         this.shake.y += Math.cos(age * 41) * decay * 0.3;

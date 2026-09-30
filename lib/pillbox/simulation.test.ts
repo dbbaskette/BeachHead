@@ -9,6 +9,8 @@ import {
   type PillboxBattle,
 } from './types';
 import { aimPillbox, createPillboxBattle, stepPillbox } from './simulation';
+import { chooseSupplies } from './combat-actions';
+import { terrainBlocksShot } from './terrain';
 
 function advance(battle: PillboxBattle, seconds: number, firing = false): void {
   for (
@@ -50,7 +52,15 @@ void describe('pillbox simulation', () => {
     firstLanding(battle);
     assert.equal(battle.soldiers.length, 1);
     assert.deepEqual([battle.soldiers[0].id, battle.soldiers[0].lane], [1, 3]);
-    advance(battle, 17);
+    battle.jeepSpawned = battle.wave;
+    battle.jeeps = [];
+    battle.landingCraft.forEach((c) => (c.gunnerHealth = 0));
+    for (
+      let i = 0;
+      i < 1200 && !battle.soldiers.some((s) => s.phase === 'cover');
+      i++
+    )
+      stepPillbox(battle, 0.025, false);
     assert.equal(battle.spawned, WAVE_COUNTS[0]);
     assert.ok(battle.soldiers.some((soldier) => soldier.phase === 'cover'));
     assert.ok(
@@ -109,7 +119,13 @@ void describe('pillbox simulation', () => {
   });
 
   void test('ready, paused, won, and lost states freeze and retry is clean', () => {
-    for (const status of ['ready', 'paused', 'won', 'lost'] as const) {
+    for (const status of [
+      'ready',
+      'paused',
+      'resupply',
+      'won',
+      'lost',
+    ] as const) {
       const battle = createPillboxBattle();
       battle.status = status;
       const snapshot = structuredClone(battle);
@@ -165,7 +181,7 @@ void describe('pillbox simulation', () => {
       stepPillbox(battle, 0.05, false);
       assert.ok(
         Math.hypot(soldier.x - before.x, soldier.z - before.z) <=
-          soldier.speed * 0.05 + 1e-6,
+          soldier.speed * 1.25 * 0.05 + 1e-6,
       );
       for (const o of BEACH_OBSTACLES)
         assert.ok(
@@ -184,7 +200,7 @@ void describe('pillbox simulation', () => {
     advance(battle, 8);
     assert.ok(battle.soldiers.length >= 12);
     assert.ok(battle.soldiers.every((s) => s.z < -98));
-    assert.equal(battle.health, 100);
+    assert.ok(battle.health >= 85);
   });
 
   void test('wins the full three-wave encounter through heat-aware aimed fire', () => {
@@ -195,15 +211,36 @@ void describe('pillbox simulation', () => {
 
     for (
       let ticks = 0;
-      ticks < 4_000 && battle.status === 'playing';
+      ticks < 8_000 &&
+      (battle.status === 'playing' || battle.status === 'resupply');
       ticks += 1
     ) {
+      if (['resupply'].includes(battle.status)) {
+        chooseSupplies(battle, 'repair');
+        cooling = false;
+      }
+      const gunner = battle.landingCraft.find(
+        (c) =>
+          c.gunnerHealth > 0 &&
+          c.phase !== 'gone' &&
+          c.phase !== 'withdrawing' &&
+          c.z >= -205,
+      );
       const target =
         battle.jeeps.find(
           (j) => j.phase === 'driving' || j.phase === 'unloading',
         ) ??
+        (gunner ? { x: gunner.x - 1.3, z: gunner.z - 4.5 } : undefined) ??
         battle.soldiers
-          .filter((s) => s.phase === 'advance')
+          .filter(
+            (s) =>
+              (s.phase === 'advance' || s.exposed) &&
+              !terrainBlocksShot(
+                s.x,
+                s.z,
+                s.exposed ? 2.8 : s.crawling ? 0.55 : 1.7,
+              ),
+          )
           .sort((a, b) => b.z - a.z)[0];
       if (target) aimPillbox(battle, target.x, target.z);
 
@@ -218,7 +255,7 @@ void describe('pillbox simulation', () => {
       battle.kills,
       WAVE_COUNTS.reduce((sum, n) => sum + n, 0),
     );
-    assert.equal(battle.health, 100);
+    assert.ok(battle.health >= 50);
     assert.equal(sawVictory, true);
     assert.equal(battle.vehiclesStopped, 6);
     assert.ok(

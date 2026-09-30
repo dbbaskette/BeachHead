@@ -9,7 +9,7 @@ function randomGenerator(seed: number) {
 }
 
 /** A tapered, low-wing piston aircraft, modelled in metres, nose toward -Z. */
-function makeAircraft() {
+export function makeAircraft() {
   const root = new THREE.Group();
   const paint = new THREE.MeshStandardMaterial({
     color: '#586052',

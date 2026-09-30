@@ -13,6 +13,7 @@ function landedSquad() {
   const b = createPillboxBattle();
   b.status = 'playing';
   b.jeepSpawned = 1;
+  b.landingCraft.forEach((c) => (c.gunnerHealth = 0));
   for (let i = 0; i < 400 && b.soldiers.length < 3; i++)
     stepPillbox(b, 0.025, false);
   assert.equal(b.soldiers.length, 3);
@@ -92,6 +93,7 @@ void test('selected infantry crawl behind barricades, stay protected, then stand
     if (s.phase === 'cover' && !sawCover) {
       sawCover = true;
       assert.equal(s.crawling, true);
+      s.suppression = 1;
       aimPillbox(b, s.x, s.z);
       stepPillbox(b, 0.001, true);
       assert.equal(s.health, 1);
@@ -174,6 +176,7 @@ void test('foxhole routes clear obstacles and troops hide, emerge, then complete
       assert.equal(s.phase, 'cover');
       assert.equal(s.coverIndex, 1);
       assert.ok(beachHeight(s.x, s.z) < -1.3);
+      s.suppression = 1;
       aimPillbox(b, s.x, s.z);
       stepPillbox(b, 0.001, true);
       assert.equal(s.health, 1);
@@ -199,7 +202,7 @@ void test('foxholes have deep floors, raised lips and disposable shared dressing
   const scene = new THREE.Scene(),
     holes = new FoxholeDetail(scene);
   const bag = scene.children[0].children[0] as THREE.InstancedMesh;
-  assert.equal(bag.count, 45);
+  assert.equal(bag.count, 55);
   let disposed = false;
   bag.addEventListener('dispose', () => {
     disposed = true;

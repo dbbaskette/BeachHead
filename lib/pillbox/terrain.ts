@@ -35,7 +35,44 @@ export function beachHeight(x: number, z: number): number {
         -0.42 * Math.exp(-distance * distance * 3.5) +
         0.17 * Math.exp(-Math.pow((distance - 0.92) / 0.19, 2));
   }
-  return height + foxholeDepth(x, z);
+  return height + terrainRelief(x, z) + foxholeDepth(x, z);
+}
+
+/** Long low dunes and drainage channels leave readable gaps through the beach. */
+export function terrainRelief(x: number, z: number) {
+  let h = 0;
+  for (const [cx, cz, w, d, high] of [
+    [-30, -91, 15, 7, 2.5],
+    [29, -78, 14, 8, 2.8],
+    [-24, -48, 13, 7, 1.6],
+    [33, -35, 11, 8, 1.1],
+  ]) {
+    h +=
+      high * Math.exp(-Math.pow((x - cx) / w, 2) - Math.pow((z - cz) / d, 2));
+  }
+  h -=
+    0.65 *
+    Math.exp(-Math.pow((x - 2 - Math.sin(z * 0.045) * 3) / 4.5, 2)) *
+    Math.exp(-Math.pow((z + 72) / 42, 2));
+  // Keep foxhole lips readable and their depth consistent relative to nearby terrain.
+  for (const hole of FOXHOLES)
+    h *=
+      1 -
+      0.9 *
+        Math.exp(
+          -Math.pow((x - hole.x) / 5, 2) - Math.pow((z - hole.z) / 4, 2),
+        );
+  return h * Math.max(0, Math.min(1, (-z - 12) / 14));
+}
+
+export function terrainBlocksShot(x: number, z: number, height = 1.7) {
+  const target = beachHeight(x, z) + height;
+  for (let t = 0.08; t < 0.96; t += 0.04) {
+    const px = x * t,
+      pz = 3.7 + (z - 3.7) * t;
+    if (beachHeight(px, pz) > 3.6 + (target - 3.6) * t + 0.12) return true;
+  }
+  return false;
 }
 export function createBeachGeometry() {
   const geometry = new THREE.PlaneGeometry(240, 190, 240, 190);
@@ -74,7 +111,10 @@ export function naturalSand(material: THREE.MeshStandardMaterial) {
       diffuseColor.rgb *= mix(vec3(.88,.85,.77),vec3(1.1,1.07,.99),broad);
       diffuseColor.rgb *= mix(1.,.52,wet);
       for(int i=0;i<5;i++){
-        float dugout=1.-smoothstep(.55,1.15,length((vBeachPosition.xz-foxholes[i].xy)*vec2(1.,1.12))/foxholes[i].z);
+        float holeDistance=length((vBeachPosition.xz-foxholes[i].xy)*vec2(1.,1.12))/foxholes[i].z;
+        float dugout=1.-smoothstep(.65,1.22,holeDistance);
+        float spoil=(1.-smoothstep(1.15,1.75,holeDistance))*(.7+.3*beachNoise(vBeachPosition.xz*1.7));
+        diffuseColor.rgb*=mix(vec3(1.),vec3(.62,.52,.4),spoil);
         diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.38,.31,.23),dugout);
       }
       float ripplePhase=vBeachPosition.x*5.8+vBeachPosition.z*2.1+beachNoise(vBeachPosition.xz*.22)*6.;
@@ -88,7 +128,7 @@ export function naturalSand(material: THREE.MeshStandardMaterial) {
       '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, .36, smoothstep(118.,140.,-vBeachPosition.z));',
     );
   };
-  material.customProgramCacheKey = () => 'natural-beach-foxholes-v3';
+  material.customProgramCacheKey = () => 'natural-beach-foxholes-v4';
 }
 
 export class CoastalWater {

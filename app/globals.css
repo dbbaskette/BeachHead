@@ -1276,3 +1276,20 @@ kbd {
 .jeep-marker,.grenade-marker { position:absolute; z-index:5; pointer-events:none; transform:translate(-50%,-100%); background:#192620dc; color:#f8d28c; padding:4px 6px; font:10px monospace; white-space:nowrap; }
 .jeep-marker progress { display:block; width:70px; height:4px; margin-top:3px; accent-color:#e6ba74; }
 .grenade-marker { color:#fff; background:#a93727; font-weight:bold; }
+
+/* Tactical controls sit above the gun instruments and remain usable on touch screens. */
+.pillbox-tactics { position:absolute; z-index:4; right:28px; bottom:196px; display:flex; gap:8px; }
+.pillbox-tactics button { display:flex; align-items:center; gap:9px; padding:11px 15px; border:1px solid #dcb16e88; color:#f0dfbe; background:#1b2a23ee; font-size:12px; cursor:pointer; }
+.pillbox-tactics button:disabled { opacity:.65; cursor:default; }
+.pillbox-tactics kbd { color:#e8bd7c; border:1px solid #dcb16e66; padding:2px 5px; }
+.tactical-marker { position:absolute; z-index:2; transform:translate(-50%,-100%); padding:4px 6px; color:#ffdfa5; background:#18251edb; border-bottom:1px solid #dcb16e; font-size:9px; font-weight:600; white-space:nowrap; pointer-events:none; }
+.supply-choices { display:grid; grid-template-columns:1fr; gap:10px; margin:24px 0; }
+.supply-choices button { text-align:left; padding:15px 18px; background:#26382d; border:1px solid #dcb16e88; color:#f0dfbe; cursor:pointer; }
+.supply-choices button:hover { background:#394b37; }
+.supply-choices b,.supply-choices span { display:block; }
+.supply-choices span { font-size:12px; color:#c7cbb5; margin-top:5px; }
+@media(max-width:700px) { .pillbox-tactics { right:12px; bottom:235px; gap:5px; } .pillbox-tactics button { padding:8px; font-size:10px; } .tactical-marker { font-size:8px; } .pillbox-objective p { flex-wrap:wrap; max-width:80vw; } }
+
+.pillbox-radio { bottom:244px; }
+.pillbox-supplies { max-height:calc(100dvh - 32px); overflow:auto; }
+@media(max-width:700px) { .pillbox-radio { bottom:285px; } }

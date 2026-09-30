@@ -11,6 +11,7 @@ import { WreckSmoke } from './smolder';
 import { AssaultSmoke } from './assault-smoke';
 import { FoxholeDetail } from './foxhole-detail';
 import { GrenadeBlast } from './grenade-blast';
+import { TacticalRenderer, supportCrew } from './tactical-renderer';
 import { VehicleRenderer } from './vehicles';
 import { BEACH_OBSTACLES } from './navigation';
 import * as THREE from 'three';
@@ -85,6 +86,7 @@ export class PillboxScene {
   private assaultSmoke = new AssaultSmoke(this.scene);
   private foxholes = new FoxholeDetail(this.scene);
   private grenadeBlast = new GrenadeBlast(this.scene);
+  private tactical = new TacticalRenderer(this.scene);
   private vehicles = new VehicleRenderer(this.scene);
   private detail: BeachDetail;
   private surfaceMaps: PillboxSurfaceMaps | null = null;
@@ -719,18 +721,22 @@ export class PillboxScene {
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    const craft = this.landingCraft.pick(this.raycaster);
+    if (craft) return craft;
     const vehicle = this.vehicles.pick(this.raycaster);
     if (vehicle) return vehicle;
     const soldier = this.infantry.pick(this.raycaster);
     if (soldier) return soldier;
     const hit = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(this.aimPlane, hit)) return null;
-    if (hit.z > -9 || hit.z < -145 || Math.abs(hit.x) > 70) return null;
+    if (hit.z > -9 || hit.z < -215 || Math.abs(hit.x) > 70) return null;
     return { x: hit.x, z: hit.z };
   }
 
   project(x: number, z: number): PillboxScreenPoint {
-    const p = new THREE.Vector3(x, 1, z).project(this.camera);
+    const p = new THREE.Vector3(x, beachHeight(x, z) + 1, z).project(
+      this.camera,
+    );
     return {
       x: (p.x * 0.5 + 0.5) * this.width,
       y: (-p.y * 0.5 + 0.5) * this.height,
@@ -740,6 +746,52 @@ export class PillboxScene {
   }
 
   event(event: PillboxEvent) {
+    if (event.type === 'player-blast')
+      this.grenadeBlast.trigger(
+        event.x,
+        event.z,
+        Math.hypot(event.x, event.z) < 25 ? 0.25 : 0,
+      );
+    if (event.type === 'enemy-fire') {
+      const start = new THREE.Vector3(
+        event.x,
+        beachHeight(event.x, event.z) + 1.5,
+        event.z,
+      );
+      const end = new THREE.Vector3(event.x * 0.1, 4, -6);
+      const delta = end.clone().sub(start);
+      const tracer = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.025, 0.025, 1, 4),
+        new THREE.MeshBasicMaterial({
+          color: event.heavy ? '#ffa85a' : '#f4ca83',
+          transparent: true,
+          depthWrite: false,
+        }),
+      );
+      tracer.position.copy(start).addScaledVector(delta, 0.5);
+      tracer.scale.y = delta.length();
+      tracer.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        delta.normalize(),
+      );
+      if (this.effects.length < 140) {
+        this.scene.add(tracer);
+        this.effects.push({
+          mesh: tracer,
+          velocity: new THREE.Vector3(),
+          age: 0,
+          life: 0.09,
+          grow: 0,
+          gravity: 0,
+        });
+      } else {
+        tracer.geometry.dispose();
+        tracer.material.dispose();
+      }
+      this.spawnFlash(start, '#ffd280', 0.65, 0.1);
+    }
+    if (event.type === 'mortar-launch')
+      this.spawnDust(event.x, event.z, '#b4a890');
     if (event.type === 'shot') {
       this.recoil = 1;
       this.muzzleLight.intensity = 45;
@@ -980,7 +1032,10 @@ export class PillboxScene {
       this.visualTime = battle.time;
     }
     this.lastBattleTime = battle.time;
-    const activeDt = battle.status === 'paused' ? 0 : Math.min(dt, 0.1);
+    const activeDt =
+      battle.status === 'paused' || battle.status === 'resupply'
+        ? 0
+        : Math.min(dt, 0.1);
     this.visualTime += activeDt;
     this.coast.update(this.visualTime);
     this.sky.material.uniforms.time.value = this.visualTime;
@@ -1017,12 +1072,17 @@ export class PillboxScene {
     this.infantry.render(
       {
         ...battle,
-        soldiers: [...battle.soldiers, ...embarkedInfantry(battle)],
+        soldiers: [
+          ...battle.soldiers,
+          ...embarkedInfantry(battle),
+          ...supportCrew(battle),
+        ],
       },
       activeDt,
       reducedMotion,
     );
     this.vehicles.render(battle, activeDt);
+    this.tactical.render(battle);
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const e = this.effects[i];
       e.age += activeDt;
@@ -1072,6 +1132,7 @@ export class PillboxScene {
     this.assaultSmoke.dispose();
     this.foxholes.dispose();
     this.grenadeBlast.dispose();
+    this.tactical.dispose();
     this.detail.dispose();
     this.surfaceMaps?.dispose();
     this.environment?.dispose();

@@ -37,11 +37,19 @@ export function createLandingCraft(wave: number): LandingCraft[] {
       passengers: capacity,
       ramp: 0,
       phase: 'approach',
+      rampHealth: 8,
+      jamTimer: 0,
+      gunnerHealth: 2,
+      attackTimer: 3,
     };
   });
 }
 export function updateLandingCraft(battle: PillboxBattle, dt: number) {
   for (const craft of battle.landingCraft) {
+    if (craft.jamTimer > 0) {
+      craft.jamTimer = Math.max(0, craft.jamTimer - dt);
+      if (craft.phase === 'lowering' || craft.phase === 'unloading') continue;
+    }
     if (craft.phase === 'approach') {
       craft.z = Math.min(BERTH_Z, craft.z + dt * 8);
       if (craft.z === BERTH_Z) craft.phase = 'lowering';

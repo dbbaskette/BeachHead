@@ -1,4 +1,5 @@
 import { AIM_BOUNDS, type PillboxBattle } from './types';
+import type { SupplyChoice } from './types';
 
 /** Optional browser actions mirror the visible controls, without debug cheats. */
 export function registerPillboxTools(actions: {
@@ -6,6 +7,9 @@ export function registerPillboxTools(actions: {
   start: () => void;
   aim: (x: number, z: number) => void;
   trigger: (held: boolean) => void;
+  grenade: () => void;
+  support: () => void;
+  supplies: (choice: SupplyChoice) => void;
 }) {
   const context = (
     document as Document & {
@@ -48,6 +52,12 @@ export function registerPillboxTools(actions: {
     const b = actions.read();
     return {
       status: b.status,
+      grenadeAmmo: b.grenadeAmmo,
+      grenadeCooldown: b.grenadeCooldown,
+      supportProgress: b.supportProgress,
+      airSupportCharges: b.airSupportCharges,
+      airStrike: b.airStrike,
+      barrelLevel: b.barrelLevel,
       time: b.time,
       wave: b.wave,
       health: b.health,
@@ -74,10 +84,55 @@ export function registerPillboxTools(actions: {
           smokeState: s.smokeState,
           crawling: Boolean(s.crawling),
           foxholeId: s.foxholeId,
+          role: s.role,
+          emplacement: s.emplacement,
+          setupTimer: s.setupTimer,
+          exposed: s.exposed,
         })),
     };
   };
   const tools = [
+    {
+      name: 'throw_rifle_grenade',
+      description:
+        'Throw one available rifle grenade at the current reticle, within 115 meters.',
+      inputSchema: schema({}),
+      readOnly: false,
+      execute(input: unknown) {
+        values(input, []);
+        actions.grenade();
+        return read();
+      },
+    },
+    {
+      name: 'call_strafing_run',
+      description:
+        'Spend one earned air-support charge on a strafing pass through the current aim point.',
+      inputSchema: schema({}),
+      readOnly: false,
+      execute(input: unknown) {
+        values(input, []);
+        actions.support();
+        return read();
+      },
+    },
+    {
+      name: 'choose_wave_supplies',
+      description:
+        'Choose one benefit after clearing a wave and start the next wave.',
+      inputSchema: schema(
+        { choice: { type: 'string', enum: ['repair', 'barrel', 'grenades'] } },
+        ['choice'],
+      ),
+      readOnly: false,
+      execute(input: unknown) {
+        const v = values(input, ['choice']);
+        if (!['repair', 'barrel', 'grenades'].includes(String(v.choice)))
+          throw new Error('Unknown supply choice.');
+        actions.supplies(v.choice as SupplyChoice);
+        return read();
+      },
+    },
     {
       name: 'get_beach_status',
       description: 'Read Stage 2 defense status and infantry positions.',
@@ -95,7 +150,7 @@ export function registerPillboxTools(actions: {
       readOnly: false,
       execute(input: unknown) {
         values(input, []);
-        if (['playing', 'paused'].includes(actions.read().status))
+        if (['playing', 'paused', 'resupply'].includes(actions.read().status))
           throw new Error('Defense is already active.');
         actions.start();
         return read();

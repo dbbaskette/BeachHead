@@ -8,6 +8,7 @@ import {
   landingDeckHeight,
   RAMP_END_Z,
 } from './landings';
+import { nextInfantryId } from './landings';
 import { LandingCraftRenderer, embarkedInfantry } from './landing-craft';
 import { WAVE_COUNTS } from './types';
 
@@ -16,6 +17,10 @@ void test('wave passengers arrive by craft and walk onto land before boats withd
     const b = createPillboxBattle();
     b.wave = wave;
     b.landingCraft = createLandingCraft(wave);
+    b.pendingInfantry = Array.from({ length: WAVE_COUNTS[wave - 1] }, (_, i) =>
+      nextInfantryId(wave, i),
+    );
+    b.landingCraft.forEach((c) => (c.gunnerHealth = 0));
     b.status = 'playing';
     b.jeepSpawned = wave;
     assert.equal(

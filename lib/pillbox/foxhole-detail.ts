@@ -7,9 +7,9 @@ import { beachHeight } from './terrain';
 export class FoxholeDetail {
   private root = new THREE.Group();
   private bagGeometry = new RoundedBoxGeometry(1.03, 0.32, 0.58, 3, 0.12);
-  private boardGeometry = new THREE.BoxGeometry(0.25, 1.05, 0.12);
+  private boardGeometry = new THREE.BoxGeometry(0.25, 1.65, 0.12);
   private bagMaterial = new THREE.MeshStandardMaterial({
-    color: '#807457',
+    color: '#aa9872',
     roughness: 1,
   });
   private boardMaterial = new THREE.MeshStandardMaterial({
@@ -22,12 +22,12 @@ export class FoxholeDetail {
     const bags = new THREE.InstancedMesh(
       this.bagGeometry,
       this.bagMaterial,
-      FOXHOLES.length * 9,
+      FOXHOLES.length * 11,
     );
     const boards = new THREE.InstancedMesh(
       this.boardGeometry,
       this.boardMaterial,
-      FOXHOLES.length * 9,
+      FOXHOLES.length * 11,
     );
     const part = new THREE.Object3D();
     bags.castShadow =
@@ -37,10 +37,10 @@ export class FoxholeDetail {
         true;
     this.root.add(bags, boards);
     for (const hole of FOXHOLES) {
-      for (let i = 0; i < 9; i++) {
-        const angle = 0.12 + (i * (Math.PI - 0.24)) / 8;
-        const x = hole.x + Math.cos(angle) * 2.4;
-        const z = hole.z + Math.sin(angle) * 2.1;
+      for (let i = 0; i < 11; i++) {
+        const angle = 0.12 + (i * (Math.PI - 0.24)) / 10;
+        const x = hole.x + Math.cos(angle) * hole.radius;
+        const z = hole.z + (Math.sin(angle) * hole.radius) / 1.12;
         part.position.set(x, beachHeight(x, z) + 0.15, z);
         part.rotation.set(
           ((i % 3) - 1) * 0.06,
@@ -48,15 +48,15 @@ export class FoxholeDetail {
           (i % 2) * 0.04,
         );
         part.updateMatrix();
-        bags.setMatrixAt(hole.id * 9 + i, part.matrix);
+        bags.setMatrixAt(hole.id * 11 + i, part.matrix);
       }
-      for (let i = 0; i < 9; i++) {
-        const x = hole.x + (i - 4) * 0.27,
-          z = hole.z - 1.05;
-        part.position.set(x, beachHeight(x, z) + 0.37, z);
+      for (let i = 0; i < 11; i++) {
+        const x = hole.x + (i - 5) * 0.3,
+          z = hole.z - 1.4;
+        part.position.set(x, beachHeight(x, z) + 0.85, z);
         part.rotation.set(-0.12, 0, ((i % 3) - 1) * 0.035);
         part.updateMatrix();
-        boards.setMatrixAt(hole.id * 9 + i, part.matrix);
+        boards.setMatrixAt(hole.id * 11 + i, part.matrix);
       }
     }
     scene.add(this.root);

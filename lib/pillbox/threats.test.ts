@@ -10,6 +10,7 @@ import { BEACH_OBSTACLES, clearSegment } from './navigation';
 function battle() {
   const b = createPillboxBattle();
   b.status = 'playing';
+  b.landingCraft.forEach((c) => (c.gunnerHealth = 0));
   b.spawnTimer = 1000;
   return b;
 }

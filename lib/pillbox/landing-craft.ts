@@ -31,11 +31,17 @@ export function embarkedInfantry(battle: PillboxBattle): Infantry[] {
 export class LandingCraftRenderer {
   private craft = new Map<
     number,
-    { root: THREE.Group; ramp: THREE.Group; wake: THREE.Mesh }
+    {
+      root: THREE.Group;
+      ramp: THREE.Group;
+      wake: THREE.Mesh;
+      gunner: THREE.Group;
+    }
   >();
   private template: THREE.Group;
   private paint: THREE.MeshStandardMaterial;
   private rampTemplate: THREE.Group;
+  private gunnerTemplate: THREE.Group;
   private geometries = new Set<THREE.BufferGeometry>();
   private materials = new Set<THREE.Material>();
   private disposed = false;
@@ -137,6 +143,24 @@ export class LandingCraftRenderer {
         RAMP_LENGTH / 2,
         -0.14,
       );
+    const gunner = new THREE.Group();
+    add(gunner, new THREE.CapsuleGeometry(0.25, 0.6, 4, 10), wood, [0, 0.8, 0]);
+    add(
+      gunner,
+      new THREE.SphereGeometry(0.25, 12, 8),
+      this.paint,
+      [0, 1.43, 0],
+    );
+    box(gunner, 0.25, 0.24, 1.5, dark, 0, 0.97, 0.8);
+    add(
+      gunner,
+      new Cylinder(0.07, 0.07, 0.95, 10),
+      dark,
+      [0, 0.96, 1.8],
+      [Math.PI / 2, 0, 0],
+    );
+    add(gunner, new Cylinder(0.06, 0.09, 0.9, 8), dark, [0, 0.43, 0.6]);
+    this.gunnerTemplate = this.merge(gunner);
     this.template = this.merge(body);
     this.rampTemplate = this.merge(ramp);
   }
@@ -168,7 +192,9 @@ export class LandingCraftRenderer {
     root.name = `landing-craft-${id}`;
     const ramp = this.rampTemplate.clone();
     ramp.position.set(0, 0.72, 6);
-    root.add(ramp);
+    const gunner = this.gunnerTemplate.clone();
+    gunner.position.set(-1.3, 1.4, -4.5);
+    root.add(ramp, gunner);
     const geometry = new THREE.PlaneGeometry(6.5, 24);
     this.geometries.add(geometry);
     const material = new THREE.ShaderMaterial({
@@ -191,7 +217,7 @@ export class LandingCraftRenderer {
     const wake = new THREE.Mesh(geometry, material);
     wake.rotation.x = -Math.PI / 2;
     this.scene.add(wake, root);
-    const instance = { root, ramp, wake };
+    const instance = { root, ramp, wake, gunner };
     this.craft.set(id, instance);
     return instance;
   }
@@ -222,12 +248,37 @@ export class LandingCraftRenderer {
       v.root.rotation.z = afloat
         ? Math.sin(battle.time * 0.8 + c.id) * 0.012
         : 0;
-      v.ramp.rotation.x = c.ramp * RAMP_ANGLE;
+      v.root.userData.targetable = c.phase !== 'withdrawing';
+      v.ramp.userData.targetable = c.rampHealth > 0;
+      v.gunner.visible = c.gunnerHealth > 0;
+      v.ramp.rotation.x = c.ramp * RAMP_ANGLE + (c.jamTimer > 0 ? 0.12 : 0);
+      v.gunner.rotation.y = Math.sin(battle.time * 0.8 + c.id) * 0.12;
       v.wake.position.set(c.x, 0.1, c.z - 17);
       const material = v.wake.material as THREE.ShaderMaterial;
       material.uniforms.time.value = battle.time;
       material.uniforms.strength.value = afloat ? 0.26 : 0;
     }
+  }
+  pick(raycaster: THREE.Raycaster): { x: number; z: number } | null {
+    let nearest = Infinity,
+      target: { x: number; z: number } | null = null;
+    for (const v of this.craft.values()) {
+      if (!v.root.userData.targetable) continue;
+      v.root.updateWorldMatrix(true, true);
+      for (const [part, x, z] of [
+        [v.gunner, -1.3, -4.5],
+        [v.ramp, 0, 6],
+      ] as const) {
+        if (!part.visible || (part === v.ramp && !part.userData.targetable))
+          continue;
+        const hit = raycaster.intersectObject(part, true)[0];
+        if (hit && hit.distance < nearest) {
+          nearest = hit.distance;
+          target = { x: v.root.position.x + x, z: v.root.position.z + z };
+        }
+      }
+    }
+    return target;
   }
   dispose() {
     if (this.disposed) return;

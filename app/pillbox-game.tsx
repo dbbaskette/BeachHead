@@ -19,11 +19,18 @@ import {
 import {
   AIM_BOUNDS,
   WAVE_COUNTS,
+  SUPPORT_REQUIRED,
+  type SupplyChoice,
   type PillboxBattle,
 } from '@/lib/pillbox/types';
 import type { PillboxScene } from '@/lib/pillbox/scene';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import { registerPillboxTools } from '@/lib/pillbox/webmcp';
+import {
+  throwPlayerGrenade,
+  callAirSupport,
+  chooseSupplies,
+} from '@/lib/pillbox/combat-actions';
 
 export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   const host = useRef<HTMLDivElement>(null);
@@ -42,7 +49,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   const [steady, setSteady] = useState(false);
   const [reticle, setReticle] = useState({ x: 0, y: 0, visible: false });
   const [threatMarkers, setThreatMarkers] = useState<
-    Array<{ id: string; x: number; y: number; health?: number }>
+    Array<{ id: string; x: number; y: number; health?: number; label?: string }>
   >([]);
   const publish = () =>
     setHud({ ...battle.current, soldiers: [...battle.current.soldiers] });
@@ -58,6 +65,24 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
     void audio.current?.start();
     publish();
     root.current?.focus();
+  };
+  const grenade = () => {
+    throwPlayerGrenade(battle.current);
+    publish();
+    root.current?.focus();
+  };
+  const support = () => {
+    callAirSupport(battle.current);
+    publish();
+    root.current?.focus();
+  };
+  const resupply = (choice: SupplyChoice) => {
+    if (chooseSupplies(battle.current, choice)) {
+      release();
+      audio.current?.setPaused(false);
+      publish();
+      root.current?.focus();
+    }
   };
   const pause = () => {
     const b = battle.current;
@@ -87,6 +112,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
         if (scene.current) start();
       },
       aim: (x, z) => aimPillbox(battle.current, x, z),
+      grenade,
+      support,
+      supplies: resupply,
       trigger: (value) => {
         held.current = value;
       },
@@ -115,6 +143,12 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
       )
         return;
       if (battle.current.status !== 'playing') return;
+      if ((e.code === 'KeyG' || e.code === 'KeyV') && !e.repeat) {
+        e.preventDefault();
+        if (e.code === 'KeyG') grenade();
+        else support();
+        return;
+      }
       if (
         [
           'KeyW',
@@ -208,7 +242,28 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
                     distance: 0,
                     pan: event.x / 12,
                   });
-                if (event.type === 'jeep-destroyed') soundEngine.play('impact');
+                if (
+                  event.type === 'jeep-destroyed' ||
+                  event.type === 'player-blast'
+                )
+                  soundEngine.play('impact', {
+                    distance: Math.min(1, Math.hypot(event.x, event.z) / 140),
+                    pan: event.x / 50,
+                  });
+                if (event.type === 'enemy-fire')
+                  soundEngine.play('fire', {
+                    distance: 0.85,
+                    pan: event.x / 50,
+                  });
+                if (event.type === 'mortar-launch')
+                  soundEngine.play('impact', {
+                    distance: 0.95,
+                    pan: event.x / 50,
+                  });
+                if (event.type === 'wave-cleared') {
+                  release();
+                  soundEngine.setPaused(true);
+                }
               }
               accumulator -= 1 / 60;
             }
@@ -220,7 +275,50 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           if (now - lastHud > 65) {
             publish();
             setReticle(scene.current!.project(b.aimX, b.aimZ));
-            const threats = [
+            const threats: Array<{
+              id: string;
+              x: number;
+              z: number;
+              health?: number;
+              label?: string;
+            }> = [
+              ...b.soldiers
+                .filter((s) => s.emplacement && s.phase === 'advance')
+                .map((s) => ({
+                  id: `team-${s.id}`,
+                  x: s.x,
+                  z: s.z,
+                  label: `${s.role === 'mortar' ? 'MORTAR' : 'MG TEAM'} · ${s.emplacement === 'setting-up' ? `SETTING UP ${Math.ceil(s.setupTimer ?? 0)}s` : 'FIRING'}`,
+                })),
+              ...b.landingCraft
+                .filter(
+                  (c) => c.phase === 'lowering' || c.phase === 'unloading',
+                )
+                .flatMap((c) => [
+                  ...(c.gunnerHealth > 0
+                    ? [
+                        {
+                          id: `gunner-${c.id}`,
+                          x: c.x - 1.3,
+                          z: c.z - 4.5,
+                          label: 'GUNNER',
+                        },
+                      ]
+                    : []),
+                  ...(c.rampHealth > 0 || c.jamTimer > 0
+                    ? [
+                        {
+                          id: `ramp-${c.id}`,
+                          x: c.x,
+                          z: c.z + 6,
+                          label:
+                            c.jamTimer > 0
+                              ? `RAMP JAMMED ${Math.ceil(c.jamTimer)}s`
+                              : `RAMP ${c.rampHealth}/8`,
+                        },
+                      ]
+                    : []),
+                ]),
               ...b.jeeps
                 .filter((j) => j.phase === 'driving' || j.phase === 'unloading')
                 .map((j) => ({
@@ -231,7 +329,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
                 })),
               ...b.soldiers
                 .filter(
-                  (s) => s.phase === 'advance' && s.grenadeState === 'windup',
+                  (s) =>
+                    (s.phase === 'advance' || s.phase === 'cover') &&
+                    s.grenadeState === 'windup',
                 )
                 .map((s) => ({
                   id: `thrower-${s.id}`,
@@ -244,7 +344,15 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
               threats.flatMap((t) => {
                 const p = scene.current!.project(t.x, t.z);
                 return p.visible
-                  ? [{ id: t.id, x: p.x, y: p.y, health: t.health }]
+                  ? [
+                      {
+                        id: t.id,
+                        x: p.x,
+                        y: p.y,
+                        health: t.health,
+                        label: t.label,
+                      },
+                    ]
                   : [];
               }),
             );
@@ -356,7 +464,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           {!ready && (
             <button
               aria-label={paused ? 'Resume defense' : 'Pause defense'}
-              disabled={finished}
+              disabled={finished || hud.status === 'resupply'}
               onClick={pause}
             >
               {paused ? <Play size={18} /> : <Pause size={18} />}
@@ -369,11 +477,17 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           <div
             key={marker.id}
             className={
-              marker.health === undefined ? 'grenade-marker' : 'jeep-marker'
+              marker.label
+                ? 'tactical-marker'
+                : marker.health === undefined
+                  ? 'grenade-marker'
+                  : 'jeep-marker'
             }
             style={{ left: marker.x, top: marker.y - 38 }}
           >
-            {marker.health === undefined ? (
+            {marker.label ? (
+              marker.label
+            ) : marker.health === undefined ? (
               'GRENADE!'
             ) : (
               <>
@@ -401,9 +515,13 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             }{' '}
             jeeps
             {hud.grenades.length > 0
-              ? ' · GRENADE INCOMING!'
+              ? hud.grenades.some((g) => g.kind === 'mortar')
+                ? ' · MORTAR INCOMING!'
+                : ' · GRENADE INCOMING!'
               : hud.soldiers.some(
-                    (s) => s.phase === 'advance' && s.grenadeState === 'windup',
+                    (s) =>
+                      (s.phase === 'advance' || s.phase === 'cover') &&
+                      s.grenadeState === 'windup',
                   )
                 ? ' · STOP THE GRENADE THROWER!'
                 : ''}
@@ -452,14 +570,14 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             </span>
           </div>
           <p className="pillbox-hint">
-            Stop jeeps before they unload four reinforcements. Jeeps take 18
-            hits. Close infantry pause to throw grenades—shoot them before
-            release. Squads throw smoke throughout the advance and crawl into
-            barricades and foxholes. Watch the smoke edges; bullets pass through
-            it. Catch hidden troops as they leave cover. Move the mouse to aim;
-            hold the left button to fire. Use the wheel for range adjustments.
-            Fire in short bursts: about four seconds of continuous fire
-            overheats the gun, followed by a 2.5-second cooling lockout.
+            Use the mouse to aim and hold the left button to fire. G throws a
+            rifle grenade at your aim point (115 m range); V calls an earned
+            strafing run. Both also have on-screen buttons. Foxholes hold
+            squads: catch them peeking, pin them down, or clear them with a
+            grenade. Watch for smoke-screened rushes, MG teams and mortar crews.
+            Shoot craft gunners or jam ramps to slow the landing. Fire in short
+            bursts. After each wave, choose repairs, a better barrel, or extra
+            grenades.
           </p>
           <button
             className="pillbox-primary"
@@ -493,6 +611,36 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             · edited for automatic fire
           </p>
         </section>
+      )}
+      {hud.status === 'resupply' && !error && (
+        <div className="pillbox-overlay">
+          <section className="pillbox-result pillbox-supplies">
+            <Shield size={30} />
+            <p className="pillbox-eyebrow">WAVE {hud.wave} REPELLED</p>
+            <h2>Prepare the position.</h2>
+            <p>
+              Choose one benefit for the next assault. Your gun cools and you
+              receive three rifle grenades with every choice.
+            </p>
+            <div className="supply-choices">
+              <button onClick={() => resupply('repair')}>
+                <b>Repair bunker</b>
+                <span>Restore up to 35 integrity</span>
+              </button>
+              <button onClick={() => resupply('barrel')}>
+                <b>Improve barrel</b>
+                <span>Less heat per shot and faster cooling</span>
+              </button>
+              <button onClick={() => resupply('grenades')}>
+                <b>Extra grenades</b>
+                <span>Start the next wave with five</span>
+              </button>
+            </div>
+            <button className="pillbox-back" onClick={onReturn}>
+              Return to campaign start
+            </button>
+          </section>
+        </div>
       )}
       {(paused || finished || error) && (
         <div className="pillbox-overlay">
@@ -557,6 +705,31 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
               Return to campaign start
             </button>
           </section>
+        </div>
+      )}
+      {!ready && !finished && hud.status !== 'resupply' && (
+        <div className="pillbox-tactics">
+          <button
+            onClick={grenade}
+            disabled={!playing || !hud.grenadeAmmo || hud.grenadeCooldown > 0}
+            aria-label={`Throw rifle grenade, ${hud.grenadeAmmo} remaining`}
+          >
+            <kbd>G</kbd> Grenade <b>{hud.grenadeAmmo}</b>
+          </button>
+          <button
+            onClick={support}
+            disabled={
+              !playing || !hud.airSupportCharges || Boolean(hud.airStrike)
+            }
+            aria-label="Call strafing run"
+          >
+            <kbd>V</kbd>{' '}
+            {hud.airStrike
+              ? 'Support inbound'
+              : hud.airSupportCharges
+                ? 'Call strafing run'
+                : `Air support ${Math.min(SUPPORT_REQUIRED, hud.supportProgress)}/${SUPPORT_REQUIRED}`}
+          </button>
         </div>
       )}
       {!ready && (
@@ -669,8 +842,8 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
         </footer>
       )}
       <div className="pillbox-controls">
-        Mouse to aim · Hold left button to fire · Wheel for range{' '}
-        <span>SPACE</span> Fire <span>ESC</span> Pause
+        Mouse to aim · Hold left button to fire · Wheel for range <span>G</span>{' '}
+        Grenade <span>V</span> Air support <span>ESC</span> Pause
       </div>
     </main>
   );

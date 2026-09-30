@@ -13,7 +13,7 @@ const MAX_ACTIVE = 48;
 const MAX_CORPSES = 18;
 const MAX_VISIBLE = 66;
 
-type Pose = 'run' | 'cover' | 'crawl' | 'dugout' | 'down';
+type Pose = 'run' | 'cover' | 'crawl' | 'peek' | 'dugout' | 'down';
 
 type RenderedSoldier = {
   id: number;
@@ -313,7 +313,7 @@ export class InfantryRenderer {
       return;
     }
 
-    if (pose === 'cover' || pose === 'dugout') {
+    if (pose === 'cover' || pose === 'dugout' || pose === 'peek') {
       run.fadeOut(0.14);
       walk.fadeOut(0.14);
       idle.reset().setEffectiveWeight(1).fadeIn(0.14).play();
@@ -387,10 +387,14 @@ export class InfantryRenderer {
         soldier.phase === 'down'
           ? 'down'
           : soldier.foxholeId !== undefined
-            ? 'dugout'
+            ? soldier.exposed
+              ? 'peek'
+              : 'dugout'
             : soldier.crawling
               ? 'crawl'
               : soldier.phase === 'cover' ||
+                  soldier.supporting ||
+                  soldier.emplacement ||
                   soldier.grenadeState === 'windup' ||
                   soldier.smokeState === 'windup'
                 ? 'cover'
@@ -413,13 +417,15 @@ export class InfantryRenderer {
         base +
           (pose === 'crawl'
             ? 0.18
-            : pose === 'dugout'
-              ? -0.75
-              : pose === 'cover'
-                ? -0.35
-                : pose === 'down'
-                  ? reaction.height
-                  : 0),
+            : pose === 'peek'
+              ? 0.45
+              : pose === 'dugout'
+                ? -0.75
+                : pose === 'cover'
+                  ? -0.35
+                  : pose === 'down'
+                    ? reaction.height
+                    : 0),
         blend,
       );
       instance.model.rotation.x = THREE.MathUtils.lerp(
@@ -443,7 +449,10 @@ export class InfantryRenderer {
         pose === 'crawl' ? -0.9 : pose === 'down' ? reaction.shift : 0,
         blend,
       );
-      instance.actions.run.setEffectiveTimeScale(soldier.speed / 4.2);
+      instance.actions.run.setEffectiveTimeScale(
+        (soldier.speed / 4.2) *
+          ((soldier.rushUntil ?? 0) > battle.time ? 1.25 : 1),
+      );
       instance.actions.walk.setEffectiveTimeScale(
         soldier.phase === 'cover' ? 0 : 0.65,
       );

@@ -7,10 +7,23 @@ import {
 } from './landings';
 import { infantryRoute } from './navigation';
 import { FOXHOLES } from './foxholes';
+import { terrainBlocksShot } from './terrain';
+import {
+  stopInfantry,
+  stopJeep,
+  updatePlayerWeapons,
+  updateSupportReward,
+} from './combat-actions';
+import {
+  damagePosition,
+  rallySquad,
+  updateInfantryTactics,
+  updateFoxhole,
+} from './squad-tactics';
 import {
   AIM_BOUNDS,
   JEEP_HEALTH,
-  GRENADE_FLIGHT,
+  grenadeFlight,
   grenadeImpactPoint,
   SMOKE_FLIGHT,
   SMOKE_LIFETIME,
@@ -26,7 +39,6 @@ const BREACH_Z = -12;
 const SPAWN_INTERVAL = 0.2;
 const ADVANCE_SPEED = 3.5;
 const COVER_TIME = 1.35;
-const INTERMISSION_TIME = 2.5;
 const FIRE_INTERVAL = 1 / 8;
 const HIT_RADIUS = 2.3;
 const HEAT_PER_SHOT = 2.9;
@@ -67,6 +79,16 @@ export function createPillboxBattle(): PillboxBattle {
     jeepSpawned: 0,
     jeepTimer: 5,
     vehiclesStopped: 0,
+    pendingInfantry: Array.from({ length: WAVE_COUNTS[0] }, (_, i) => i + 1),
+    playerGrenades: [],
+    grenadeAmmo: 3,
+    grenadeCooldown: 0,
+    nextProjectileId: 10000,
+    barrelLevel: 0,
+    supportProgress: 0,
+    supportCredit: 0,
+    airSupportCharges: 0,
+    airStrike: null,
   };
 }
 
@@ -77,17 +99,27 @@ export function aimPillbox(battle: PillboxBattle, x: number, z: number): void {
     battle.aimZ = clamp(z, AIM_BOUNDS.minZ, AIM_BOUNDS.maxZ);
 }
 
-function spawnSoldier(battle: PillboxBattle): void {
-  const id = nextInfantryId(battle.wave, battle.spawned);
+function spawnSoldier(battle: PillboxBattle, id: number): void {
   const lane = infantryLane(id, battle.wave);
   const craft = battle.landingCraft.find((c) => c.lane === lane)!;
+  const ordinal = id - nextInfantryId(battle.wave, 0);
+  const role =
+    ordinal === 5
+      ? 'machine-gun'
+      : battle.wave >= 2 && ordinal === 10
+        ? 'mortar'
+        : 'rifle';
   battle.soldiers.push({
     id,
+    role,
+    squadId: craft.id,
+    attackTimer: 3 + (id % 4),
     x: LANES[lane] + ((id % 3) - 1) * 1.1,
     z: craft.z + 2,
     landingCraftId: craft.id,
     lane,
-    health: id % 3 === 0 ? 1 : 2,
+    health:
+      role === 'machine-gun' ? 4 : role === 'mortar' ? 3 : id % 3 === 0 ? 1 : 2,
     phase: 'advance',
     timer: 0,
     coverIndex: 0,
@@ -96,9 +128,10 @@ function spawnSoldier(battle: PillboxBattle): void {
     speed: ADVANCE_SPEED * (0.92 + (id % 5) * 0.04),
     grenadeState: 'ready',
     grenadeTimer: 0,
-    usesFoxhole: id % 3 === 0,
+    usesFoxhole: role === 'rifle' && id % 3 !== 1,
   });
   craft.passengers--;
+  battle.pendingInfantry = battle.pendingInfantry.filter((v) => v !== id);
   battle.spawned += 1;
 }
 
@@ -233,17 +266,17 @@ function updateGrenades(
 ) {
   for (const grenade of battle.grenades) {
     grenade.age += dt;
-    if (grenade.age >= GRENADE_FLIGHT) {
+    if (grenade.age >= grenadeFlight(grenade)) {
       events.push({
         type: 'grenade-impact',
         ...grenadeImpactPoint(grenade.id),
       });
       battle.message = 'Grenade hit! Stop throwers before they release.';
-      damageBunker(battle, 12, events);
+      damageBunker(battle, grenade.kind === 'mortar' ? 9 : 12, events);
       if (battle.status === 'lost') break;
     }
   }
-  battle.grenades = battle.grenades.filter((g) => g.age < GRENADE_FLIGHT);
+  battle.grenades = battle.grenades.filter((g) => g.age < grenadeFlight(g));
 }
 
 function moveSoldier(
@@ -257,6 +290,8 @@ function moveSoldier(
     if (soldier.z >= RAMP_END_Z) delete soldier.landingCraftId;
     return;
   }
+  if (soldier.phase === 'down' || soldier.phase === 'breached') return;
+  if (updateInfantryTactics(battle, soldier, dt, events)) return;
   // Stagger smoke carriers and throw locations so screens also form deeper inland.
   const smokeZone = [
     [-125, -112],
@@ -287,12 +322,13 @@ function moveSoldier(
         targetX: soldier.x - Math.sign(soldier.x) * 2,
         targetZ: soldier.z + (smokeZone === 2 ? 7 : 10),
       });
-      battle.message = 'Smoke screen! Watch its edges for movement.';
+      rallySquad(battle, soldier, 2.2);
+      battle.message = 'Smoke screen! A squad is gathering for a rush.';
     }
     return;
   }
   soldier.crawling =
-    soldier.id % 3 === 0 &&
+    Boolean(soldier.usesFoxhole) &&
     soldier.grenadeState !== 'windup' &&
     (COVER_ROWS.some((z) => soldier.z >= z - 11 && soldier.z < z + 3) ||
       Boolean(
@@ -320,15 +356,28 @@ function moveSoldier(
     return;
   }
   let remaining = dt;
-  while (remaining > 1e-9 && soldier.phase !== 'breached') {
+  while (remaining > 1e-9) {
     if (soldier.phase === 'cover') {
+      if (soldier.foxholeId !== undefined)
+        updateFoxhole(battle, soldier, remaining, events);
       const used = Math.min(remaining, soldier.timer);
       soldier.timer -= used;
       remaining -= used;
       if (soldier.timer <= 1e-9) {
         soldier.phase = 'advance';
         if (soldier.foxholeId === undefined) soldier.coverIndex += 1;
-        else delete soldier.foxholeId;
+        else {
+          rallySquad(battle, soldier, 0);
+          for (const ally of battle.soldiers)
+            if (
+              ally.foxholeId === soldier.foxholeId &&
+              ally.phase === 'cover' &&
+              (ally.coverElapsed ?? 0) >= 8
+            )
+              ally.timer = 0;
+          delete soldier.foxholeId;
+        }
+        soldier.exposed = false;
       }
       continue;
     }
@@ -355,7 +404,13 @@ function moveSoldier(
     const dx = target.x - soldier.x,
       dz = target.z - soldier.z;
     const distance = Math.hypot(dx, dz);
-    const speed = soldier.speed * (soldier.crawling ? 0.6 : 1);
+    const speed =
+      soldier.speed *
+      (soldier.crawling
+        ? 0.6
+        : (soldier.rushUntil ?? 0) > battle.time
+          ? 1.25
+          : 1);
     const travelTime = distance / speed;
     if (travelTime > remaining) {
       soldier.x += (dx / distance) * speed * remaining;
@@ -372,15 +427,61 @@ function moveSoldier(
     } else if (target.foxhole !== undefined) {
       soldier.phase = 'cover';
       soldier.foxholeId = target.foxhole;
-      soldier.timer = 2.2 + (soldier.lane % 3) * 0.3;
+      soldier.timer = 9 + (soldier.id % 4) * 1.5;
+      soldier.coverElapsed = 0;
+      soldier.exposed = false;
     }
   }
 }
 
 function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
   battle.shots += 1;
-  battle.heat = Math.min(OVERHEAT_AT, battle.heat + HEAT_PER_SHOT);
+  battle.heat = Math.min(
+    OVERHEAT_AT,
+    battle.heat + HEAT_PER_SHOT * (1 - battle.barrelLevel * 0.1),
+  );
 
+  for (const s of battle.soldiers)
+    if (
+      s.phase === 'cover' &&
+      Math.hypot(s.x - battle.aimX, s.z - battle.aimZ) < 4
+    ) {
+      if (!s.exposed) s.suppression = 0.8;
+    }
+  for (const c of battle.landingCraft) {
+    if (c.phase === 'gone' || c.phase === 'withdrawing') continue;
+    const gunner =
+      c.gunnerHealth > 0 &&
+      Math.hypot(c.x - 1.3 - battle.aimX, c.z - 4.5 - battle.aimZ) < 1.6;
+    const ramp =
+      c.rampHealth > 0 &&
+      Math.hypot(c.x - battle.aimX, c.z + 6 - battle.aimZ) < 3;
+    if (!gunner && !ramp) continue;
+    if (gunner) {
+      c.gunnerHealth--;
+      battle.message = c.gunnerHealth
+        ? 'Gunner hit.'
+        : 'Craft gunner silenced.';
+      if (!c.gunnerHealth) battle.score += 150;
+    } else {
+      c.rampHealth--;
+      if (!c.rampHealth) {
+        c.jamTimer = 7;
+        battle.score += 150;
+        battle.message = 'Ramp jammed! Unloading delayed seven seconds.';
+      } else battle.message = `Ramp hit — ${c.rampHealth} hits to disable.`;
+    }
+    battle.hits++;
+    events.push({
+      type: 'shot',
+      x: battle.aimX,
+      z: battle.aimZ,
+      hit: true,
+      vehicle: true,
+    });
+    checkHeat(battle, events);
+    return;
+  }
   const vehicle = battle.jeeps.find(
     (j) =>
       (j.phase === 'driving' || j.phase === 'unloading') &&
@@ -398,12 +499,8 @@ function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
     });
     battle.message = `Jeep hit — ${vehicle.health} armor remaining.`;
     if (vehicle.health <= 0) {
-      vehicle.phase = 'wreck';
-      vehicle.passengers = 0;
-      battle.vehiclesStopped++;
-      battle.score += 400;
+      stopJeep(battle, vehicle, events);
       battle.message = 'Jeep stopped. Reinforcements denied.';
-      events.push({ type: 'jeep-destroyed', x: vehicle.x, z: vehicle.z });
     }
     checkHeat(battle, events);
     return;
@@ -427,24 +524,29 @@ function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
   }
 
   let hit = false;
-  if (target?.phase === 'cover') {
+  if (target?.phase === 'cover' && !target.exposed) {
     battle.message =
       target.foxholeId !== undefined
-        ? 'Troops are below the foxhole rim. Catch them climbing out.'
+        ? 'Troops are below the foxhole rim. Use G or catch them peeking.'
         : 'Rounds strike cover. Wait for them to move.';
+  } else if (
+    target &&
+    terrainBlocksShot(
+      target.x,
+      target.z,
+      target.exposed ? 2.8 : target.crawling ? 0.55 : 1.7,
+    )
+  ) {
+    battle.message =
+      'The ridge blocks your shot. Watch for the target to emerge.';
   } else if (target) {
     hit = true;
     battle.hits += 1;
     const precise = nearest <= 0.8;
     target.health -= precise ? 2 : 1;
     if (target.health <= 0) {
-      target.health = 0;
-      target.phase = 'down';
-      target.timer = 0;
-      battle.kills += 1;
-      battle.score += 100 + battle.wave * 25;
+      stopInfantry(battle, target, events);
       battle.message = 'Target down.';
-      events.push({ type: 'down', id: target.id, x: target.x, z: target.z });
     } else {
       battle.message = 'Hit confirmed.';
     }
@@ -468,11 +570,7 @@ function checkHeat(battle: PillboxBattle, events: PillboxEvent[]) {
   }
 }
 
-function updateWave(
-  battle: PillboxBattle,
-  dt: number,
-  events: PillboxEvent[],
-): void {
+function updateWave(battle: PillboxBattle, events: PillboxEvent[]): void {
   const waveCount = WAVE_COUNTS[battle.wave - 1];
   const active = battle.soldiers.some(
     (soldier) => soldier.phase === 'advance' || soldier.phase === 'cover',
@@ -484,7 +582,9 @@ function updateWave(
     battle.jeeps.some(
       (j) => j.phase === 'driving' || j.phase === 'unloading',
     ) ||
-    battle.grenades.length
+    battle.grenades.length ||
+    battle.playerGrenades.length ||
+    battle.airStrike
   )
     return;
 
@@ -495,21 +595,10 @@ function updateWave(
     return;
   }
 
-  if (battle.intermission <= 0) {
-    battle.intermission = INTERMISSION_TIME;
-    battle.message = `Wave ${battle.wave} cleared. Cool the barrel and watch the surf.`;
-  }
-  battle.intermission = Math.max(0, battle.intermission - dt);
-  if (battle.intermission === 0) {
-    battle.wave += 1;
-    battle.spawned = 0;
-    battle.spawnTimer = 0;
-    battle.landingCraft = createLandingCraft(battle.wave);
-    battle.jeepSpawned = 0;
-    battle.jeepTimer = 5;
-    battle.message = `Wave ${battle.wave} incoming.`;
-    events.push({ type: 'wave', wave: battle.wave });
-  }
+  battle.status = 'resupply';
+  battle.intermission = 1;
+  battle.message = `Wave ${battle.wave} repelled. Choose supplies for the next assault.`;
+  events.push({ type: 'wave-cleared' });
 }
 
 export function stepPillbox(
@@ -527,21 +616,56 @@ export function stepPillbox(
     battle.spawnTimer -= dt;
     const count = WAVE_COUNTS[battle.wave - 1];
     while (battle.spawned < count && battle.spawnTimer <= 0) {
-      const lane = infantryLane(
-        nextInfantryId(battle.wave, battle.spawned),
-        battle.wave,
+      let id =
+        battle.pendingInfantry[0] ??
+        nextInfantryId(battle.wave, battle.spawned);
+      let craft = battle.landingCraft.find(
+        (c) => c.lane === infantryLane(id, battle.wave),
       );
-      const craft = battle.landingCraft.find((c) => c.lane === lane);
-      if (!craft || craft.phase !== 'unloading' || craft.passengers === 0) {
+      if (craft?.jamTimer) {
+        const available = battle.pendingInfantry.find((candidate) =>
+          battle.landingCraft.some(
+            (c) =>
+              c.lane === infantryLane(candidate, battle.wave) &&
+              c.phase === 'unloading' &&
+              !c.jamTimer &&
+              c.passengers,
+          ),
+        );
+        if (available === undefined) {
+          battle.spawnTimer = 0;
+          break;
+        }
+        id = available;
+        craft = battle.landingCraft.find(
+          (c) => c.lane === infantryLane(id, battle.wave),
+        );
+      }
+      if (
+        !craft ||
+        craft.phase !== 'unloading' ||
+        !craft.passengers ||
+        craft.jamTimer
+      ) {
         battle.spawnTimer = 0;
         break;
       }
-      spawnSoldier(battle);
+      spawnSoldier(battle, id);
       battle.spawnTimer += battle.spawned % 6 === 0 ? 2.4 : SPAWN_INTERVAL;
     }
   }
 
   if (battle.intermission <= 0) updateJeeps(battle, dt);
+  for (const c of battle.landingCraft)
+    if (c.phase === 'unloading' && c.gunnerHealth > 0 && c.passengers > 0) {
+      c.attackTimer -= dt;
+      if (c.attackTimer <= 0) {
+        c.attackTimer = 6;
+        events.push({ type: 'enemy-fire', x: c.x - 1.3, z: c.z - 4.5 });
+        damagePosition(battle, 2, events);
+      }
+    }
+  updatePlayerWeapons(battle, dt, events);
   updateGrenades(battle, dt, events);
   for (const smoke of battle.smoke) smoke.age += dt;
   battle.smoke = battle.smoke.filter(
@@ -554,7 +678,10 @@ export function stepPillbox(
   }
 
   if (!firing || battle.overheated) {
-    battle.heat = Math.max(0, battle.heat - HEAT_COOLING * dt);
+    battle.heat = Math.max(
+      0,
+      battle.heat - (HEAT_COOLING + battle.barrelLevel * 4) * dt,
+    );
     battle.cooldown = Math.max(0, battle.cooldown - dt);
     if (battle.overheated && battle.heat <= OVERHEAT_RELEASE) {
       battle.overheated = false;
@@ -568,7 +695,8 @@ export function stepPillbox(
     }
   }
 
-  if (battle.status === 'playing') updateWave(battle, dt, events);
+  updateSupportReward(battle, events);
+  if (battle.status === 'playing') updateWave(battle, events);
 
   const corpses = battle.soldiers.filter((soldier) => soldier.phase === 'down');
   if (corpses.length > MAX_CORPSES) {
