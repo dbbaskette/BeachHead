@@ -18,7 +18,6 @@ import {
 } from '@/lib/pillbox/simulation';
 import {
   AIM_BOUNDS,
-  WAVE_COUNTS,
   SUPPORT_REQUIRED,
   type SupplyChoice,
   type PillboxBattle,
@@ -50,9 +49,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   const [steady, setSteady] = useState(false);
   const reticleElement = useRef<HTMLDivElement>(null);
   const pointerAim = useRef(new PointerAim());
-  const [threatMarkers, setThreatMarkers] = useState<
-    Array<{ id: string; x: number; y: number; health?: number; label?: string }>
-  >([]);
   const publish = () =>
     setHud({ ...battle.current, soldiers: [...battle.current.soldiers] });
   const release = () => {
@@ -305,87 +301,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           }
           if (now - lastHud > 65) {
             publish();
-            const threats: Array<{
-              id: string;
-              x: number;
-              z: number;
-              health?: number;
-              label?: string;
-            }> = [
-              ...b.soldiers
-                .filter((s) => s.emplacement && s.phase === 'advance')
-                .map((s) => ({
-                  id: `team-${s.id}`,
-                  x: s.x,
-                  z: s.z,
-                  label: `${s.role === 'mortar' ? 'MORTAR' : 'MG TEAM'} · ${s.emplacement === 'setting-up' ? `SETTING UP ${Math.ceil(s.setupTimer ?? 0)}s` : 'FIRING'}`,
-                })),
-              ...b.landingCraft
-                .filter(
-                  (c) => c.phase === 'lowering' || c.phase === 'unloading',
-                )
-                .flatMap((c) => [
-                  ...(c.gunnerHealth > 0
-                    ? [
-                        {
-                          id: `gunner-${c.id}`,
-                          x: c.x - 1.3,
-                          z: c.z - 4.5,
-                          label: 'GUNNER',
-                        },
-                      ]
-                    : []),
-                  ...(c.rampHealth > 0 || c.jamTimer > 0
-                    ? [
-                        {
-                          id: `ramp-${c.id}`,
-                          x: c.x,
-                          z: c.z + 6,
-                          label:
-                            c.jamTimer > 0
-                              ? `RAMP JAMMED ${Math.ceil(c.jamTimer)}s`
-                              : `RAMP ${c.rampHealth}/8`,
-                        },
-                      ]
-                    : []),
-                ]),
-              ...b.jeeps
-                .filter((j) => j.phase === 'driving' || j.phase === 'unloading')
-                .map((j) => ({
-                  id: `jeep-${j.id}`,
-                  x: j.x,
-                  z: j.z,
-                  health: j.health,
-                })),
-              ...b.soldiers
-                .filter(
-                  (s) =>
-                    (s.phase === 'advance' || s.phase === 'cover') &&
-                    s.grenadeState === 'windup',
-                )
-                .map((s) => ({
-                  id: `thrower-${s.id}`,
-                  x: s.x,
-                  z: s.z,
-                  health: undefined,
-                })),
-            ];
-            setThreatMarkers(
-              threats.flatMap((t) => {
-                const p = scene.current!.project(t.x, t.z);
-                return p.visible
-                  ? [
-                      {
-                        id: t.id,
-                        x: p.x,
-                        y: p.y,
-                        health: t.health,
-                        label: t.label,
-                      },
-                    ]
-                  : [];
-              }),
-            );
             lastHud = now;
           }
           frame = requestAnimationFrame(animate);
@@ -424,11 +339,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
     ready = hud.status === 'ready',
     paused = hud.status === 'paused';
   const finished = hud.status === 'won' || hud.status === 'lost';
-  const alive = hud.soldiers.filter(
-    (s) => s.phase === 'advance' || s.phase === 'cover',
-  ).length;
-  const remaining =
-    alive + Math.max(0, (WAVE_COUNTS[hud.wave - 1] ?? 0) - hud.spawned);
   return (
     <main
       className="pillbox-game"
@@ -473,6 +383,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           <span>02 / HOLD THE BEACH</span>
         </div>
         <div className="pillbox-options">
+          {!ready && (
+            <span className="pillbox-wave-status">Wave {hud.wave} / 3</span>
+          )}
           <button
             aria-label={sound ? 'Mute sound' : 'Enable sound'}
             onClick={() => {
@@ -504,67 +417,6 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           )}
         </div>
       </header>
-      {playing &&
-        threatMarkers.map((marker) => (
-          <div
-            key={marker.id}
-            className={
-              marker.label
-                ? 'tactical-marker'
-                : marker.health === undefined
-                  ? 'grenade-marker'
-                  : 'jeep-marker'
-            }
-            style={{ left: marker.x, top: marker.y - 38 }}
-          >
-            {marker.label ? (
-              marker.label
-            ) : marker.health === undefined ? (
-              'GRENADE!'
-            ) : (
-              <>
-                JEEP · {marker.health}/18
-                <progress
-                  value={marker.health}
-                  max={18}
-                  aria-label="Jeep armor"
-                />
-              </>
-            )}
-          </div>
-        ))}
-      {!ready && (
-        <aside className="pillbox-objective">
-          <span>DEFEND THE CAPTURED POSITION</span>
-          <h2>Hold the beach.</h2>
-          <p>
-            Wave {hud.wave} / 3 <i />
-            {remaining} infantry ·{' '}
-            {
-              hud.jeeps.filter(
-                (j) => j.phase === 'driving' || j.phase === 'unloading',
-              ).length
-            }{' '}
-            jeeps
-            {hud.grenades.length > 0
-              ? hud.grenades.some((g) => g.kind === 'mortar')
-                ? ' · MORTAR INCOMING!'
-                : ' · GRENADE INCOMING!'
-              : hud.soldiers.some(
-                    (s) =>
-                      (s.phase === 'advance' || s.phase === 'cover') &&
-                      s.grenadeState === 'windup',
-                  )
-                ? ' · STOP THE GRENADE THROWER!'
-                : ''}
-          </p>
-          <div className="pillbox-wave-pips">
-            {[1, 2, 3].map((w) => (
-              <b key={w} className={w <= hud.wave ? 'active' : ''} />
-            ))}
-          </div>
-        </aside>
-      )}
       {playing && (
         <div
           ref={reticleElement}
@@ -572,13 +424,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           aria-hidden="true"
         >
           <Crosshair size={38} />
-          <small>{Math.round(Math.hypot(hud.aimX, hud.aimZ))} m</small>
         </div>
-      )}
-      {playing && (
-        <output className="pillbox-radio" aria-live="polite">
-          {hud.message}
-        </output>
       )}
       {ready && !error && (
         <section className="pillbox-briefing">

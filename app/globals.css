@@ -1181,17 +1181,11 @@ kbd {
 .pillbox-brand>svg { color:#e8b976; }
 .pillbox-brand strong { font-family:Impact,'Arial Narrow',sans-serif; font-size:25px; letter-spacing:1px; }
 .pillbox-brand>span { font-size:10px; letter-spacing:2px; padding-left:19px; border-left:1px solid #b6b49c50; color:#c1c3af; }
+.pillbox-wave-status { color:#c1c3af; font-size:11px; white-space:nowrap; }
 .pillbox-options { display:flex; align-items:center; gap:10px; }
 .pillbox-options button { display:flex; align-items:center; justify-content:center; min-width:36px; height:36px; padding:8px; border:1px solid #d9d4bc35; background:#19221c90; color:#e8e1cb; font-size:11px; }
 .pillbox-options button[aria-pressed=true] { color:#e8b976; border-color:#e8b976; }
-.pillbox-objective { position:absolute; top:115px; left:32px; padding:18px 24px 18px 18px; background:linear-gradient(90deg,#19251de8,#19251d80,transparent); pointer-events:none; }
-.pillbox-objective>span,.pillbox-eyebrow { font-size:10px; font-weight:600; letter-spacing:2.3px; color:#d7ba86; }
-.pillbox-objective h2 { font-size:23px; margin:9px 0; font-weight:600; }
-.pillbox-objective p { display:flex; align-items:center; gap:9px; font-size:12px; color:#cfd2bf; }
-.pillbox-objective i { width:3px; height:3px; background:#d7ba86; border-radius:50%; }
-.pillbox-wave-pips { display:flex; gap:5px; margin-top:15px; }
-.pillbox-wave-pips b { display:block; width:30px; height:3px; background:#828b7955; }
-.pillbox-wave-pips .active { background:#e6b574; }
+.pillbox-eyebrow { font-size:10px; font-weight:600; letter-spacing:2.3px; color:#d7ba86; }
 .pillbox-briefing { position:absolute; z-index:2; top:17%; left:6%; width:440px; max-width:calc(100% - 48px); padding:26px; background:linear-gradient(90deg,#182219ed,#182219cf 80%,#182219a0); border-left:2px solid #c4a874; }
 .pillbox-briefing h1 { font-family:Impact,'Arial Narrow',sans-serif; font-size:clamp(58px,7vw,104px); font-weight:400; line-height:.94; letter-spacing:1px; margin:22px 0; }
 .pillbox-briefing h1 em { color:#e4ba7e; font-style:normal; }
@@ -1205,9 +1199,7 @@ kbd {
 .pillbox-credit { margin:20px 0 0; font-size:9px; line-height:1.7; color:#9fa896; }
 .pillbox-credit a { text-decoration:underline; text-underline-offset:2px; }
 .pillbox-crosshair { position:absolute; pointer-events:none; transform:translate(-50%,-50%); color:#f8d28c; filter:drop-shadow(0 1px 2px #101c16); }
-.pillbox-crosshair small { position:absolute; top:43px; left:50%; transform:translateX(-50%); font-size:10px; white-space:nowrap; }
 .pillbox-crosshair.hot { color:#ff9272; }
-.pillbox-radio { position:absolute; bottom:190px; left:50%; transform:translateX(-50%); max-width:70%; padding:9px 16px; background:#18261ddd; color:#e8dfc8; font-size:12px; text-align:center; pointer-events:none; border-top:1px solid #cbaa70; }
 .pillbox-instruments { position:absolute; z-index:3; bottom:45px; left:28px; right:28px; display:grid; grid-template-columns:1fr 1.1fr 1.3fr 1.3fr; gap:24px; padding:22px; background:#17241eee; border:1px solid #b6b39250; box-shadow:0 4px 30px #0003; }
 .pillbox-instruments section { display:flex; flex-direction:column; justify-content:center; gap:7px; }
 .pillbox-instruments label { font-size:9px; letter-spacing:1.8px; color:#b6bda6; }
@@ -1241,9 +1233,6 @@ kbd {
   .pillbox-brand { gap:8px; }
   .pillbox-brand strong { font-size:20px; }
   .pillbox-brand>span { display:none; }
-  .pillbox-objective { top:82px; left:12px; padding:12px; }
-  .pillbox-objective>span { font-size:8px; }
-  .pillbox-objective h2 { font-size:18px; }
   .pillbox-briefing { left:24px; top:100px; padding:20px; max-height:calc(100% - 142px); overflow:auto; }
   .pillbox-briefing h1 { font-size:58px; }
   .pillbox-instruments { bottom:40px; left:12px; right:12px; gap:14px; padding:14px; grid-template-columns:1fr 1fr 1.3fr; }
@@ -1254,7 +1243,6 @@ kbd {
   .pillbox-fire { gap:5px; padding:10px 5px; }
   .pillbox-fire span { font-size:12px; }
   .pillbox-fire svg { display:none; }
-  .pillbox-radio { bottom:220px; max-width:90%; font-size:11px; }
   .pillbox-controls { font-size:8px; bottom:14px; }
   .pillbox-controls span { margin-left:5px; }
 }
@@ -1266,33 +1254,25 @@ kbd {
   .pillbox-briefing .pillbox-primary { margin-top:12px; }
   .pillbox-credit { margin-top:8px; }
   .pillbox-instruments { padding:14px 20px; }
-  .pillbox-objective { top:88px; }
-  .pillbox-radio { bottom:165px; }
 }
 
 /* A single gun reticle replaces the system cursor over the active sea. */
 .scene.single-aim-cursor { cursor: none; }
 
-.jeep-marker,.grenade-marker { position:absolute; z-index:5; pointer-events:none; transform:translate(-50%,-100%); background:#192620dc; color:#f8d28c; padding:4px 6px; font:10px monospace; white-space:nowrap; }
-.jeep-marker progress { display:block; width:70px; height:4px; margin-top:3px; accent-color:#e6ba74; }
-.grenade-marker { color:#fff; background:#a93727; font-weight:bold; }
 
 /* Tactical controls sit above the gun instruments and remain usable on touch screens. */
 .pillbox-tactics { position:absolute; z-index:4; right:28px; bottom:196px; display:flex; gap:8px; }
 .pillbox-tactics button { display:flex; align-items:center; gap:9px; padding:11px 15px; border:1px solid #dcb16e88; color:#f0dfbe; background:#1b2a23ee; font-size:12px; cursor:pointer; }
 .pillbox-tactics button:disabled { opacity:.65; cursor:default; }
 .pillbox-tactics kbd { color:#e8bd7c; border:1px solid #dcb16e66; padding:2px 5px; }
-.tactical-marker { position:absolute; z-index:2; transform:translate(-50%,-100%); padding:4px 6px; color:#ffdfa5; background:#18251edb; border-bottom:1px solid #dcb16e; font-size:9px; font-weight:600; white-space:nowrap; pointer-events:none; }
 .supply-choices { display:grid; grid-template-columns:1fr; gap:10px; margin:24px 0; }
 .supply-choices button { text-align:left; padding:15px 18px; background:#26382d; border:1px solid #dcb16e88; color:#f0dfbe; cursor:pointer; }
 .supply-choices button:hover { background:#394b37; }
 .supply-choices b,.supply-choices span { display:block; }
 .supply-choices span { font-size:12px; color:#c7cbb5; margin-top:5px; }
-@media(max-width:700px) { .pillbox-tactics { right:12px; bottom:235px; gap:5px; } .pillbox-tactics button { padding:8px; font-size:10px; } .tactical-marker { font-size:8px; } .pillbox-objective p { flex-wrap:wrap; max-width:80vw; } }
+@media(max-width:700px) { .pillbox-tactics { right:12px; bottom:235px; gap:5px; } .pillbox-tactics button { padding:8px; font-size:10px; } }
 
-.pillbox-radio { bottom:244px; }
 .pillbox-supplies { max-height:calc(100dvh - 32px); overflow:auto; }
-@media(max-width:700px) { .pillbox-radio { bottom:285px; } }
 
 /* Mission selection: campaign spans both equally accessible stage cards. */
 .briefing.main-menu { inset:100px 6% 55px; width:auto; max-width:1180px; margin:auto; display:grid; grid-template-columns:.85fr 1.15fr; align-items:center; gap:clamp(28px,5vw,80px); overflow:auto; }

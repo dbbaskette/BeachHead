@@ -93,7 +93,8 @@ void describe('naval combat simulation', () => {
     assert.equal(fire(battle), true);
     const shell = battle.shells[0];
     const launch = shellPosition(shell);
-    assert.deepEqual(launch, { x: 0, y: 0, z: 0 });
+    assert.ok(launch.y > 9, 'shells start above the deck at barrel height');
+    assert.ok(launch.z < -20, 'shells start forward of the gun mount');
 
     shell.age = shell.duration / 2;
     assert.ok(

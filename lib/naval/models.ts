@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { NavalMaterials } from './materials';
+import {
+  PLAYER_MOUNT,
+  PLAYER_GUN_PIVOT,
+  PLAYER_BARREL_X,
+  PLAYER_MUZZLE_Z,
+  playerGunSolution,
+} from './gunnery';
 
 function worldUV(geo: THREE.BufferGeometry, scale = 4) {
   const p = geo.attributes.position,
@@ -389,7 +396,7 @@ export function makePlayerDeck(m: NavalMaterials) {
   }
   bake(root);
   const mount = new THREE.Group();
-  mount.position.set(0, 6, -8);
+  mount.position.set(PLAYER_MOUNT.x, PLAYER_MOUNT.y, PLAYER_MOUNT.z);
   root.add(mount);
   cylinder(mount, 5.7, 2.8, [0, 0, 0], m.dark, 5.7, 48);
   cylinder(mount, 5.85, 0.3, [0, 1.3, 0], m.gunmetal, 5.85, 48);
@@ -431,10 +438,10 @@ export function makePlayerDeck(m: NavalMaterials) {
   hatch(turretGroup, 0, 4.45, 1, m);
   bake(turretGroup);
   const guns = new THREE.Group();
-  guns.position.set(0, 3.3, -2.5);
+  guns.position.set(PLAYER_GUN_PIVOT.x, PLAYER_GUN_PIVOT.y, PLAYER_GUN_PIVOT.z);
   turretGroup.add(guns);
   const muzzles: THREE.Object3D[] = [];
-  for (const x of [-2.15, 2.15]) {
+  for (const x of PLAYER_BARREL_X) {
     cylinder(guns, 1.1, 0.25, [x, 0, 0], m.dark, 1.1, 24).rotation.x =
       Math.PI / 2;
     for (let i = 0; i < 6; i++) {
@@ -474,13 +481,30 @@ export function makePlayerDeck(m: NavalMaterials) {
     );
     hydraulic.rotation.x = Math.PI / 2;
     const muzzle = new THREE.Object3D();
-    muzzle.position.set(x, 0, -16.8);
+    muzzle.position.set(x, 0, PLAYER_MUZZLE_Z);
     guns.add(muzzle);
     muzzles.push(muzzle);
   }
   // Static deck and turret stay separate from the articulating gun assembly.
   shield.receiveShadow = true;
   return { root, turret: turretGroup, guns, muzzles };
+}
+
+export function aimPlayerDeck(
+  player: ReturnType<typeof makePlayerDeck>,
+  heading: number,
+  range: number,
+  recoil = 0,
+) {
+  const solution = playerGunSolution(heading, range);
+  player.turret.rotation.y = -solution.bearing;
+  player.guns.rotation.x = solution.pitch;
+  // Barrel recoil travels backwards along the bore, including its elevation.
+  player.guns.position.set(
+    PLAYER_GUN_PIVOT.x,
+    PLAYER_GUN_PIVOT.y - recoil * 0.65 * Math.sin(solution.pitch),
+    PLAYER_GUN_PIVOT.z + recoil * 0.65 * Math.cos(solution.pitch),
+  );
 }
 export function makeIsland(
   x: number,
