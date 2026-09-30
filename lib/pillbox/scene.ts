@@ -1,3 +1,4 @@
+import { mobilePixelRatio, TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { LandingCraftRenderer, embarkedInfantry } from './landing-craft';
 import { CoastalAtmosphere } from '../naval/atmosphere';
 import { makeDaylightSky, COASTAL_SUN } from '../naval/daylight';
@@ -111,7 +112,12 @@ export class PillboxScene {
       antialias: true,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer.setPixelRatio(
+      mobilePixelRatio(
+        window.devicePixelRatio,
+        window.matchMedia(TOUCH_LAYOUT_QUERY).matches,
+      ),
+    );
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.02;
@@ -361,7 +367,10 @@ export class PillboxScene {
       .add(new THREE.Vector3(0, 0, -72));
     sun.target.position.set(0, 0, -72);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    const shadowSize = window.matchMedia(TOUCH_LAYOUT_QUERY).matches
+      ? 1024
+      : 2048;
+    sun.shadow.mapSize.set(shadowSize, shadowSize);
     Object.assign(sun.shadow.camera, {
       left: -65,
       right: 65,
@@ -1055,16 +1064,20 @@ export class PillboxScene {
       Math.hypot(target.x, target.z - 3.7),
     );
     this.barrel.position.z = this.recoil * 0.38;
+    // Move up to the embrasure in portrait so the ceiling cannot fill the phone screen.
+    const portrait = this.camera.aspect < 0.8;
     this.camera.position.set(
       this.grenadeBlast.shake.x,
-      9.2 +
+      (portrait ? 7 : 9.2) +
         (reducedMotion ? 0 : Math.sin(this.visualTime * 1.3) * 0.025) +
         this.grenadeBlast.shake.y,
-      8.2 + this.grenadeBlast.shake.z,
+      (portrait ? -3.2 : 8.2) + this.grenadeBlast.shake.z,
     );
     this.camera.lookAt(
       this.grenadeBlast.shake.x * 3,
-      (reducedMotion ? 0 : this.recoil * 0.04) + this.grenadeBlast.shake.y * 2,
+      (portrait ? -12 : 0) +
+        (reducedMotion ? 0 : this.recoil * 0.04) +
+        this.grenadeBlast.shake.y * 2,
       -48,
     );
     this.camera.rotateZ(this.grenadeBlast.roll);
