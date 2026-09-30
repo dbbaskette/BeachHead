@@ -1293,3 +1293,56 @@ kbd {
 .pillbox-radio { bottom:244px; }
 .pillbox-supplies { max-height:calc(100dvh - 32px); overflow:auto; }
 @media(max-width:700px) { .pillbox-radio { bottom:285px; } }
+
+/* Mission selection: campaign spans both equally accessible stage cards. */
+.briefing.main-menu { inset:100px 6% 55px; width:auto; max-width:1180px; margin:auto; display:grid; grid-template-columns:.85fr 1.15fr; align-items:center; gap:clamp(28px,5vw,80px); overflow:auto; }
+.main-menu .briefing-copy { max-width:340px; }
+.main-menu .legacy-note { margin-top:22px; }
+.mission-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.mission-tile { position:relative; isolation:isolate; display:flex; flex-direction:column; align-items:flex-start; gap:9px; min-width:0; padding:26px; text-align:left; border:1px solid #a5bec05c; border-radius:4px; color:#f0eee2; background:#142b35ed; cursor:pointer; transition:background-color .15s,border-color .15s; overflow:hidden; }
+.mission-tile:hover { background:#234453f5; border-color:#e9bd79; }
+.mission-tile:focus-visible { outline:3px solid #fff1d5; outline-offset:4px; }
+.mission-tile:disabled { opacity:.6; cursor:wait; }
+.mission-tile strong { font-size:clamp(20px,2vw,27px); font-weight:650; line-height:1.15; }
+.mission-tile > span:not(.mission-tile-action) { font-size:13px; line-height:1.5; color:#c6d4d4; }
+.mission-tile .mission-stage { color:#e9bd79!important; font-size:12px; }
+.mission-tile-action { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; font-size:13px; font-weight:600; padding-top:22px; margin-top:auto; color:#f2d5a6; }
+.mission-tile-art { position:absolute; z-index:-1; right:-14px; top:16px; width:116px; height:116px; stroke-width:.8; opacity:.12; }
+.campaign-tile { grid-column:1/-1; min-height:136px; flex-direction:row; justify-content:space-between; align-items:center; background:#e9bd79; color:#172e38; border-color:#f2d5a6; }
+.campaign-tile:hover { background:#f4d095; }
+.mission-tile-copy { display:flex; flex-direction:column; gap:9px; }
+.campaign-tile strong { font-size:clamp(26px,2.8vw,36px); }
+.campaign-tile .mission-tile-copy { color:#243c43!important; }
+.naval-tile,.beach-tile { min-height:208px; }
+.beach-tile { background:#283729ed; border-color:#b1b79369; }
+.beach-tile:hover { background:#3c4c35f5; }
+.briefing-state .preview-instruments,.briefing-state .controls-strip,.briefing-state .compass { display:none; }
+.pillbox-aim-surface.active-aim { cursor:none; }
+.pillbox-crosshair { visibility:hidden; }
+@media(max-width:800px) {
+  .briefing.main-menu { inset:90px 6% 22px; display:flex; flex-direction:column; align-items:stretch; gap:26px; max-width:560px; }
+  .main-menu h1 { font-size:72px; margin:18px 0 12px; }
+  .main-menu h1 br { display:none; }
+  .main-menu .title-rule,.main-menu .legacy-note { display:none; }
+  .main-menu h2 { margin:0 0 10px; }
+  .main-menu .briefing-copy { max-width:440px; font-size:14px; }
+  .mission-tile { padding:20px; }
+  .campaign-tile { min-height:110px; }
+  .naval-tile,.beach-tile { min-height:180px; }
+}
+@media(max-width:420px) {
+  .mission-tiles { gap:10px; }
+  .mission-tile { padding:16px 12px; }
+  .mission-tile strong { font-size:20px; }
+  .campaign-tile strong { font-size:27px; }
+  .main-menu h1 { font-size:60px; }
+}
+@media(max-height:550px) and (min-width:801px) {
+  .briefing.main-menu { inset:82px 5% 18px; gap:35px; }
+  .main-menu h1 { font-size:70px; }
+  .main-menu h2 { display:block; margin-left:0; }
+  .mission-tile { padding:17px; }
+  .campaign-tile { min-height:100px; }
+  .naval-tile,.beach-tile { min-height:165px; }
+}
+@media(prefers-reduced-motion:reduce) { .mission-tile { transition:none; } }

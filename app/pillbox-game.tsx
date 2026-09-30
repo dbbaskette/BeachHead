@@ -26,6 +26,7 @@ import {
 import type { PillboxScene } from '@/lib/pillbox/scene';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import { registerPillboxTools } from '@/lib/pillbox/webmcp';
+import { PointerAim } from '@/lib/pillbox/pointer-aim';
 import {
   throwPlayerGrenade,
   callAirSupport,
@@ -47,7 +48,8 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   const [error, setError] = useState('');
   const [sound, setSound] = useState(true);
   const [steady, setSteady] = useState(false);
-  const [reticle, setReticle] = useState({ x: 0, y: 0, visible: false });
+  const reticleElement = useRef<HTMLDivElement>(null);
+  const pointerAim = useRef(new PointerAim());
   const [threatMarkers, setThreatMarkers] = useState<
     Array<{ id: string; x: number; y: number; health?: number; label?: string }>
   >([]);
@@ -56,6 +58,14 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   const release = () => {
     held.current = false;
     keys.current.clear();
+    pointerAim.current.clear();
+  };
+  const applyPointerAim = () => {
+    if (!scene.current) return;
+    const point = pointerAim.current.resolve((x, y) =>
+      scene.current!.aim(x, y),
+    );
+    if (point) aimPillbox(battle.current, point.x, point.z);
   };
   const start = () => {
     battle.current = createPillboxBattle();
@@ -67,11 +77,13 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
     root.current?.focus();
   };
   const grenade = () => {
+    applyPointerAim();
     throwPlayerGrenade(battle.current);
     publish();
     root.current?.focus();
   };
   const support = () => {
+    applyPointerAim();
     callAirSupport(battle.current);
     publish();
     root.current?.focus();
@@ -111,7 +123,10 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
       start: () => {
         if (scene.current) start();
       },
-      aim: (x, z) => aimPillbox(battle.current, x, z),
+      aim: (x, z) => {
+        pointerAim.current.clear();
+        aimPillbox(battle.current, x, z);
+      },
       grenade,
       support,
       supplies: resupply,
@@ -163,6 +178,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
         ].includes(e.code)
       ) {
         e.preventDefault();
+        if (e.code !== 'Space') pointerAim.current.clear();
         keys.current.add(e.code);
       }
     };
@@ -179,6 +195,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
     const wheel = (event: WheelEvent) => {
       if (battle.current.status !== 'playing') return;
       event.preventDefault();
+      pointerAim.current.clear();
       const units =
         event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
       aimPillbox(
@@ -212,6 +229,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           last = now;
           const b = battle.current;
           if (b.status === 'playing') {
+            applyPointerAim();
             const pressed = (...codes: string[]) =>
               codes.some((c) => keys.current.has(c));
             aimPillbox(
@@ -272,9 +290,21 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             held.current = false;
           }
           scene.current?.render(b, dt, reduced.current);
+          if (reticleElement.current) {
+            const pointer = pointerAim.current.screen(
+              element.getBoundingClientRect(),
+            );
+            const reticle = pointer
+              ? { ...pointer, visible: true }
+              : scene.current!.project(b.aimX, b.aimZ);
+            reticleElement.current.style.left = `${reticle.x}px`;
+            reticleElement.current.style.top = `${reticle.y}px`;
+            reticleElement.current.style.visibility = reticle.visible
+              ? 'visible'
+              : 'hidden';
+          }
           if (now - lastHud > 65) {
             publish();
-            setReticle(scene.current!.project(b.aimX, b.aimZ));
             const threats: Array<{
               id: string;
               x: number;
@@ -388,8 +418,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
   }, []);
   const aimPointer = (e: React.PointerEvent) => {
     if (battle.current.status !== 'playing') return;
-    const point = scene.current?.aim(e.clientX, e.clientY);
-    if (point) aimPillbox(battle.current, point.x, point.z);
+    pointerAim.current.move(e.clientX, e.clientY);
   };
   const playing = hud.status === 'playing',
     ready = hud.status === 'ready',
@@ -414,9 +443,12 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
       />
       <div
         ref={aimSurface}
-        className="pillbox-aim-surface"
+        className={`pillbox-aim-surface ${playing ? 'active-aim' : ''}`}
         aria-hidden="true"
         onPointerMove={aimPointer}
+        onPointerLeave={() => {
+          if (!held.current) pointerAim.current.clear();
+        }}
         onPointerDown={(e) => {
           if (!playing || e.button !== 0) return;
           aimPointer(e);
@@ -533,10 +565,10 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           </div>
         </aside>
       )}
-      {playing && reticle.visible && (
+      {playing && (
         <div
+          ref={reticleElement}
           className={`pillbox-crosshair ${hud.overheated ? 'hot' : ''}`}
-          style={{ left: reticle.x, top: reticle.y }}
           aria-hidden="true"
         >
           <Crosshair size={38} />
@@ -589,7 +621,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           </button>
           <button className="pillbox-back" onClick={onReturn}>
             <ChevronLeft size={16} />
-            Back to Stage 1
+            Back to main menu
           </button>
           <p className="pillbox-credit">
             Gunshot:{' '}
@@ -637,7 +669,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
               </button>
             </div>
             <button className="pillbox-back" onClick={onReturn}>
-              Return to campaign start
+              Return to main menu
             </button>
           </section>
         </div>
@@ -702,7 +734,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
                   : 'Retry Stage 2'}
             </button>
             <button className="pillbox-back" onClick={onReturn}>
-              Return to campaign start
+              Return to main menu
             </button>
           </section>
         </div>
@@ -777,6 +809,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
               value={hud.aimX}
               disabled={!playing}
               onChange={(e) => {
+                pointerAim.current.clear();
                 aimPillbox(
                   battle.current,
                   Number(e.target.value),
@@ -795,6 +828,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
               value={-hud.aimZ}
               disabled={!playing}
               onChange={(e) => {
+                pointerAim.current.clear();
                 aimPillbox(
                   battle.current,
                   battle.current.aimX,

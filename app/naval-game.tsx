@@ -71,6 +71,7 @@ export default function NavalGame({
     [error, setError] = useState(''),
     [sound, setSound] = useState(true),
     [steady, setSteady] = useState(false);
+  const [singleStage, setSingleStage] = useState(false);
   const [markers, setMarkers] = useState<Marker[]>([]),
     [selected, setSelected] = useState(0);
   const reticleElement = useRef<HTMLDivElement>(null);
@@ -676,45 +677,77 @@ export default function NavalGame({
         </>
       )}
       {ready && !error && (
-        <section className="briefing">
-          <div className="operation">
-            <span /> Naval engagement / 01
+        <section className="briefing main-menu" aria-label="Main menu">
+          <div className="main-menu-intro">
+            <div className="operation">
+              <span /> Choose your mission
+            </div>
+            <h1>
+              BEACH <br />
+              HEAD
+              <span className="title-rule" />
+            </h1>
+            <h2>Battle Stations</h2>
+            <p className="briefing-copy">
+              Break the naval blockade. Defend the captured beach. Play the
+              campaign or jump into either battle.
+            </p>
+            <div className="legacy-note">
+              Inspired by the 1983 classic.
+              <br />A new landing begins here.
+            </div>
           </div>
-          <h1>
-            BEACH
-            <br />
-            HEAD
-            <span className="title-rule" />
-          </h1>
-          <h2>Battle Stations</h2>
-          <p className="briefing-copy">
-            The island is in sight. Three enemy warships stand between your
-            fleet and the shore. Take the forward guns. Clear a path.
-          </p>
-          <div className="mission-details">
-            <span>
-              <Crosshair />3 enemy warships
-            </span>
-            <span>
-              <Shield />
-              One ship. Your command.
-            </span>
-          </div>
-          <Button className="start-button" disabled={!loaded} onClick={start}>
-            {loaded ? 'Take command' : 'Preparing the guns…'}
-            <ArrowUpRight size={22} />
-          </Button>
-          <p className="briefing-hint">
-            W/S range · A/D bearing · Space fire. Mouse: click sea to capture;
-            wheel adjusts range.
-          </p>
-          <button className="stage-practice" onClick={onPractice}>
-            Stage 2 practice — Hold the beach <ArrowUpRight size={14} />
-          </button>
-          <div className="legacy-note">
-            Inspired by the 1983 classic.
-            <br />A new landing begins here.
-          </div>
+          <nav className="mission-tiles" aria-label="Play modes">
+            <button
+              className="mission-tile campaign-tile"
+              aria-label="Play campaign"
+              disabled={!loaded}
+              onClick={() => {
+                setSingleStage(false);
+                start();
+              }}
+            >
+              <span className="mission-tile-copy">
+                <strong>Play campaign</strong>
+                <span>
+                  {loaded
+                    ? 'Start at sea. Fight through both stages.'
+                    : 'Preparing the guns…'}
+                </span>
+              </span>
+              <Play size={32} aria-hidden="true" />
+            </button>
+            <button
+              className="mission-tile naval-tile"
+              aria-label="Play Stage 1 — Naval battle"
+              disabled={!loaded}
+              onClick={() => {
+                setSingleStage(true);
+                start();
+              }}
+            >
+              <Anchor className="mission-tile-art" aria-hidden="true" />
+              <span className="mission-stage">Stage 1</span>
+              <strong>Naval battle</strong>
+              <span>Break the blockade</span>
+              <span className="mission-tile-action">
+                Play Stage 1 <ArrowUpRight size={18} aria-hidden="true" />
+              </span>
+            </button>
+            <button
+              className="mission-tile beach-tile"
+              aria-label="Play Stage 2 — Hold the beach"
+              onClick={onPractice}
+            >
+              <Shield className="mission-tile-art" aria-hidden="true" />
+              <span className="mission-stage">Stage 2</span>
+              <strong>Hold the beach</strong>
+              <span>Defend the pillbox</span>
+              <span className="mission-tile-action">
+                Play Stage 2 <ArrowUpRight size={18} aria-hidden="true" />
+              </span>
+            </button>
+          </nav>
         </section>
       )}
       {(paused || finished) && !error && (
@@ -739,7 +772,9 @@ export default function NavalGame({
               {paused
                 ? 'Your guns are ready when you are.'
                 : hud.status === 'won'
-                  ? 'Enemy ships neutralized. The fleet has secured the landing. Take the captured pillbox and hold the beach against the counterattack.'
+                  ? singleStage
+                    ? 'Enemy ships neutralized. Naval mission complete. Choose another battle from the main menu.'
+                    : 'Enemy ships neutralized. The fleet has secured the landing. Take the captured pillbox and hold the beach against the counterattack.'
                   : 'The blockade held. Adjust your range, lead your targets, and try again.'}
             </p>
             {!paused && (
@@ -763,7 +798,13 @@ export default function NavalGame({
             <Button
               className="start-button"
               onClick={
-                paused ? pause : hud.status === 'won' ? onContinue : start
+                paused
+                  ? pause
+                  : hud.status === 'won'
+                    ? singleStage
+                      ? returnToMenu
+                      : onContinue
+                    : start
               }
             >
               {paused ? (
@@ -776,7 +817,9 @@ export default function NavalGame({
               {paused
                 ? 'Resume battle'
                 : hud.status === 'won'
-                  ? 'Stage 2 — Hold the beach'
+                  ? singleStage
+                    ? 'Choose another mission'
+                    : 'Stage 2 — Hold the beach'
                   : 'Sail again'}
             </Button>
             <Button variant="ghost" onClick={returnToMenu}>
