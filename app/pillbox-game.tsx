@@ -435,8 +435,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             <em>BEACH.</em>
           </h1>
           <p>
-            The landing is secure. Enemy infantry are coming to take it back.
-            Man the pillbox and stop them before they reach the defense line.
+            Enemy landing craft are approaching the captured beach. Their ramps
+            will drop and squads will storm ashore. Man the pillbox and stop
+            them before they reach the defense line.
           </p>
           <div className="pillbox-orders">
             <span>

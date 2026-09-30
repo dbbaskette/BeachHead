@@ -56,6 +56,7 @@ export function registerPillboxTools(actions: {
       kills: b.kills,
       message: b.message,
       jeeps: b.jeeps,
+      landingCraft: b.landingCraft,
       grenades: b.grenades,
       vehiclesStopped: b.vehiclesStopped,
       aimX: b.aimX,

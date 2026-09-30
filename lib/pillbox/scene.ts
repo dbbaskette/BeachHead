@@ -1,3 +1,4 @@
+import { LandingCraftRenderer, embarkedInfantry } from './landing-craft';
 import { CoastalAtmosphere } from '../naval/atmosphere';
 import { makeDaylightSky, COASTAL_SUN } from '../naval/daylight';
 import {
@@ -75,6 +76,7 @@ export class PillboxScene {
   private infantry: InfantryRenderer;
   private atmosphere = new CoastalAtmosphere(this.scene, 'beach');
   private sky = makeDaylightSky();
+  private landingCraft: LandingCraftRenderer;
   private coast = new CoastalWater(this.scene);
   private wreckSmoke = new WreckSmoke(this.scene);
   private vehicles = new VehicleRenderer(this.scene);
@@ -258,7 +260,30 @@ export class PillboxScene {
     sandbags.castShadow = sandbags.receiveShadow = true;
     this.scene.add(sandbags);
 
-    this.makeBeachDetails(geo, steel, wood, concrete, webbing, random);
+    const hullMap = canvasTexture((ctx) => {
+      ctx.fillStyle = '#abb1a8';
+      ctx.fillRect(0, 0, 512, 512);
+      for (let i = 0; i < 7000; i++) {
+        ctx.fillStyle = `rgba(59,48,35,${0.04 + random() * 0.16})`;
+        ctx.fillRect(
+          random() * 512,
+          random() * 512,
+          1 + random() * 3,
+          2 + random() * 16,
+        );
+      }
+      for (let y = 0; y < 512; y += 128) {
+        ctx.fillStyle = 'rgba(24,31,29,.35)';
+        ctx.fillRect(0, y, 512, 2);
+        for (let x = 12; x < 512; x += 32) {
+          ctx.fillStyle = '#515b54';
+          ctx.fillRect(x, y + 6, 2, 2);
+        }
+      }
+    });
+    this.textures.push(hullMap);
+    this.landingCraft = new LandingCraftRenderer(this.scene, hullMap);
+    this.makeBeachDetails(geo, steel, wood, concrete, webbing);
     this.makeGun(geo, steel, wood, brass);
     this.scene.add(this.gun, this.muzzleLight);
 
@@ -352,7 +377,6 @@ export class PillboxScene {
     wood: THREE.Material,
     concrete: THREE.Material,
     canvas: THREE.Material,
-    random: () => number,
   ) {
     const dummy = new THREE.Object3D();
     const obstacleGeo = geo(new THREE.BoxGeometry(0.3, 0.32, 4.3));
@@ -368,7 +392,7 @@ export class PillboxScene {
       }
     obstacles.castShadow = true;
     this.scene.add(obstacles);
-    const coverGeo = geo(new THREE.BoxGeometry(8, 1.25, 1.5));
+    const coverGeo = geo(new RoundedBoxGeometry(8, 1.25, 1.5, 3, 0.12));
     const covers = new THREE.InstancedMesh(coverGeo, concrete, 10);
     let n = 0;
     for (const z of COVER_ROWS)
@@ -413,21 +437,6 @@ export class PillboxScene {
         );
       }
     this.scene.add(posts);
-    // Distant landing craft retain recognizable ramps and hull silhouettes.
-    for (const x of [-42, -14, 18, 47]) {
-      const craft = new THREE.Group();
-      craft.add(
-        mesh(geo(new THREE.BoxGeometry(8, 1.1, 12)), steel, [0, 0.4, 0]),
-        mesh(
-          geo(new THREE.BoxGeometry(7.2, 0.3, 5)),
-          canvas,
-          [0, 0.65, -7],
-          [-0.38, 0, 0],
-        ),
-      );
-      craft.position.set(x, 0.55, -153 - random() * 14);
-      this.scene.add(craft);
-    }
     // Interior ammunition boxes and a few loose brass cases.
     for (const x of [-8.3, 8.8])
       this.scene.add(
@@ -986,7 +995,15 @@ export class PillboxScene {
       8.2,
     );
     this.camera.lookAt(0, reducedMotion ? 0 : this.recoil * 0.04, -48);
-    this.infantry.render(battle, activeDt, reducedMotion);
+    this.landingCraft.render(battle);
+    this.infantry.render(
+      {
+        ...battle,
+        soldiers: [...battle.soldiers, ...embarkedInfantry(battle)],
+      },
+      activeDt,
+      reducedMotion,
+    );
     this.vehicles.render(battle, activeDt);
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const e = this.effects[i];
@@ -1030,6 +1047,7 @@ export class PillboxScene {
     this.observer.disconnect();
     this.infantry.dispose();
     this.vehicles.dispose();
+    this.landingCraft.dispose();
     this.coast.dispose();
     this.atmosphere.dispose();
     this.wreckSmoke.dispose();

@@ -1,3 +1,10 @@
+import {
+  createLandingCraft,
+  updateLandingCraft,
+  nextInfantryId,
+  infantryLane,
+  RAMP_END_Z,
+} from './landings';
 import { infantryRoute } from './navigation';
 import {
   AIM_BOUNDS,
@@ -10,7 +17,6 @@ import {
   type PillboxEvent,
 } from './types';
 
-const SPAWN_Z = -132;
 const BREACH_Z = -12;
 const SPAWN_INTERVAL = 0.2;
 const ADVANCE_SPEED = 3.5;
@@ -49,6 +55,7 @@ export function createPillboxBattle(): PillboxBattle {
     aimZ: -70,
     message: 'Hold the beach. Press and hold to fire.',
     soldiers: [],
+    landingCraft: createLandingCraft(1),
     jeeps: [],
     grenades: [],
     jeepSpawned: 0,
@@ -65,18 +72,14 @@ export function aimPillbox(battle: PillboxBattle, x: number, z: number): void {
 }
 
 function spawnSoldier(battle: PillboxBattle): void {
-  const id =
-    WAVE_COUNTS.slice(0, battle.wave - 1).reduce(
-      (total, count) => total + count,
-      0,
-    ) +
-    battle.spawned +
-    1;
-  const lane = (id * 2 + battle.wave) % LANES.length;
+  const id = nextInfantryId(battle.wave, battle.spawned);
+  const lane = infantryLane(id, battle.wave);
+  const craft = battle.landingCraft.find((c) => c.lane === lane)!;
   battle.soldiers.push({
     id,
     x: LANES[lane] + ((id % 3) - 1) * 1.1,
-    z: SPAWN_Z,
+    z: craft.z + 2,
+    landingCraftId: craft.id,
     lane,
     health: id % 3 === 0 ? 1 : 2,
     phase: 'advance',
@@ -88,6 +91,7 @@ function spawnSoldier(battle: PillboxBattle): void {
     grenadeState: 'ready',
     grenadeTimer: 0,
   });
+  craft.passengers--;
   battle.spawned += 1;
 }
 
@@ -238,6 +242,11 @@ function moveSoldier(
   events: PillboxEvent[],
   battle: PillboxBattle,
 ): void {
+  if (soldier.landingCraftId !== undefined && soldier.phase === 'advance') {
+    soldier.z = Math.min(RAMP_END_Z, soldier.z + soldier.speed * dt);
+    if (soldier.z >= RAMP_END_Z) delete soldier.landingCraftId;
+    return;
+  }
   if (
     soldier.phase === 'advance' &&
     soldier.z > -42 &&
@@ -427,6 +436,7 @@ function updateWave(
     battle.wave += 1;
     battle.spawned = 0;
     battle.spawnTimer = 0;
+    battle.landingCraft = createLandingCraft(battle.wave);
     battle.jeepSpawned = 0;
     battle.jeepTimer = 5;
     battle.message = `Wave ${battle.wave} incoming.`;
@@ -445,9 +455,19 @@ export function stepPillbox(
   battle.time += dt;
 
   if (battle.intermission <= 0) {
+    updateLandingCraft(battle, dt);
     battle.spawnTimer -= dt;
     const count = WAVE_COUNTS[battle.wave - 1];
     while (battle.spawned < count && battle.spawnTimer <= 0) {
+      const lane = infantryLane(
+        nextInfantryId(battle.wave, battle.spawned),
+        battle.wave,
+      );
+      const craft = battle.landingCraft.find((c) => c.lane === lane);
+      if (!craft || craft.phase !== 'unloading' || craft.passengers === 0) {
+        battle.spawnTimer = 0;
+        break;
+      }
       spawnSoldier(battle);
       battle.spawnTimer += battle.spawned % 6 === 0 ? 2.4 : SPAWN_INTERVAL;
     }

@@ -3,6 +3,7 @@ import { mouseAimDelta, mouseWheelRange } from '../lib/naval/mouse-aim';
 import { useEffect, useRef, useState } from 'react';
 import {
   Anchor,
+  Home,
   Crosshair,
   ScanEye,
   Volume2,
@@ -119,6 +120,23 @@ export default function NavalGame({
     keys.current.clear();
     audio.current?.setPaused(false);
     void audio.current?.start();
+    publish();
+    root.current?.focus();
+  };
+  const returnToMenu = () => {
+    battle.current = createBattle();
+    if (document.pointerLockElement === host.current)
+      document.exitPointerLock();
+    keys.current.clear();
+    mouseFiring.current = false;
+    mousePoint.current = null;
+    drag.current = null;
+    optic.current = false;
+    setScoped(false);
+    targetIndex.current = 0;
+    setSelected(0);
+    scene.current?.reset();
+    audio.current?.setPaused(true);
     publish();
     root.current?.focus();
   };
@@ -546,6 +564,18 @@ export default function NavalGame({
             <Button
               variant="ghost"
               className="optic-button"
+              aria-label="Return to main menu"
+              title="Return to main menu"
+              onClick={returnToMenu}
+            >
+              <Home />
+              <span>Main menu</span>
+            </Button>
+          )}
+          {!ready && (
+            <Button
+              variant="ghost"
+              className="optic-button"
               aria-label={scoped ? 'Return to deck view' : 'Use gunnery optic'}
               aria-pressed={scoped}
               disabled={!playing}
@@ -748,6 +778,10 @@ export default function NavalGame({
                 : hud.status === 'won'
                   ? 'Stage 2 — Hold the beach'
                   : 'Sail again'}
+            </Button>
+            <Button variant="ghost" onClick={returnToMenu}>
+              <Home />
+              Return to main menu
             </Button>
           </section>
         </div>

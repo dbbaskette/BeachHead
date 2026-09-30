@@ -20,6 +20,12 @@ function advance(battle: PillboxBattle, seconds: number, firing = false): void {
   }
 }
 
+function firstLanding(battle: PillboxBattle) {
+  for (let i = 0; i < 400 && battle.soldiers.length === 0; i++)
+    stepPillbox(battle, 0.025, false);
+  assert.equal(battle.soldiers.length, 1);
+}
+
 void describe('pillbox simulation', () => {
   void test('creates a clean battle and clamps only finite aim coordinates', () => {
     const battle = createPillboxBattle();
@@ -41,10 +47,10 @@ void describe('pillbox simulation', () => {
   void test('spawns deterministic waves and infantry use both cover rows', () => {
     const battle = createPillboxBattle();
     battle.status = 'playing';
-    advance(battle, 0.01);
+    firstLanding(battle);
     assert.equal(battle.soldiers.length, 1);
     assert.deepEqual([battle.soldiers[0].id, battle.soldiers[0].lane], [1, 3]);
-    advance(battle, 14);
+    advance(battle, 17);
     assert.equal(battle.spawned, WAVE_COUNTS[0]);
     assert.ok(battle.soldiers.some((soldier) => soldier.phase === 'cover'));
     assert.ok(
@@ -57,7 +63,7 @@ void describe('pillbox simulation', () => {
   void test('cover blocks aimed rounds, then exposed soldiers take one or two rounds', () => {
     const battle = createPillboxBattle();
     battle.status = 'playing';
-    advance(battle, 0.01);
+    firstLanding(battle);
     battle.spawnTimer = 100;
     for (let i = 0; i < 1000 && battle.soldiers[0].phase !== 'cover'; i++)
       stepPillbox(battle, 0.05, false);
@@ -117,9 +123,10 @@ void describe('pillbox simulation', () => {
   void test('five breaches deal 20 each and cause defeat', () => {
     const battle = createPillboxBattle();
     battle.status = 'playing';
-    advance(battle, 5.2);
+    advance(battle, 13);
     for (const soldier of battle.soldiers.slice(0, 5)) {
       soldier.phase = 'advance';
+      delete soldier.landingCraftId;
       soldier.coverIndex = COVER_ROWS.length;
       soldier.z = -12;
     }
@@ -148,10 +155,11 @@ void describe('pillbox simulation', () => {
       }
     const battle = createPillboxBattle();
     battle.status = 'playing';
-    advance(battle, 0.01);
+    firstLanding(battle);
     battle.spawnTimer = 100;
     const soldier = battle.soldiers[0];
     battle.jeepSpawned = battle.wave;
+    battle.jeeps = [];
     for (let i = 0; i < 2000 && soldier.phase !== 'breached'; i++) {
       const before = { x: soldier.x, z: soldier.z };
       stepPillbox(battle, 0.05, false);
@@ -172,6 +180,7 @@ void describe('pillbox simulation', () => {
   void test('squads create a denser beach and allow time to aim', () => {
     const battle = createPillboxBattle();
     battle.status = 'playing';
+    firstLanding(battle);
     advance(battle, 8);
     assert.ok(battle.soldiers.length >= 12);
     assert.ok(battle.soldiers.every((s) => s.z < -98));

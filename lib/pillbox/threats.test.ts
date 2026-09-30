@@ -67,9 +67,11 @@ void test('wind-up can be interrupted, but a released grenade still hits after i
   const b = battle();
   b.spawnTimer = 0;
   b.jeepSpawned = 1;
-  stepPillbox(b, 0.01, false);
+  for (let i = 0; i < 400 && !b.soldiers.length; i++)
+    stepPillbox(b, 0.025, false);
   b.spawnTimer = 1000;
   const s = b.soldiers[0];
+  delete s.landingCraftId;
   s.x = 0;
   s.z = -30;
   stepPillbox(b, 0.5, false);
@@ -83,9 +85,11 @@ void test('wind-up can be interrupted, but a released grenade still hits after i
   const c = battle();
   c.spawnTimer = 0;
   c.jeepSpawned = 1;
-  stepPillbox(c, 0.01, false);
+  for (let i = 0; i < 400 && !c.soldiers.length; i++)
+    stepPillbox(c, 0.025, false);
   c.spawnTimer = 1000;
   const thrower = c.soldiers[0];
+  delete thrower.landingCraftId;
   thrower.x = 0;
   thrower.z = -30;
   advance(c, 1.5);

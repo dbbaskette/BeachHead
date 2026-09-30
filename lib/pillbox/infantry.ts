@@ -1,3 +1,4 @@
+import { landingDeckHeight } from './landings';
 import { beachHeight } from './terrain';
 import { assetUrl } from '../asset-url';
 import { deathPose } from './death-pose';
@@ -239,7 +240,9 @@ export class InfantryRenderer {
     });
     root.position.set(
       soldier.x,
-      beachHeight(soldier.x, soldier.z) + 0.02,
+      (soldier.landingCraftId !== undefined
+        ? landingDeckHeight(soldier.z, soldier.x)
+        : beachHeight(soldier.x, soldier.z)) + 0.02,
       soldier.z,
     );
     this.scene.add(root);
@@ -363,7 +366,13 @@ export class InfantryRenderer {
       );
 
       instance.root.position.y =
-        beachHeight(instance.root.position.x, instance.root.position.z) + 0.02;
+        (soldier.landingCraftId !== undefined
+          ? landingDeckHeight(
+              instance.root.position.z,
+              instance.root.position.x,
+            )
+          : beachHeight(instance.root.position.x, instance.root.position.z)) +
+        0.02;
       const pose: Pose =
         soldier.phase === 'down'
           ? 'down'

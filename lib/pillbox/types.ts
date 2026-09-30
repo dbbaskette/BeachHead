@@ -13,6 +13,17 @@ export interface Infantry {
   speed: number;
   grenadeState: 'ready' | 'windup' | 'spent';
   grenadeTimer: number;
+  landingCraftId?: number;
+}
+export interface LandingCraft {
+  id: number;
+  lane: number;
+  x: number;
+  z: number;
+  capacity: number;
+  passengers: number;
+  ramp: number;
+  phase: 'approach' | 'lowering' | 'unloading' | 'withdrawing' | 'gone';
 }
 export interface Jeep {
   id: number;
@@ -52,6 +63,7 @@ export interface PillboxBattle {
   aimZ: number;
   message: string;
   soldiers: Infantry[];
+  landingCraft: LandingCraft[];
   jeeps: Jeep[];
   grenades: Grenade[];
   jeepSpawned: number;

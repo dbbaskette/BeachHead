@@ -1,3 +1,4 @@
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { COASTAL_SUN } from '../naval/daylight';
 import * as THREE from 'three';
 
@@ -90,13 +91,13 @@ export class CoastalWater {
     },
     transparent: true,
     depthWrite: true,
-    vertexShader: `uniform float time; varying vec3 vWorld;
-      void main(){vec4 w=modelMatrix*vec4(position,1.);float offshore=smoothstep(134.,190.,-w.z);
+    vertexShader: `uniform float time; uniform mat4 textureMatrix; varying vec4 vMirrorCoord; varying vec3 vWorld;
+      void main(){vMirrorCoord=textureMatrix*vec4(position,1.);vec4 w=modelMatrix*vec4(position,1.);float offshore=smoothstep(134.,190.,-w.z);
         // Gravity-wave dispersion: omega squared = g*k, k = 2*pi / wavelength.
         float h=.36*sin(dot(w.xz,vec2(.022,.084))-sqrt(9.81*.087)*time);
         h+=.17*sin(dot(w.xz,vec2(-.115,.138))-sqrt(9.81*.18)*time);
         w.y=.04+offshore*h;vWorld=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}`,
-    fragmentShader: `uniform float time;uniform vec3 sunDirection;varying vec3 vWorld;
+    fragmentShader: `uniform float time;uniform sampler2D tDiffuse;varying vec4 vMirrorCoord;uniform vec3 sunDirection;varying vec3 vWorld;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
       void main(){
@@ -122,7 +123,10 @@ export class CoastalWater {
         // Wavelength-dependent absorption gives shallow water its green tint.
         vec3 transmission=exp(-vec3(.19,.065,.035)*max(0.,depth)*.12);
         vec3 water=mix(vec3(.012,.075,.10),vec3(.23,.34,.26),transmission);
-        vec3 reflectedSky=mix(vec3(.16,.30,.42),vec3(.38,.49,.53),pow(1.-max(0.,reflect(-eye,normal).y),3.));
+        vec2 reflectionUv=vMirrorCoord.xy/vMirrorCoord.w+normal.xz*.018;
+        vec3 reflectedSky=texture2D(tDiffuse,reflectionUv).rgb*.6
+          +texture2D(tDiffuse,reflectionUv+vec2(.002,.003)).rgb*.2
+          +texture2D(tDiffuse,reflectionUv-vec2(.002,.003)).rgb*.2;
         water=mix(water,reflectedSky,fresnel);
         vec3 halfVector=normalize(eye+sunDirection);
         float glint=pow(max(dot(normal,halfVector),0.),240.)*3.;
@@ -134,8 +138,28 @@ export class CoastalWater {
         #include <colorspace_fragment>
       }`,
   });
-  readonly mesh = new THREE.Mesh(this.geometry, this.material);
+  readonly mesh: Reflector;
   constructor(scene: THREE.Scene) {
+    const source = this.material;
+    this.mesh = new Reflector(this.geometry, {
+      textureWidth: 512,
+      textureHeight: 512,
+      multisample: 0,
+      clipBias: 0.003,
+      shader: {
+        uniforms: {
+          color: { value: new THREE.Color() },
+          tDiffuse: { value: null },
+          textureMatrix: { value: new THREE.Matrix4() },
+          ...source.uniforms,
+        },
+        vertexShader: source.vertexShader,
+        fragmentShader: source.fragmentShader,
+      },
+    });
+    source.dispose();
+    this.material = this.mesh.material as THREE.ShaderMaterial;
+    this.material.transparent = true;
     this.mesh.rotation.x = -Math.PI / 2;
     this.mesh.position.z = -1320;
     this.mesh.frustumCulled = false;
@@ -148,6 +172,6 @@ export class CoastalWater {
   dispose() {
     this.mesh.removeFromParent();
     this.geometry.dispose();
-    this.material.dispose();
+    this.mesh.dispose();
   }
 }
