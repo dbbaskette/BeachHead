@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="490" viewBox="0 0 1440 490" role="img" aria-labelledby="title desc">
+<title id="title">Beach Head — Battle Stations</title>
+<desc id="desc">A coastal operations chart showing a ship, a fortified beach and the planned aircraft attack route. Two missions playable, an air assault on the horizon.</desc>
+<defs>
+  <linearGradient id="sea" x2="1" y2="1"><stop stop-color="#102b37"/><stop offset="1" stop-color="#07151d"/></linearGradient>
+  <linearGradient id="shore" x2="1" y2="1"><stop stop-color="#b4a184"/><stop offset="1" stop-color="#384941"/></linearGradient>
+  <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#d0e5e1" stroke-opacity=".05"/></pattern>
+  <radialGradient id="glow"><stop stop-color="#639f9a" stop-opacity=".22"/><stop offset="1" stop-color="#639f9a" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1440" height="490" rx="12" fill="url(#sea)"/>
+<rect width="1440" height="490" rx="12" fill="url(#grid)"/>
+<ellipse cx="1120" cy="205" rx="380" ry="270" fill="url(#glow)"/>
+<g fill="none" stroke="#527a7b" stroke-opacity=".32">
+  <path d="M885 0C1110 80 889 200 1060 326S1260 451 1260 490"/>
+  <path d="M925 0C1150 80 929 200 1100 326S1300 451 1300 490"/>
+  <path d="M965 0C1190 80 969 200 1140 326S1340 451 1340 490"/>
+  <circle cx="1090" cy="233" r="102"/><circle cx="1090" cy="233" r="157"/><circle cx="1090" cy="233" r="218"/>
+</g>
+<path d="M1230 0C1180 90 1280 120 1215 208S1238 365 1330 408L1440 448V0Z" fill="url(#shore)" opacity=".72"/>
+<path d="M1215 0C1165 90 1265 120 1200 208S1223 365 1315 408L1440 456" fill="none" stroke="#e3d3ab" stroke-width="3" opacity=".48"/>
+<g stroke="#edd5a0" fill="none" stroke-width="2">
+  <path d="M898 380C819 296 874 128 1034 122S1209 150 1163 278" stroke-dasharray="8 10" opacity=".65"/>
+  <path d="m1154 267 9 12 13-8"/>
+</g>
+<g transform="translate(934 328) rotate(-22)" fill="#c4d3c9" stroke="#0d2430" stroke-width="3">
+  <path d="M-15 45-20-37 0-73 20-37 15 45 0 60Z"/><path d="M-11 12V-25H11V12Z" fill="#6e9090"/><path d="M0-45V-12M0 20V46" stroke="#d4bd87" stroke-width="4"/>
+</g>
+<g transform="translate(1040 120) rotate(15)" fill="#ecd4a1">
+  <path d="M0-39 5-33 7-9 50 10 50 18 7 9 5 33 19 40 19 46 0 40-19 46-19 40-5 33-7 9-50 18-50 10-7-9-5-33Z"/>
+</g>
+<g transform="translate(1258 220) rotate(-16)">
+  <path d="M-25 13V-12L-13-26H25L36-9V13Z" fill="#34443c" stroke="#c1b490" stroke-width="2"/>
+  <path d="M-15-4H23V4H-15Z" fill="#0b201f"/><path d="M-3 0H-43" stroke="#e0cba4" stroke-width="4"/>
+</g>
+<g font-family="Arial,Helvetica,sans-serif">
+  <text x="64" y="69" fill="#d4b67a" font-size="14" letter-spacing="4">COASTAL OPERATIONS / 01—03</text>
+  <path d="M64 101H135" stroke="#d4b67a" stroke-width="3"/>
+  <text x="58" y="208" fill="#f1ede0" font-size="98" font-weight="900" letter-spacing="-4">BEACH HEAD</text>
+  <text x="65" y="257" fill="#d4b67a" font-size="25" letter-spacing="9">BATTLE STATIONS</text>
+  <text x="65" y="321" fill="#a9bebd" font-size="21">Break the blockade. Hold the beach.</text>
+  <text x="65" y="352" fill="#a9bebd" font-size="21">Take the fight to the sky.</text>
+  <rect x="64" y="403" width="217" height="39" rx="3" fill="#d9b77b"/>
+  <text x="82" y="428" fill="#10252c" font-size="13" font-weight="700" letter-spacing="1.4">PLAY IN YOUR BROWSER ↗</text>
+  <text x="307" y="428" fill="#98b1b1" font-size="13">2 playable stages · Air assault planned</text>
+  <text x="1007" y="76" fill="#d8bd85" font-size="11" letter-spacing="2">03 / AIR ASSAULT</text>
+  <text x="1241" y="279" fill="#e3d5b7" font-size="11" letter-spacing="2">02 / BEACH</text>
+  <text x="862" y="439" fill="#a9c5c6" font-size="11" letter-spacing="2">01 / BLOCKADE</text>
+</g>
+<path d="M1439 15V475Q1439 489 1425 489H15Q1 489 1 475V15Q1 1 15 1H1425Q1439 1 1439 15" fill="none" stroke="#96b8b1" stroke-opacity=".18"/>
+</svg>

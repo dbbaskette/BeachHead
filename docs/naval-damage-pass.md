@@ -1,0 +1,9 @@
+# Naval presentation and damage pass — 2026-09-30
+
+- Removed the objective block, target names/health bars, compass overlay, reticle range text, impact report and incoming-fire text from the sea view. Own-ship controls and instruments remain at the edges.
+- Added a noninteractive Stage 3 Air assault card marked Coming soon. The campaign still plays the two implemented stages.
+- Each salvo hit records a hull-local footprint. Hit explosions, deck scorch marks and recurring fire/smoke originate there and follow the hull. Existing impact tolerance maps near-edge hits onto the deck footprint; this is an arcade damage model rather than mesh-accurate shell penetration.
+- Sinking rolls toward the damaged side and pitches toward the damaged end, with an 18-second settling/plunge curve, a delayed secondary blast, water churn and up to 30 floating debris pieces. Fire sources extinguish below the water. Debris expires after 24 seconds. Retry/exit clears owned effects and resources.
+- A final victory keeps the sea visible for nine seconds before showing results, with a View results shortcut. The optic remains available so a sinking does not force a camera pullback.
+
+Verification: 71 tests pass, including hit-location persistence on rotated hulls, transform-following fire, underwater suppression, pause, sinking direction, debris lifetime behavior and reset/disposal. Typecheck and authored-source lint pass. Browser playtest completed a seven-salvo naval victory, checked the delayed results and clear sea view, returned to mission selection and entered Stage 2. No browser errors were observed. The sinking curve was then slowed and the optic retained at victory; the final tests and production build cover that revision. The graphics remain real-time approximations, and no new performance benchmark is claimed.

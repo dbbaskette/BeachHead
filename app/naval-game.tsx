@@ -19,6 +19,7 @@ import {
   Waves,
   Maximize,
   Shield,
+  Plane,
   ArrowUpRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -36,15 +37,6 @@ import { registerNavalTools } from '@/lib/naval/webmcp';
 import { flushSync } from 'react-dom';
 import type { NavalScene } from '@/lib/naval/scene';
 
-type Marker = {
-  id: string;
-  x: number;
-  y: number;
-  visible: boolean;
-  health: number;
-  maxHealth: number;
-  name: string;
-};
 const bearing = (x: number, z: number) => (Math.atan2(x, -z) * 180) / Math.PI;
 const number = (n: number) => Math.round(n).toLocaleString('en-US');
 const time = (n: number) =>
@@ -72,8 +64,8 @@ export default function NavalGame({
     [sound, setSound] = useState(true),
     [steady, setSteady] = useState(false);
   const [singleStage, setSingleStage] = useState(false);
-  const [markers, setMarkers] = useState<Marker[]>([]),
-    [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(0);
+  const [resultsReady, setResultsReady] = useState(false);
   const reticleElement = useRef<HTMLDivElement>(null);
   const mousePoint = useRef<{ x: number; y: number } | null>(null);
   const mouseFiring = useRef(false);
@@ -108,6 +100,7 @@ export default function NavalGame({
     publish();
   };
   const start = () => {
+    setResultsReady(false);
     battle.current = createBattle();
     battle.current.status = 'playing';
     optic.current = false;
@@ -125,6 +118,7 @@ export default function NavalGame({
     root.current?.focus();
   };
   const returnToMenu = () => {
+    setResultsReady(false);
     battle.current = createBattle();
     if (document.pointerLockElement === host.current)
       document.exitPointerLock();
@@ -160,7 +154,8 @@ export default function NavalGame({
       frame = 0,
       last = 0,
       accumulator = 0,
-      lastHud = 0;
+      lastHud = 0,
+      victoryTime = 0;
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     reduced.current = media.matches;
     audio.current = new NavalAudio();
@@ -351,21 +346,18 @@ export default function NavalGame({
             b,
             dt,
             reduced.current,
-            optic.current && b.status === 'playing',
+            optic.current && b.status !== 'ready',
           );
           if (now - lastHud > 60) {
             lastHud = now;
             publish();
-            setMarkers(
-              b.ships.map((s) => ({
-                ...scene.current!.project(s.x, 40, s.z),
-                id: s.id,
-                health: s.health,
-                maxHealth: s.maxHealth,
-                name: s.name,
-              })),
-            );
           }
+          if (b.status === 'won') {
+            if (victoryTime < 9) {
+              victoryTime += dt;
+              if (victoryTime >= 9) setResultsReady(true);
+            }
+          } else victoryTime = 0;
           if (reticleElement.current) {
             const a = (b.heading * Math.PI) / 180;
             const point = scene.current!.project(
@@ -420,7 +412,6 @@ export default function NavalGame({
     paused = hud.status === 'paused',
     finished = hud.status === 'won' || hud.status === 'lost';
   const target = hud.ships[selected];
-  const sunk = hud.ships.filter((s) => s.health <= 0).length;
   return (
     <main
       ref={root}
@@ -507,11 +498,7 @@ export default function NavalGame({
         }}
       />
       <div className="vignette" />
-      {scoped && playing && (
-        <div className="optic-overlay" aria-hidden="true">
-          <span>Gunnery optic / 2.1×</span>
-        </div>
-      )}
+      {scoped && !ready && <div className="optic-overlay" aria-hidden="true" />}
       <header className="topbar">
         <div className="brand">
           <Anchor size={22} />
@@ -520,6 +507,15 @@ export default function NavalGame({
         </div>
         <div className="top-actions">
           <span className="mission-time">{time(hud.time)}</span>
+          {hud.status === 'won' && !resultsReady && (
+            <Button
+              variant="ghost"
+              className="optic-button"
+              onClick={() => setResultsReady(true)}
+            >
+              View results
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -579,7 +575,7 @@ export default function NavalGame({
               className="optic-button"
               aria-label={scoped ? 'Return to deck view' : 'Use gunnery optic'}
               aria-pressed={scoped}
-              disabled={!playing}
+              disabled={!playing && hud.status !== 'won'}
               onClick={() => {
                 optic.current = !optic.current;
                 setScoped(optic.current);
@@ -604,77 +600,11 @@ export default function NavalGame({
           )}
         </div>
       </header>
-      <div className="compass" aria-hidden="true">
-        <div className="compass-ticks">
-          {[-40, -30, -20, -10, 0, 10, 20, 30, 40].map((n) => (
-            <span key={n}>
-              <i />
-              {String(Math.round((hud.heading + n + 360) % 360)).padStart(
-                3,
-                '0',
-              )}
-            </span>
-          ))}
+      {playing && (
+        <div ref={reticleElement} className="aim-reticle" aria-hidden="true">
+          <span />
+          <i />
         </div>
-        <b>▼</b>
-      </div>
-      {!ready && (
-        <>
-          <aside className="mission-status">
-            <span className="instrument-label">Objective</span>
-            <h2>Break the blockade</h2>
-            <p>
-              <span className="status-dot" />
-              {3 - sunk} enemy {3 - sunk === 1 ? 'ship' : 'ships'} remaining
-            </p>
-            <div className="fleet-pips">
-              {hud.ships.map((s) => (
-                <span key={s.id} className={s.health <= 0 ? 'sunk' : ''}>
-                  <svg viewBox="0 0 48 16">
-                    <path d="M2 8h43l-7 6H8zM12 7V3h12v4m4 0V1h4v6" />
-                  </svg>
-                </span>
-              ))}
-            </div>
-          </aside>
-          <div className="target-markers" aria-hidden="true">
-            {markers
-              .filter((m) => m.visible && m.health > 0)
-              .map((m) => (
-                <div
-                  key={m.id}
-                  className={`target-marker ${m.id === target?.id ? 'selected' : ''}`}
-                  style={{ left: m.x, top: m.y }}
-                >
-                  <span>{m.name}</span>
-                  <i>
-                    <b
-                      style={{ width: `${(m.health / m.maxHealth) * 100}%` }}
-                    />
-                  </i>
-                  <div className="target-bracket" />
-                </div>
-              ))}
-          </div>
-          {playing && (
-            <div
-              ref={reticleElement}
-              className="aim-reticle"
-              aria-hidden="true"
-            >
-              <span />
-              <i />
-              <b>{number(hud.range)} m</b>
-            </div>
-          )}
-          <output className="radio-message" aria-live="polite">
-            <span className="radio-line" />
-            <p>{hud.message}</p>
-          </output>
-          {playing && hud.shells.some((s) => s.enemy) && (
-            <div className="incoming">Incoming fire — brace for impact</div>
-          )}
-        </>
       )}
       {ready && !error && (
         <section className="briefing main-menu" aria-label="Main menu">
@@ -690,7 +620,7 @@ export default function NavalGame({
             <h2>Battle Stations</h2>
             <p className="briefing-copy">
               Break the naval blockade. Defend the captured beach. Play the
-              campaign or jump into either battle.
+              campaign or jump into either playable battle.
             </p>
             <div className="legacy-note">
               Inspired by the 1983 classic.
@@ -747,88 +677,100 @@ export default function NavalGame({
                 Play Stage 2 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
+            <div
+              className="mission-tile air-tile"
+              aria-label="Stage 3 — Air assault — Coming soon"
+            >
+              <Plane className="mission-tile-art" aria-hidden="true" />
+              <span className="mission-stage">Stage 3</span>
+              <strong>Air assault</strong>
+              <span>Break the landing</span>
+              <span className="mission-tile-action">Coming soon</span>
+            </div>
           </nav>
         </section>
       )}
-      {(paused || finished) && !error && (
-        <div className="overlay">
-          <section className="result-panel">
-            <Anchor size={30} />
-            <p className="operation">
-              {paused
-                ? 'All stations holding'
-                : hud.status === 'won'
-                  ? 'Blockade broken'
-                  : 'Ship lost'}
-            </p>
-            <h2>
-              {paused
-                ? 'Stand by.'
-                : hud.status === 'won'
-                  ? 'The way is clear.'
-                  : 'We fought to the last.'}
-            </h2>
-            <p>
-              {paused
-                ? 'Your guns are ready when you are.'
-                : hud.status === 'won'
-                  ? singleStage
-                    ? 'Enemy ships neutralized. Naval mission complete. Choose another battle from the main menu.'
-                    : 'Enemy ships neutralized. The fleet has secured the landing. Take the captured pillbox and hold the beach against the counterattack.'
-                  : 'The blockade held. Adjust your range, lead your targets, and try again.'}
-            </p>
-            {!paused && (
-              <div className="result-stats">
-                <div>
-                  <b>{number(hud.score)}</b>
-                  <span>Score</span>
-                </div>
-                <div>
-                  <b>
-                    {hud.shots ? Math.round((hud.hits / hud.shots) * 100) : 0}%
-                  </b>
-                  <span>Accuracy</span>
-                </div>
-                <div>
-                  <b>{time(hud.time)}</b>
-                  <span>Time</span>
-                </div>
-              </div>
-            )}
-            <Button
-              className="start-button"
-              onClick={
-                paused
-                  ? pause
+      {(paused || (finished && (hud.status === 'lost' || resultsReady))) &&
+        !error && (
+          <div className="overlay">
+            <section className="result-panel">
+              <Anchor size={30} />
+              <p className="operation">
+                {paused
+                  ? 'All stations holding'
+                  : hud.status === 'won'
+                    ? 'Blockade broken'
+                    : 'Ship lost'}
+              </p>
+              <h2>
+                {paused
+                  ? 'Stand by.'
+                  : hud.status === 'won'
+                    ? 'The way is clear.'
+                    : 'We fought to the last.'}
+              </h2>
+              <p>
+                {paused
+                  ? 'Your guns are ready when you are.'
                   : hud.status === 'won'
                     ? singleStage
-                      ? returnToMenu
-                      : onContinue
-                    : start
-              }
-            >
-              {paused ? (
-                <Play />
-              ) : hud.status === 'won' ? (
-                <ArrowUpRight />
-              ) : (
-                <RotateCcw />
+                      ? 'Enemy ships neutralized. Naval mission complete. Choose another battle from the main menu.'
+                      : 'Enemy ships neutralized. The fleet has secured the landing. Take the captured pillbox and hold the beach against the counterattack.'
+                    : 'The blockade held. Adjust your range, lead your targets, and try again.'}
+              </p>
+              {!paused && (
+                <div className="result-stats">
+                  <div>
+                    <b>{number(hud.score)}</b>
+                    <span>Score</span>
+                  </div>
+                  <div>
+                    <b>
+                      {hud.shots ? Math.round((hud.hits / hud.shots) * 100) : 0}
+                      %
+                    </b>
+                    <span>Accuracy</span>
+                  </div>
+                  <div>
+                    <b>{time(hud.time)}</b>
+                    <span>Time</span>
+                  </div>
+                </div>
               )}
-              {paused
-                ? 'Resume battle'
-                : hud.status === 'won'
-                  ? singleStage
-                    ? 'Choose another mission'
-                    : 'Stage 2 — Hold the beach'
-                  : 'Sail again'}
-            </Button>
-            <Button variant="ghost" onClick={returnToMenu}>
-              <Home />
-              Return to main menu
-            </Button>
-          </section>
-        </div>
-      )}
+              <Button
+                className="start-button"
+                onClick={
+                  paused
+                    ? pause
+                    : hud.status === 'won'
+                      ? singleStage
+                        ? returnToMenu
+                        : onContinue
+                      : start
+                }
+              >
+                {paused ? (
+                  <Play />
+                ) : hud.status === 'won' ? (
+                  <ArrowUpRight />
+                ) : (
+                  <RotateCcw />
+                )}
+                {paused
+                  ? 'Resume battle'
+                  : hud.status === 'won'
+                    ? singleStage
+                      ? 'Choose another mission'
+                      : 'Stage 2 — Hold the beach'
+                    : 'Sail again'}
+              </Button>
+              <Button variant="ghost" onClick={returnToMenu}>
+                <Home />
+                Return to main menu
+              </Button>
+            </section>
+          </div>
+        )}
       {error && (
         <div className="overlay">
           <section className="result-panel">
@@ -967,11 +909,17 @@ export default function NavalGame({
           >
             <Crosshair size={22} />
             <span>
-              {hud.reload > 0 ? 'Reloading' : 'Fire guns'}
+              {hud.status === 'won'
+                ? 'Cease fire'
+                : hud.reload > 0
+                  ? 'Reloading'
+                  : 'Fire guns'}
               <small>
-                {hud.reload > 0
-                  ? `${hud.reload.toFixed(1)} s`
-                  : 'Space / click'}
+                {hud.status === 'won'
+                  ? 'Mission complete'
+                  : hud.reload > 0
+                    ? `${hud.reload.toFixed(1)} s`
+                    : 'Space / click'}
               </small>
             </span>
           </Button>
