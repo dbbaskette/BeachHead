@@ -48,6 +48,7 @@ export function registerPillboxTools(actions: {
     const b = actions.read();
     return {
       status: b.status,
+      time: b.time,
       wave: b.wave,
       health: b.health,
       heat: b.heat,
@@ -58,6 +59,7 @@ export function registerPillboxTools(actions: {
       jeeps: b.jeeps,
       landingCraft: b.landingCraft,
       grenades: b.grenades,
+      smoke: b.smoke,
       vehiclesStopped: b.vehiclesStopped,
       aimX: b.aimX,
       aimZ: b.aimZ,
@@ -69,6 +71,9 @@ export function registerPillboxTools(actions: {
           z: s.z,
           phase: s.phase,
           grenadeState: s.grenadeState,
+          smokeState: s.smokeState,
+          crawling: Boolean(s.crawling),
+          foxholeId: s.foxholeId,
         })),
     };
   };

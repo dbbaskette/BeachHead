@@ -6,10 +6,15 @@ import {
   RAMP_END_Z,
 } from './landings';
 import { infantryRoute } from './navigation';
+import { FOXHOLES } from './foxholes';
 import {
   AIM_BOUNDS,
   JEEP_HEALTH,
   GRENADE_FLIGHT,
+  grenadeImpactPoint,
+  SMOKE_FLIGHT,
+  SMOKE_LIFETIME,
+  COVER_ROWS,
   LANES,
   WAVE_COUNTS,
   type Infantry,
@@ -24,8 +29,8 @@ const COVER_TIME = 1.35;
 const INTERMISSION_TIME = 2.5;
 const FIRE_INTERVAL = 1 / 8;
 const HIT_RADIUS = 2.3;
-const HEAT_PER_SHOT = 2.5;
-const HEAT_COOLING = 32;
+const HEAT_PER_SHOT = 2.9;
+const HEAT_COOLING = 28;
 const OVERHEAT_AT = 100;
 const OVERHEAT_RELEASE = 30;
 const BREACH_DAMAGE = 20;
@@ -58,6 +63,7 @@ export function createPillboxBattle(): PillboxBattle {
     landingCraft: createLandingCraft(1),
     jeeps: [],
     grenades: [],
+    smoke: [],
     jeepSpawned: 0,
     jeepTimer: 5,
     vehiclesStopped: 0,
@@ -90,6 +96,7 @@ function spawnSoldier(battle: PillboxBattle): void {
     speed: ADVANCE_SPEED * (0.92 + (id % 5) * 0.04),
     grenadeState: 'ready',
     grenadeTimer: 0,
+    usesFoxhole: id % 3 === 0,
   });
   craft.passengers--;
   battle.spawned += 1;
@@ -227,7 +234,10 @@ function updateGrenades(
   for (const grenade of battle.grenades) {
     grenade.age += dt;
     if (grenade.age >= GRENADE_FLIGHT) {
-      events.push({ type: 'grenade-impact', x: 0, z: 2 });
+      events.push({
+        type: 'grenade-impact',
+        ...grenadeImpactPoint(grenade.id),
+      });
       battle.message = 'Grenade hit! Stop throwers before they release.';
       damageBunker(battle, 12, events);
       if (battle.status === 'lost') break;
@@ -247,6 +257,48 @@ function moveSoldier(
     if (soldier.z >= RAMP_END_Z) delete soldier.landingCraftId;
     return;
   }
+  // Stagger smoke carriers and throw locations so screens also form deeper inland.
+  const smokeZone = [
+    [-125, -112],
+    [-76, -59],
+    [-47, -42],
+  ].findIndex(([near, far]) => soldier.z > near && soldier.z < far);
+  const smokeCarrier =
+    soldier.id < 1000 &&
+    ((soldier.id % 6 === 1 && smokeZone !== 2) ||
+      (soldier.id % 6 === 4 && smokeZone !== 0));
+  if (
+    soldier.phase === 'advance' &&
+    smokeZone >= 0 &&
+    smokeCarrier &&
+    !((soldier.smokeMask ?? 0) & (1 << smokeZone))
+  ) {
+    if (soldier.smokeState !== 'windup') soldier.smokeTimer = 0;
+    soldier.smokeState = 'windup';
+    soldier.smokeTimer = (soldier.smokeTimer ?? 0) + dt;
+    if (soldier.smokeTimer >= 1.1) {
+      soldier.smokeState = 'spent';
+      soldier.smokeMask = (soldier.smokeMask ?? 0) | (1 << smokeZone);
+      battle.smoke.push({
+        id: soldier.id * 4 + smokeZone,
+        x: soldier.x,
+        z: soldier.z,
+        age: 0,
+        targetX: soldier.x - Math.sign(soldier.x) * 2,
+        targetZ: soldier.z + (smokeZone === 2 ? 7 : 10),
+      });
+      battle.message = 'Smoke screen! Watch its edges for movement.';
+    }
+    return;
+  }
+  soldier.crawling =
+    soldier.id % 3 === 0 &&
+    soldier.grenadeState !== 'windup' &&
+    (COVER_ROWS.some((z) => soldier.z >= z - 11 && soldier.z < z + 3) ||
+      Boolean(
+        soldier.usesFoxhole &&
+        FOXHOLES.some((h) => Math.hypot(soldier.x - h.x, soldier.z - h.z) < 7),
+      ));
   if (
     soldier.phase === 'advance' &&
     soldier.z > -42 &&
@@ -275,13 +327,18 @@ function moveSoldier(
       remaining -= used;
       if (soldier.timer <= 1e-9) {
         soldier.phase = 'advance';
-        soldier.coverIndex += 1;
+        if (soldier.foxholeId === undefined) soldier.coverIndex += 1;
+        else delete soldier.foxholeId;
       }
       continue;
     }
     if (soldier.phase !== 'advance') return;
 
-    const route = infantryRoute(soldier.lane, soldier.offset);
+    const route = infantryRoute(
+      soldier.lane,
+      soldier.offset,
+      soldier.usesFoxhole,
+    );
     const target = route[soldier.waypoint];
     if (!target || soldier.z >= BREACH_Z) {
       soldier.phase = 'breached';
@@ -298,10 +355,11 @@ function moveSoldier(
     const dx = target.x - soldier.x,
       dz = target.z - soldier.z;
     const distance = Math.hypot(dx, dz);
-    const travelTime = distance / soldier.speed;
+    const speed = soldier.speed * (soldier.crawling ? 0.6 : 1);
+    const travelTime = distance / speed;
     if (travelTime > remaining) {
-      soldier.x += (dx / distance) * soldier.speed * remaining;
-      soldier.z += (dz / distance) * soldier.speed * remaining;
+      soldier.x += (dx / distance) * speed * remaining;
+      soldier.z += (dz / distance) * speed * remaining;
       return;
     }
     soldier.x = target.x;
@@ -311,6 +369,10 @@ function moveSoldier(
     if (target.cover) {
       soldier.phase = 'cover';
       soldier.timer = COVER_TIME + (soldier.id % 3) * 0.25;
+    } else if (target.foxhole !== undefined) {
+      soldier.phase = 'cover';
+      soldier.foxholeId = target.foxhole;
+      soldier.timer = 2.2 + (soldier.lane % 3) * 0.3;
     }
   }
 }
@@ -355,7 +417,10 @@ function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
       soldier.x - battle.aimX,
       soldier.z - battle.aimZ,
     );
-    if (distance <= HIT_RADIUS && distance < nearest) {
+    if (
+      distance <= (soldier.crawling ? 1.35 : HIT_RADIUS) &&
+      distance < nearest
+    ) {
       nearest = distance;
       target = soldier;
     }
@@ -363,7 +428,10 @@ function fireRound(battle: PillboxBattle, events: PillboxEvent[]): void {
 
   let hit = false;
   if (target?.phase === 'cover') {
-    battle.message = 'Rounds strike cover. Wait for them to move.';
+    battle.message =
+      target.foxholeId !== undefined
+        ? 'Troops are below the foxhole rim. Catch them climbing out.'
+        : 'Rounds strike cover. Wait for them to move.';
   } else if (target) {
     hit = true;
     battle.hits += 1;
@@ -475,6 +543,10 @@ export function stepPillbox(
 
   if (battle.intermission <= 0) updateJeeps(battle, dt);
   updateGrenades(battle, dt, events);
+  for (const smoke of battle.smoke) smoke.age += dt;
+  battle.smoke = battle.smoke.filter(
+    (s) => s.age < SMOKE_FLIGHT + SMOKE_LIFETIME,
+  );
 
   for (const soldier of battle.soldiers) {
     if (battle.status !== 'playing') break;

@@ -1,6 +1,7 @@
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { COASTAL_SUN } from '../naval/daylight';
 import * as THREE from 'three';
+import { FOXHOLES, foxholeDepth } from './foxholes';
 
 export const CRATERS: Array<[number, number, number]> = [
   [-55, -32, 4.8],
@@ -34,7 +35,7 @@ export function beachHeight(x: number, z: number): number {
         -0.42 * Math.exp(-distance * distance * 3.5) +
         0.17 * Math.exp(-Math.pow((distance - 0.92) / 0.19, 2));
   }
-  return height;
+  return height + foxholeDepth(x, z);
 }
 export function createBeachGeometry() {
   const geometry = new THREE.PlaneGeometry(240, 190, 240, 190);
@@ -50,6 +51,9 @@ export function createBeachGeometry() {
 /** Layer large-scale colour variation over the existing scanned PBR sand textures. */
 export function naturalSand(material: THREE.MeshStandardMaterial) {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.foxholes = {
+      value: FOXHOLES.map((h) => new THREE.Vector3(h.x, h.z, h.radius)),
+    };
     shader.vertexShader =
       'varying vec3 vBeachPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
@@ -58,6 +62,7 @@ export function naturalSand(material: THREE.MeshStandardMaterial) {
     );
     shader.fragmentShader =
       `varying vec3 vBeachPosition;
+      uniform vec3 foxholes[5];
       float beachHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float beachNoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(beachHash(i),beachHash(i+vec2(1,0)),f.x),mix(beachHash(i+vec2(0,1)),beachHash(i+1.),f.x),f.y);}
     ` + shader.fragmentShader;
@@ -68,6 +73,10 @@ export function naturalSand(material: THREE.MeshStandardMaterial) {
       float wet = smoothstep(112.,138.,-vBeachPosition.z + sin(vBeachPosition.x*.085)*2.);
       diffuseColor.rgb *= mix(vec3(.88,.85,.77),vec3(1.1,1.07,.99),broad);
       diffuseColor.rgb *= mix(1.,.52,wet);
+      for(int i=0;i<5;i++){
+        float dugout=1.-smoothstep(.55,1.15,length((vBeachPosition.xz-foxholes[i].xy)*vec2(1.,1.12))/foxholes[i].z);
+        diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.38,.31,.23),dugout);
+      }
       float ripplePhase=vBeachPosition.x*5.8+vBeachPosition.z*2.1+beachNoise(vBeachPosition.xz*.22)*6.;
       float rippleFade=1.-smoothstep(25.,100.,distance(cameraPosition,vBeachPosition));
       diffuseColor.rgb *= 1.+sin(ripplePhase)*.045*rippleFade*(1.-wet);
@@ -79,7 +88,7 @@ export function naturalSand(material: THREE.MeshStandardMaterial) {
       '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, .36, smoothstep(118.,140.,-vBeachPosition.z));',
     );
   };
-  material.customProgramCacheKey = () => 'natural-beach-v2';
+  material.customProgramCacheKey = () => 'natural-beach-foxholes-v3';
 }
 
 export class CoastalWater {

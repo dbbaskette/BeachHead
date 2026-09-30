@@ -1,4 +1,5 @@
 import { COVER_ROWS, LANES } from './types';
+import { FOXHOLES } from './foxholes';
 
 export type BeachObstacle = {
   x: number;
@@ -7,7 +8,12 @@ export type BeachObstacle = {
   halfZ: number;
   kind: 'steel' | 'cover' | 'wire';
 };
-export type RoutePoint = { x: number; z: number; cover?: boolean };
+export type RoutePoint = {
+  x: number;
+  z: number;
+  cover?: boolean;
+  foxhole?: number;
+};
 // Rendering and routing share these footprints; padding includes a soldier's body.
 export const BEACH_OBSTACLES: BeachObstacle[] = [
   ...Array.from({ length: 20 }, (_, i) => ({
@@ -104,13 +110,27 @@ function path(a: RoutePoint, b: RoutePoint): RoutePoint[] {
   return result;
 }
 const routes = new Map<string, RoutePoint[]>();
-export function infantryRoute(lane: number, offset: number): RoutePoint[] {
-  const key = `${lane}:${offset}`;
+export function infantryRoute(
+  lane: number,
+  offset: number,
+  useFoxhole = false,
+): RoutePoint[] {
+  const key = `${lane}:${offset}:${useFoxhole}`;
   let route = routes.get(key);
   if (!route) {
     let from: RoutePoint = { x: LANES[lane] + offset, z: -132 };
     route = [];
     for (const z of COVER_ROWS) {
+      if (useFoxhole && z === COVER_ROWS[1]) {
+        const hole = FOXHOLES[lane];
+        const refuge = {
+          x: hole.x + offset * 0.25,
+          z: hole.z,
+          foxhole: hole.id,
+        };
+        route.push(...path(from, refuge));
+        from = refuge;
+      }
       const to = { x: LANES[lane] + offset, z: z - 2.1, cover: true };
       route.push(...path(from, to));
       from = to;

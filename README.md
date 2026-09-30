@@ -83,4 +83,4 @@ The naval battle now uses one visible aiming cursor. Click the sea to capture th
 
 Naval keyboard controls: W/S changes range, A/D changes bearing, and Space fires. Vertical mouse aiming now compensates for perspective at longer ranges, retains usable sensitivity in precision/optic modes, and updates the aim reticle every rendered frame. The wheel also makes larger range adjustments, with Shift retaining fine steps.
 
-Stage 2 now adds 1/2/3 reinforcement jeeps per wave (18 hits each, four passengers) and close-range grenade throwers. Stop jeeps before they unload, and prioritize soldiers marked GRENADE before they release. See `docs/stage-2-threats.md` for the rules and tuning.
+Stage 2 adds 1/2/3 reinforcement jeeps per wave (18 hits each, four passengers), smoke screens throughout the assault, soldiers crawling into barricades and dug-in foxholes, and close-range grenade throwers. Stop jeeps before they unload, watch smoke edges, and prioritize soldiers marked GRENADE before they release. Bullets pass through smoke. The gun overheats after 35 continuous rounds and takes 2.5 seconds to unlock. See `docs/stage-2-threats.md` for the rules and tuning.

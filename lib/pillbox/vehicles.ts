@@ -1,6 +1,10 @@
 import { beachHeight } from './terrain';
 import * as THREE from 'three';
-import { GRENADE_FLIGHT, type PillboxBattle } from './types';
+import {
+  GRENADE_FLIGHT,
+  grenadeImpactPoint,
+  type PillboxBattle,
+} from './types';
 
 /** Small, bounded set of detailed utility vehicles and airborne grenades. */
 export class VehicleRenderer {
@@ -177,10 +181,11 @@ export class VehicleRenderer {
         this.grenades.set(g.id, m);
       }
       const t = Math.min(1, g.age / GRENADE_FLIGHT);
+      const impact = grenadeImpactPoint(g.id);
       m.position.set(
-        g.x * (1 - t),
+        g.x * (1 - t) + impact.x * t,
         1.7 * (1 - t) + Math.sin(Math.PI * t) * 9,
-        g.z * (1 - t) + 2 * t,
+        g.z * (1 - t) + impact.z * t,
       );
       m.rotation.set(t * 15, t * 8, 0);
     }

@@ -202,8 +202,12 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
               )) {
                 scene.current?.event(event);
                 if (event.type === 'shot') soundEngine.play('fire');
-                if (event.type === 'breach' || event.type === 'grenade-impact')
-                  soundEngine.play('damage');
+                if (event.type === 'breach') soundEngine.play('damage');
+                if (event.type === 'grenade-impact')
+                  soundEngine.play('impact', {
+                    distance: 0,
+                    pan: event.x / 12,
+                  });
                 if (event.type === 'jeep-destroyed') soundEngine.play('impact');
               }
               accumulator -= 1 / 60;
@@ -450,10 +454,12 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
           <p className="pillbox-hint">
             Stop jeeps before they unload four reinforcements. Jeeps take 18
             hits. Close infantry pause to throw grenades—shoot them before
-            release. Cover protects crouching soldiers. Move the mouse to aim;
+            release. Squads throw smoke throughout the advance and crawl into
+            barricades and foxholes. Watch the smoke edges; bullets pass through
+            it. Catch hidden troops as they leave cover. Move the mouse to aim;
             hold the left button to fire. Use the wheel for range adjustments.
-            You have about five seconds of sustained fire; release briefly to
-            cool the barrel.
+            Fire in short bursts: about four seconds of continuous fire
+            overheats the gun, followed by a 2.5-second cooling lockout.
           </p>
           <button
             className="pillbox-primary"
@@ -584,7 +590,7 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             <small>
               {hud.overheated
                 ? 'Let the barrel cool'
-                : '5-second bursts. Unlimited belt.'}
+                : 'Short bursts. Unlimited belt.'}
             </small>
           </section>
           <section className="pillbox-aim-controls">

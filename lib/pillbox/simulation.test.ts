@@ -96,7 +96,7 @@ void describe('pillbox simulation', () => {
     assert.equal(battle.overheated, false);
     assert.ok(battle.shots >= 24);
     const events = stepPillbox(battle, 2, true);
-    assert.equal(battle.shots, 40);
+    assert.equal(battle.shots, 35);
     assert.equal(battle.heat, 100);
     assert.equal(battle.overheated, true);
     assert.ok(events.some((event) => event.type === 'overheat'));
@@ -104,7 +104,7 @@ void describe('pillbox simulation', () => {
     stepPillbox(battle, 2, true);
     assert.equal(battle.shots, shots);
     assert.equal(battle.overheated, true);
-    stepPillbox(battle, 0.25, false);
+    stepPillbox(battle, 0.5, false);
     assert.equal(battle.overheated, false);
   });
 

@@ -1,12 +1,15 @@
-# Jeeps and grenades
+# Assault tactics, jeeps and grenades
 
-Stage 2 retains the 18/24/30 infantry waves and the current 40-round heat limit. Difficulty now comes from reinforcement deliveries and close-range attacks.
+Stage 2 retains the 18/24/30 infantry waves. The gun now overheats after 35 continuous rounds (about 4.3 seconds at eight rounds per second), down from 40. Cooling is 28 heat units per second, with release at 30: a full overheat locks firing for 2.5 seconds. Short bursts avoid that lockout.
+
+- One in three regular infantry carries two smoke grenades. Half of these carriers screen the landing and wire crossings; the others screen the wire crossings and final approach. Each pauses for a 1.1-second throw and lobs a canister seven to ten meters ahead. Each assigned position is used only once. Killing the thrower before release stops deployment; a released canister survives its thrower. The screen blooms after a 1.1-second flight, drifts downwind and dissipates over 12 seconds. Smoke obscures sight but never blocks bullets or damages the bunker.
+- One in three infantry crawls on the approach to both barricade rows and stays prone while protected. They follow the existing obstacle-clear routes at 60% speed, have a smaller exposed hit radius, and stand after clearing the barricade. Crawling casualties settle without popping upright. Five sandbagged foxholes between the wire and final barricades have 1.45-meter-deep floors and timber lining. These same soldiers detour into their lane’s foxhole, hide for 2.2–2.8 seconds, and climb back out. They are protected below the rim; catch them on entry or exit. Foxholes stay clear of transport routes and use two shared rendering batches.
 
 - One/two/three jeeps per wave, first arriving five seconds in and subsequent vehicles seven seconds apart. They drive at 9 m/s through the steel, concrete and wire gaps, unload four soldiers at 38 m, and reverse out along the same route.
 - Each jeep requires 18 hits. Destroying a loaded vehicle denies its remaining passengers and awards 400 points. Jeep markers show remaining armor; vehicle hits produce sparks rather than blood.
 - Infantry within 42 m stop and telegraph a grenade throw for 1.4 seconds. Killing the thrower before release cancels it. An airborne grenade continues even if the thrower dies and deals 12 bunker damage after 2.2 seconds. Each soldier carries one grenade.
-- Grenade warnings appear over throwers and in the objective HUD. Grenades follow visible ballistic arcs, and impacts have sound and blast effects.
+- Grenade warnings appear over throwers and in the objective HUD. Grenades follow visible ballistic arcs to the ground directly outside the firing position. Hits produce a brief blast flash and warm light, flying debris, a sharp decaying camera jolt, and six seconds of drifting dust and smoke. Reduce camera motion disables the jolt and roll. Blast overlap is capped at four; pause freezes the effects and retry clears them.
 - Wave completion waits for scheduled jeeps, remaining infantry and airborne grenades. Pause freezes threat timers. Retry clears troops, vehicles, effects and projectiles.
 - Rendering is bounded at 48 active infantry, 18 corpses and six vehicles across the encounter. Vehicle geometry/materials are shared and disposed on stage exit.
 
-Validation includes 31 tests covering full three-wave victory, transport durability, reinforcement counts, obstacle clearance, interruptible throws, committed airborne damage, wave completion, pause, retry and graphics-resource cleanup.
+Validation covers full three-wave victory, heat recovery, transport durability, reinforcement counts, crawling and foxhole obstacle clearance, interruptible throws, smoke lifetime and pass-through fire, committed airborne damage, wave completion, pause, retry and graphics-resource cleanup.

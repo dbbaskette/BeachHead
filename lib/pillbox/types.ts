@@ -14,6 +14,12 @@ export interface Infantry {
   grenadeState: 'ready' | 'windup' | 'spent';
   grenadeTimer: number;
   landingCraftId?: number;
+  smokeState?: 'windup' | 'spent';
+  smokeTimer?: number;
+  smokeMask?: number;
+  crawling?: boolean;
+  usesFoxhole?: boolean;
+  foxholeId?: number;
 }
 export interface LandingCraft {
   id: number;
@@ -44,6 +50,15 @@ export interface Grenade {
 }
 export const JEEP_HEALTH = 18;
 export const GRENADE_FLIGHT = 2.2;
+export function grenadeImpactPoint(id: number) {
+  return { x: ((id % 3) - 1) * 4, z: -14 + (id % 2) * 1.2 };
+}
+export const SMOKE_FLIGHT = 1.1;
+export const SMOKE_LIFETIME = 12;
+export interface SmokeGrenade extends Grenade {
+  targetX: number;
+  targetZ: number;
+}
 export interface PillboxBattle {
   status: PillboxStatus;
   time: number;
@@ -66,6 +81,7 @@ export interface PillboxBattle {
   landingCraft: LandingCraft[];
   jeeps: Jeep[];
   grenades: Grenade[];
+  smoke: SmokeGrenade[];
   jeepSpawned: number;
   jeepTimer: number;
   vehiclesStopped: number;

@@ -13,7 +13,7 @@ const MAX_ACTIVE = 48;
 const MAX_CORPSES = 18;
 const MAX_VISIBLE = 66;
 
-type Pose = 'run' | 'cover' | 'down';
+type Pose = 'run' | 'cover' | 'crawl' | 'dugout' | 'down';
 
 type RenderedSoldier = {
   id: number;
@@ -25,6 +25,7 @@ type RenderedSoldier = {
   targetX: number;
   targetZ: number;
   fallTime: number;
+  fellProne: boolean;
   head: THREE.Object3D | undefined;
   helmet: THREE.Mesh;
   chest: THREE.Object3D | undefined;
@@ -269,6 +270,7 @@ export class InfantryRenderer {
       targetX: soldier.x,
       targetZ: soldier.z,
       fallTime: 0,
+      fellProne: false,
       head,
       helmet,
       chest,
@@ -293,6 +295,7 @@ export class InfantryRenderer {
 
   private setPose(instance: RenderedSoldier, pose: Pose): void {
     if (instance.pose === pose) return;
+    if (pose === 'down') instance.fellProne = instance.pose === 'crawl';
     instance.pose = pose;
     const { idle, run, walk } = instance.actions;
 
@@ -303,7 +306,14 @@ export class InfantryRenderer {
       return;
     }
 
-    if (pose === 'cover') {
+    if (pose === 'crawl') {
+      run.fadeOut(0.25);
+      idle.fadeOut(0.25);
+      walk.reset().setEffectiveWeight(1).fadeIn(0.25).play();
+      return;
+    }
+
+    if (pose === 'cover' || pose === 'dugout') {
       run.fadeOut(0.14);
       walk.fadeOut(0.14);
       idle.reset().setEffectiveWeight(1).fadeIn(0.14).play();
@@ -376,40 +386,86 @@ export class InfantryRenderer {
       const pose: Pose =
         soldier.phase === 'down'
           ? 'down'
-          : soldier.phase === 'cover' || soldier.grenadeState === 'windup'
-            ? 'cover'
-            : 'run';
+          : soldier.foxholeId !== undefined
+            ? 'dugout'
+            : soldier.crawling
+              ? 'crawl'
+              : soldier.phase === 'cover' ||
+                  soldier.grenadeState === 'windup' ||
+                  soldier.smokeState === 'windup'
+                ? 'cover'
+                : 'run';
       this.setPose(instance, pose);
       if (pose === 'down') instance.fallTime += frameDt;
       const reaction = deathPose(soldier.id, instance.fallTime);
+      if (pose === 'down' && instance.fellProne) {
+        // A soldier already on the ground settles in place instead of standing to fall.
+        reaction.pitch = 1.45 + reaction.pitch * 0.06;
+        reaction.roll *= 0.12;
+        reaction.height = 0.18 + reaction.height * 0.2;
+        reaction.shift = -0.9 + reaction.shift * 0.2;
+        reaction.yaw *= 0.15;
+      }
       const blend = 1 - Math.exp(-frameDt * 12);
       const base = -this.modelFloor * this.modelScale;
       instance.model.position.y = THREE.MathUtils.lerp(
         instance.model.position.y,
         base +
-          (pose === 'cover' ? -0.35 : pose === 'down' ? reaction.height : 0),
+          (pose === 'crawl'
+            ? 0.18
+            : pose === 'dugout'
+              ? -0.75
+              : pose === 'cover'
+                ? -0.35
+                : pose === 'down'
+                  ? reaction.height
+                  : 0),
         blend,
       );
       instance.model.rotation.x = THREE.MathUtils.lerp(
         instance.model.rotation.x,
-        pose === 'cover' ? 0.18 : pose === 'down' ? reaction.pitch : 0,
+        pose === 'crawl'
+          ? 1.45
+          : pose === 'dugout'
+            ? 0.3
+            : pose === 'cover'
+              ? 0.18
+              : pose === 'down'
+                ? reaction.pitch
+                : 0,
         blend,
       );
       instance.model.rotation.z = pose === 'down' ? reaction.roll : 0;
       instance.model.rotation.y =
         Math.PI + (pose === 'down' ? reaction.yaw : 0);
-      instance.model.position.z = pose === 'down' ? reaction.shift : 0;
+      instance.model.position.z = THREE.MathUtils.lerp(
+        instance.model.position.z,
+        pose === 'crawl' ? -0.9 : pose === 'down' ? reaction.shift : 0,
+        blend,
+      );
       instance.actions.run.setEffectiveTimeScale(soldier.speed / 4.2);
+      instance.actions.walk.setEffectiveTimeScale(
+        soldier.phase === 'cover' ? 0 : 0.65,
+      );
       // Pausing freezes both locomotion and death reactions.
       if (pose !== 'down') instance.mixer.update(frameDt);
       if (
         soldier.phase === 'advance' &&
-        soldier.grenadeState === 'windup' &&
+        (soldier.grenadeState === 'windup' ||
+          soldier.smokeState === 'windup') &&
         instance.throwingArm
       ) {
         instance.throwingArm.rotation.z -=
-          Math.sin(Math.min(1, soldier.grenadeTimer / 1.4) * Math.PI * 0.8) *
-          1.8;
+          Math.sin(
+            Math.min(
+              1,
+              soldier.smokeState === 'windup'
+                ? (soldier.smokeTimer ?? 0) / 1.1
+                : soldier.grenadeTimer / 1.4,
+            ) *
+              Math.PI *
+              0.8,
+          ) * 1.8;
       }
       if (instance.chest) {
         instance.root.updateWorldMatrix(true, true);
@@ -428,7 +484,14 @@ export class InfantryRenderer {
         instance.root.worldToLocal(this.headPosition);
         instance.helmet.position
           .copy(this.headPosition)
-          .add(new THREE.Vector3(0, 0.15, 0));
+          .add(
+            new THREE.Vector3(
+              0,
+              Math.cos(instance.model.rotation.x) * 0.15,
+              Math.sin(instance.model.rotation.x) * 0.15,
+            ),
+          );
+        instance.helmet.rotation.x = instance.model.rotation.x;
       }
     }
   }

@@ -8,6 +8,9 @@ import {
   CoastalWater,
 } from './terrain';
 import { WreckSmoke } from './smolder';
+import { AssaultSmoke } from './assault-smoke';
+import { FoxholeDetail } from './foxhole-detail';
+import { GrenadeBlast } from './grenade-blast';
 import { VehicleRenderer } from './vehicles';
 import { BEACH_OBSTACLES } from './navigation';
 import * as THREE from 'three';
@@ -79,6 +82,9 @@ export class PillboxScene {
   private landingCraft: LandingCraftRenderer;
   private coast = new CoastalWater(this.scene);
   private wreckSmoke = new WreckSmoke(this.scene);
+  private assaultSmoke = new AssaultSmoke(this.scene);
+  private foxholes = new FoxholeDetail(this.scene);
+  private grenadeBlast = new GrenadeBlast(this.scene);
   private vehicles = new VehicleRenderer(this.scene);
   private detail: BeachDetail;
   private surfaceMaps: PillboxSurfaceMaps | null = null;
@@ -776,11 +782,13 @@ export class PillboxScene {
       else if (event.hit) this.spawnBlood(event.x, event.z);
       else this.spawnDust(event.x, event.z, '#806a48');
     }
-    if (event.type === 'jeep-destroyed' || event.type === 'grenade-impact') {
+    if (event.type === 'grenade-impact')
+      this.grenadeBlast.trigger(event.x, event.z);
+    if (event.type === 'jeep-destroyed') {
       this.spawnFlash(
         new THREE.Vector3(event.x, 1, event.z),
         '#ff9e42',
-        event.type === 'jeep-destroyed' ? 5 : 3,
+        5,
         0.3,
       );
       this.spawnDust(event.x, event.z, '#3d3933');
@@ -963,6 +971,7 @@ export class PillboxScene {
     this.effects = [];
     this.recoil = 0;
     this.muzzleLight.intensity = 0;
+    this.grenadeBlast.clear();
   }
 
   render(battle: PillboxBattle, dt: number, reducedMotion: boolean) {
@@ -977,6 +986,8 @@ export class PillboxScene {
     this.sky.material.uniforms.time.value = this.visualTime;
     this.atmosphere.update(battle.time);
     this.wreckSmoke.update(battle);
+    this.assaultSmoke.update(battle);
+    this.grenadeBlast.update(activeDt, reducedMotion);
     this.recoil = Math.max(0, this.recoil - activeDt * 11);
     this.muzzleLight.intensity = Math.max(
       0,
@@ -990,11 +1001,18 @@ export class PillboxScene {
     );
     this.barrel.position.z = this.recoil * 0.38;
     this.camera.position.set(
-      0,
-      9.2 + (reducedMotion ? 0 : Math.sin(this.visualTime * 1.3) * 0.025),
-      8.2,
+      this.grenadeBlast.shake.x,
+      9.2 +
+        (reducedMotion ? 0 : Math.sin(this.visualTime * 1.3) * 0.025) +
+        this.grenadeBlast.shake.y,
+      8.2 + this.grenadeBlast.shake.z,
     );
-    this.camera.lookAt(0, reducedMotion ? 0 : this.recoil * 0.04, -48);
+    this.camera.lookAt(
+      this.grenadeBlast.shake.x * 3,
+      (reducedMotion ? 0 : this.recoil * 0.04) + this.grenadeBlast.shake.y * 2,
+      -48,
+    );
+    this.camera.rotateZ(this.grenadeBlast.roll);
     this.landingCraft.render(battle);
     this.infantry.render(
       {
@@ -1051,6 +1069,9 @@ export class PillboxScene {
     this.coast.dispose();
     this.atmosphere.dispose();
     this.wreckSmoke.dispose();
+    this.assaultSmoke.dispose();
+    this.foxholes.dispose();
+    this.grenadeBlast.dispose();
     this.detail.dispose();
     this.surfaceMaps?.dispose();
     this.environment?.dispose();
