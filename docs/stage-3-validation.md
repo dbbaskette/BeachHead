@@ -39,3 +39,9 @@ All **98 tests passed**, along with TypeScript, authored-source lint (`app`, `li
 ## Aircraft refinement — 2026-09-30
 
 All **101 tests**, TypeScript, authored-source lint and the Pages export pass. The new mirrored-airfoil test checks outward upper/lower normals and tapered tips; existing gun/rack alignment, resource-disposal and mission tests also pass. Desktop browser checks exercised banking, altitude changes, firing and bomb release with clear aiming space and no renderer errors. Portrait and landscape viewport checks cover visibility, but do not replace physical-phone testing. The README screenshot now shows the refined cockpit with separated desktop status panels.
+
+## Pilot-seat correction — 2026-09-30
+
+All **103 tests**, TypeScript, scoped authored-source lint and the production export pass. New camera tests verify a stable cockpit-relative view through bank/pitch/heading changes and a level reduced-motion view. Ray tests across 27 altitude/pitch/bank combinations find no opaque cockpit geometry obstructing the gun aiming line. A first browser pass found incompatible indexed/non-indexed meshes dropping part of the shell; normalized batching fixes this and assembly now fails visibly instead of silently omitting a material group.
+
+Browser checks show a solid instrument bulkhead, connected quarter windows, side consoles, a working artificial horizon and anchored banking. Mouse steering, firing and bomb release were exercised, and the README capture shows the banked view. Portrait and landscape visibility checks use desktop-host viewports; physical-phone validation remains outstanding. Previous camera descriptions are superseded by this correction.

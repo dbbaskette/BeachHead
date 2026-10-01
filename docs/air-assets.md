@@ -30,3 +30,9 @@ Desktop directional shadows follow the aircraft with a bounded 1024px map; phone
 `lib/air/aircraft.ts` now builds the original WWII-inspired fighter-bomber from a smooth sectioned fuselage and mirrored, cambered airfoil wings with taper and dihedral. It adds cowling lips, cooling flaps, exhaust stacks, wing-root fairings, painted star-and-bar/invasion markings, navigation lights and bank-driven ailerons. These are visual refinements to the guided aircraft, not a historical replica or a new flight model.
 
 The cockpit has an angular windshield, connected canopy rails and sidewalls, a sloping anti-glare hood, side controls and a compact reflector sight. Desktop status panels leave the central instrument cluster visible. The altitude needle follows actual mission altitude; other dial faces remain decorative. Portrait retains the existing clear-panel behavior. Static airframe fittings are merged by material; guns and bomb-rack transforms retain their tested ballistic alignment.
+
+## Pilot-seat correction
+
+The cockpit is now a continuous tub with an opaque, curved instrument bulkhead, padded coaming, side consoles, throttle levers and front/quarter glazing joined to the surrounding canopy. The raised rails and disconnected dashboard are replaced. A wider desktop lens and aft pilot position reveal the cockpit sides and portions of the wing roots; the foreground shell and flight instruments remain present in portrait mode.
+
+`pilot-view.ts` mounts the normal camera to the aircraft attitude, so the enclosure stays fixed around the pilot and the outside horizon banks. Reduced camera motion retains the level-view option. The central attitude indicator follows pitch/bank, alongside the live altitude needle. Gun and bomb simulation, physical hardpoints, mission balance and controls are unchanged. This remains a visibility-tuned arcade cockpit, not a dimensionally accurate historical reconstruction.

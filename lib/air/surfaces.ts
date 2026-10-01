@@ -43,12 +43,12 @@ export function instrumentTexture() {
   c.fillRect(0, 0, 1024, 384);
   const gauges = [
     ['ALT', 190, 136, 85],
-    ['AIR SPEED', 410, 136, 126],
-    ['RPM', 630, 136, 2200],
-    ['OIL', 830, 136, 70],
+    ['AIR SPEED', 355, 136, 126],
+    ['RPM', 730, 136, 2200],
+    ['OIL', 875, 136, 70],
   ] as const;
   for (const [name, x, y, value] of gauges) {
-    const radius = name === 'OIL' ? 68 : 86;
+    const radius = name === 'OIL' ? 59 : name === 'RPM' ? 65 : 73;
     const rim = c.createRadialGradient(
       x - 20,
       y - 25,
@@ -124,6 +124,29 @@ export function instrumentTexture() {
     c.arc(x, y, 5, 0, Math.PI * 2);
     c.fill();
   }
+  // The central attitude indicator is animated by the 3D cockpit; this is its bezel.
+  const gyroRim = c.createRadialGradient(525, 116, 60, 540, 136, 88);
+  gyroRim.addColorStop(0, '#101714');
+  gyroRim.addColorStop(0.8, '#202c27');
+  gyroRim.addColorStop(0.9, '#738075');
+  gyroRim.addColorStop(1, '#101714');
+  c.fillStyle = gyroRim;
+  c.beginPath();
+  c.arc(540, 136, 88, 0, Math.PI * 2);
+  c.fill();
+  for (let i = -3; i <= 3; i++) {
+    const angle = -Math.PI / 2 + (i * Math.PI) / 9;
+    c.strokeStyle = '#dedfc5';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(540 + Math.cos(angle) * 79, 136 + Math.sin(angle) * 79);
+    c.lineTo(540 + Math.cos(angle) * 85, 136 + Math.sin(angle) * 85);
+    c.stroke();
+  }
+  c.fillStyle = '#b5b9a4';
+  c.textAlign = 'center';
+  c.font = '12px monospace';
+  c.fillText('ATTITUDE', 540, 242);
   c.textAlign = 'left';
   c.fillStyle = '#b5b9a4';
   c.font = '14px monospace';
