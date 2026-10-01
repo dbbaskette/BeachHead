@@ -135,7 +135,7 @@ export function registerPillboxTools(actions: {
     },
     {
       name: 'get_beach_status',
-      description: 'Read Stage 2 defense status and infantry positions.',
+      description: 'Read Stage 3 defense status and infantry positions.',
       inputSchema: schema({}),
       readOnly: true,
       execute(input: unknown) {
@@ -145,7 +145,7 @@ export function registerPillboxTools(actions: {
     },
     {
       name: 'start_beach_defense',
-      description: 'Start or retry Stage 2 from its briefing or result screen.',
+      description: 'Start or retry Stage 3 from its briefing or result screen.',
       inputSchema: schema({}),
       readOnly: false,
       execute(input: unknown) {

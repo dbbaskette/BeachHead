@@ -1,5 +1,7 @@
 # Assault tactics, jeeps and grenades
 
+> Stage numbering note: beach defense is now Stage 3, following the Stage 2 air assault. Earlier names and file paths are retained for historical links.
+
 Stage 2 retains the 18/24/30 infantry waves. The gun now overheats after 35 continuous rounds (about 4.3 seconds at eight rounds per second), down from 40. Cooling is 28 heat units per second, with release at 30: a full overheat locks firing for 2.5 seconds. Short bursts avoid that lockout.
 
 - One in three regular infantry carries two smoke grenades. Half of these carriers screen the landing and wire crossings; the others screen the wire crossings and final approach. Each pauses for a 1.1-second throw and lobs a canister seven to ten meters ahead. Each assigned position is used only once. Killing the thrower before release stops deployment; a released canister survives its thrower. The screen blooms after a 1.1-second flight, drifts downwind and dissipates over 12 seconds. Smoke obscures sight but never blocks bullets or damages the bunker.

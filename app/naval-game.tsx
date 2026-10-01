@@ -637,8 +637,8 @@ export default function NavalGame({
             </h1>
             <h2>Battle Stations</h2>
             <p className="briefing-copy">
-              Break the naval blockade. Defend the captured beach. Play the
-              campaign or jump into any of the three battles.
+              Lead the Allied fleet toward shore, then switch sides to defend
+              against the landing from a German aircraft and pillbox.
             </p>
             <div className="legacy-note">
               Inspired by the 1983 classic.
@@ -664,7 +664,7 @@ export default function NavalGame({
                 <strong>Play campaign</strong>
                 <span>
                   {loaded
-                    ? 'Sea. Beach. Sky. Fight through all three stages.'
+                    ? 'Sea. Sky. Beach. Fight through all three stages.'
                     : 'Preparing the guns…'}
                 </span>
               </span>
@@ -682,33 +682,33 @@ export default function NavalGame({
               <Anchor className="mission-tile-art" aria-hidden="true" />
               <span className="mission-stage">Stage 1</span>
               <strong>Naval battle</strong>
-              <span>Break the blockade</span>
+              <span>Allied fleet · Break the blockade</span>
               <span className="mission-tile-action">
                 Play Stage 1 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
             <button
-              className="mission-tile beach-tile"
-              aria-label="Play Stage 2 — Hold the beach"
-              onClick={onPractice}
+              className="mission-tile air-tile"
+              onClick={onAir}
+              aria-label="Play Stage 2 — Air assault"
             >
-              <Shield className="mission-tile-art" aria-hidden="true" />
+              <Plane className="mission-tile-art" aria-hidden="true" />
               <span className="mission-stage">Stage 2</span>
-              <strong>Hold the beach</strong>
-              <span>Defend the pillbox</span>
+              <strong>Air assault</strong>
+              <span>German aircraft · Strike the landing</span>
               <span className="mission-tile-action">
                 Play Stage 2 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
             <button
-              className="mission-tile air-tile"
-              onClick={onAir}
-              aria-label="Play Stage 3 — Air assault"
+              className="mission-tile beach-tile"
+              aria-label="Play Stage 3 — Hold the beach"
+              onClick={onPractice}
             >
-              <Plane className="mission-tile-art" aria-hidden="true" />
+              <Shield className="mission-tile-art" aria-hidden="true" />
               <span className="mission-stage">Stage 3</span>
-              <strong>Air assault</strong>
-              <span>Break the landing</span>
+              <strong>Hold the beach</strong>
+              <span>German pillbox · Final stand</span>
               <span className="mission-tile-action">
                 Play Stage 3 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
@@ -743,7 +743,7 @@ export default function NavalGame({
                   : hud.status === 'won'
                     ? singleStage
                       ? 'Enemy ships neutralized. Naval mission complete. Choose another battle from the main menu.'
-                      : 'Enemy ships neutralized. The fleet has secured the landing. Take the captured pillbox and hold the beach against the counterattack.'
+                      : 'The Allied fleet has opened the approach to shore. Now switch sides: take a German fighter-bomber into the air and attack the approaching landing craft.'
                     : 'The blockade held. Adjust your range, lead your targets, and try again.'}
               </p>
               {!paused && (
@@ -789,7 +789,7 @@ export default function NavalGame({
                   : hud.status === 'won'
                     ? singleStage
                       ? 'Choose another mission'
-                      : 'Stage 2 — Hold the beach'
+                      : 'Stage 2 — Air assault'
                     : 'Sail again'}
               </Button>
               <Button variant="ghost" onClick={returnToMenu}>

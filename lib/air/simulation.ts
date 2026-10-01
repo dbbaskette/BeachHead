@@ -214,7 +214,7 @@ export function stepAir(
     const success = b.targets.find((t) => t.kind === 'command')!.health <= 0;
     b.status = success ? 'won' : 'lost';
     b.outcome = success
-      ? 'Command transport destroyed. You brought the aircraft home. The landing is broken.'
+      ? 'Command transport destroyed. You brought the aircraft home. The landing force is disrupted.'
       : 'The command transport escaped. Save bombs for the striped transport on the final pass.';
   }
   return events;

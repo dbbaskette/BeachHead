@@ -1,5 +1,7 @@
 # Stage 3 validation — 2026-09-30
 
+> Stage numbering note: air assault is now Stage 2; beach defense is Stage 3. Earlier entries below refer to the numbering at the time of validation.
+
 Implementation: guided attack passes, six ballistic bombs, twin guns, flak, persistent targets, a final command transport, standalone menu entry and campaign continuation. This report distinguishes automated/browser evidence from checks requiring additional hardware or listening.
 
 ## Simulation and lifecycle evidence
@@ -57,3 +59,9 @@ All **104 tests**, TypeScript, scoped lint and the production Pages export pass.
 ## Proportion correction — 2026-09-30
 
 All **104 tests**, TypeScript, scoped lint, whitespace checks and the Pages production export pass. Camera/visibility fixtures now use the revised windshield, cowling shoulders and landscape lens; the gun sightline remains clear in all 27 tested flight poses. Browser checks show a substantially broader nose, integrated upper-cowl details and shorter side rails. Desktop banking, firing and bomb release worked; portrait (390 × 844) and landscape (844 × 390) framing retained visible forward scenery and controls. No console errors were reported. These remain desktop-host viewport checks, not physical-phone validation.
+
+## Campaign story reorder — 2026-09-30
+
+Air assault is now Stage 2 and beach defense is the Stage 3 finale. The shared campaign reducer has explicit naval → air → beach transitions, direct mission selection and menu reset coverage. All **107 tests**, TypeScript and scoped lint pass. Browser checks exercised campaign start, direct air/beach launches, the revised briefings and numbering, pause/menu return, and portrait/landscape mission-card order. The mobile final-card layout follows the last mission rather than the aircraft type. No browser console errors were reported. A complete combat victory through all three stages was not replayed in this UI pass; progression order is covered by the reducer tests. The final production Pages export passes.
+
+Story progression changes the viewpoint from the Allied fleet to a German aircraft and pillbox. Dynamic force/ammunition carryover remains deferred; each mission retains its own initial state.

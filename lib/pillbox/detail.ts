@@ -83,7 +83,7 @@ function offLane(x: number, clearance = 5.5) {
   return LANES.every((lane) => Math.abs(x - lane) > clearance);
 }
 
-/** Static, deterministic battlefield dressing for the Stage 2 beach. */
+/** Static, deterministic battlefield dressing for the Stage 3 beach. */
 export class BeachDetail {
   private root = new THREE.Group();
   private geometries: THREE.BufferGeometry[] = [];
