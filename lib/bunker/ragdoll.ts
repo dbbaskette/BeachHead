@@ -1,4 +1,5 @@
 import * as T from 'three';
+import { fallModel, fallPose, type FallModel } from './fall-motion';
 import { solids, type Guard, type HitRegion, type Box } from './simulation';
 const STEP = 1 / 120;
 const names = [
@@ -30,6 +31,8 @@ type Node = {
   bone: T.Object3D;
   p: T.Vector3;
   old: T.Vector3;
+  stepStart: T.Vector3;
+  predicted: T.Vector3;
   radius: number;
   weight: number;
   orientation: T.Quaternion;
@@ -39,6 +42,7 @@ type Node = {
   direction?: T.Vector3;
   frameInverse?: T.Quaternion;
   contact: boolean;
+  parent?: Node;
 };
 type Link = { a: Node; b: Node; min: number; max: number; stiffness: number };
 const offset = new T.Vector3(),
@@ -52,6 +56,28 @@ export class GuardRagdoll {
   private links: Link[] = [];
   private selfContacts: [Node, Node][] = [];
   private knees: [Node, Node, Node][] = [];
+  private kneeChords: { link: Link; length: number }[] = [];
+  private limbs: {
+    shoulder: Node;
+    elbow: Node;
+    hand: Node;
+    hip: Node;
+    knee: Node;
+    foot: Node;
+    toe: Node;
+    upperArm: number;
+    lowerArm: number;
+    thigh: number;
+    shin: number;
+    side: number;
+    support: T.Vector3;
+  }[] = [];
+  readonly model: FallModel;
+  private blast: boolean;
+  private direction: T.Vector3;
+  private leading: number;
+  private lean: T.Vector3;
+  private trunkLength = 0;
   private accumulator = 0;
   private quiet = 0;
   age = 0;
@@ -61,6 +87,26 @@ export class GuardRagdoll {
   private lastWallImpact = -1;
   private obstacles: Box[] = solids;
   constructor(model: T.Object3D, g: Guard) {
+    this.model = fallModel(g);
+    this.blast = g.hitLift > 0.7;
+    this.direction = new T.Vector3(
+      g.hitDirection.x,
+      0,
+      g.hitDirection.z,
+    ).normalize();
+    this.leading = g.hitSide < 0 ? -1 : g.hitSide > 0 ? 1 : g.id % 2 ? 1 : -1;
+    const forward = new T.Vector3(-Math.sin(g.yaw), 0, -Math.cos(g.yaw));
+    const side = new T.Vector3(
+      Math.cos(g.yaw),
+      0,
+      -Math.sin(g.yaw),
+    ).multiplyScalar(this.leading);
+    this.lean =
+      this.model === 'backward-stumble'
+        ? this.direction.clone()
+        : this.model === 'knee-buckle'
+          ? forward.addScaledVector(side, 0.25).normalize()
+          : side.addScaledVector(this.direction, 0.25).normalize();
     model.updateWorldMatrix(true, true);
     for (const name of names) {
       const bone = model.getObjectByName(name);
@@ -99,6 +145,8 @@ export class GuardRagdoll {
         bone,
         p,
         old: p.clone(),
+        stepStart: p.clone(),
+        predicted: p.clone(),
         radius,
         weight,
         orientation: bone.getWorldQuaternion(new T.Quaternion()),
@@ -109,6 +157,7 @@ export class GuardRagdoll {
     }
     for (const n of this.nodes) {
       const parent = this.nodes.find((x) => x.bone === n.bone.parent);
+      n.parent = parent;
       if (parent) this.link(parent, n, 1, 1, 1);
       n.child = this.nodes.find((x) => x.bone.parent === n.bone);
       if (n.child) n.direction = n.child.p.clone().sub(n.p).normalize();
@@ -116,30 +165,67 @@ export class GuardRagdoll {
     for (const n of this.nodes)
       if (n.name === 'Hips' || n.name.startsWith('Spine'))
         n.frameInverse = this.bodyFrame(n).invert();
-    // A braced ribcage/pelvis preserves volume while the waist and neck can bend.
-    for (const [a, b] of [
-      ['LeftShoulder', 'RightShoulder'],
-      ['LeftArm', 'RightArm'],
-      ['LeftUpLeg', 'RightUpLeg'],
-      ['Hips', 'Spine1'],
-      ['Spine', 'Spine2'],
-      ['Spine1', 'Neck'],
-      ['Spine2', 'LeftArm'],
-      ['Spine2', 'RightArm'],
-      ['Spine', 'LeftShoulder'],
-      ['Spine', 'RightShoulder'],
-      ['LeftUpLeg', 'Spine'],
-      ['RightUpLeg', 'Spine'],
+    this.trunkLength = this.nodes
+      .find((n) => n.name === 'Spine2')!
+      .p.distanceTo(this.nodes[0].p);
+    // Ribcage and pelvis retain their shape. The old loose spinal chain could
+    // compress to 65% of its length, producing the "noodle" silhouette.
+    for (const cluster of [
+      [
+        'Spine1',
+        'Spine2',
+        'Neck',
+        'LeftShoulder',
+        'RightShoulder',
+        'LeftArm',
+        'RightArm',
+      ],
+      ['Hips', 'Spine', 'LeftUpLeg', 'RightUpLeg'],
     ])
-      this.namedLink(a, b, 0.92, 1.03, 0.85);
-    this.namedLink('Hips', 'Spine2', 0.65, 1, 0.55);
-    this.namedLink('Spine2', 'Head', 0.72, 1, 0.75);
-    for (const side of ['Left', 'Right']) {
-      // Chord limits disallow fully reversed elbows/knees, but allow a folded limb.
+      for (let i = 0; i < cluster.length; i++)
+        for (let j = i + 1; j < cluster.length; j++)
+          this.namedLink(cluster[i], cluster[j], 0.995, 1.005, 1);
+    for (const [a, b] of [
+      ['Hips', 'Spine2'],
+      ['Spine', 'Neck'],
+      ['LeftUpLeg', 'RightArm'],
+      ['RightUpLeg', 'LeftArm'],
+    ])
+      this.namedLink(a, b, 0.93, 1.015, 0.95);
+    this.namedLink('Spine2', 'Head', 0.96, 1.01, 1);
+    this.namedLink('LeftArm', 'Head', 0.92, 1.06, 0.9);
+    this.namedLink('RightArm', 'Head', 0.92, 1.06, 0.9);
+    for (const [side, sign] of [
+      ['Left', -1],
+      ['Right', 1],
+    ] as const) {
       this.hinge(side + 'Arm', side + 'ForeArm', side + 'Hand', false);
       this.hinge(side + 'UpLeg', side + 'Leg', side + 'Foot', true);
-      this.namedLink(side + 'Leg', side + 'ToeBase', 0.82, 1.03, 0.85);
-      this.namedLink('Hips', side + 'Leg', 0.88, 1.16, 0.55);
+      this.namedLink(side + 'Leg', side + 'ToeBase', 0.94, 1.01, 1);
+      const get = (name: string) =>
+        this.nodes.find((n) => n.name === side + name)!;
+      const shoulder = get('Arm'),
+        elbow = get('ForeArm'),
+        hand = get('Hand'),
+        hip = get('UpLeg'),
+        knee = get('Leg'),
+        foot = get('Foot'),
+        toe = get('ToeBase');
+      this.limbs.push({
+        shoulder,
+        elbow,
+        hand,
+        hip,
+        knee,
+        foot,
+        toe,
+        side: sign,
+        upperArm: shoulder.p.distanceTo(elbow.p),
+        lowerArm: elbow.p.distanceTo(hand.p),
+        thigh: hip.p.distanceTo(knee.p),
+        shin: knee.p.distanceTo(foot.p),
+        support: foot.p.clone().setY(foot.radius + 0.012),
+      });
     }
     for (const limb of this.nodes.filter(
       (n) => n.name.includes('ForeArm') || n.name.includes('Hand'),
@@ -158,13 +244,13 @@ export class GuardRagdoll {
     // Momentum is localized: pelvis gives way, chest reacts, hands/head lag behind.
     for (const n of this.nodes) {
       const upper = n.p.y > 1.05;
-      const speed = upper ? 0.65 : 0.12;
+      const speed = upper ? 0.48 : 0.12;
       const v = direction.clone().multiplyScalar(speed);
-      if (g.deathAction === 'spin' && upper) {
+      if (this.model === 'side-collapse' && upper) {
         const hips = this.nodes[0].p;
         const sign = g.hitSide < 0 ? -1 : 1;
-        v.x += (n.p.z - hips.z) * 2.2 * sign;
-        v.z -= (n.p.x - hips.x) * 2.2 * sign;
+        v.x += (n.p.z - hips.z) * 0.7 * sign;
+        v.z -= (n.p.x - hips.x) * 0.7 * sign;
       }
       if (n.name === 'Hips')
         v.y =
@@ -174,11 +260,11 @@ export class GuardRagdoll {
               ? -0.8
               : -0.45;
       if (n.name.endsWith('Hand')) {
-        v.y = g.deathAction === 'reel' ? 0.9 : 0.15;
+        v.y = g.deathAction === 'reel' ? 0.35 : 0.1;
         v.addScaledVector(
           right,
           (n.name.startsWith('Left') ? 0.5 : -0.35) *
-            (g.deathAction === 'sprawl' ? 2 : 1),
+            (g.deathAction === 'sprawl' ? 1.2 : 1),
         );
       }
       if (n.name.endsWith('Leg')) v.addScaledVector(direction, -0.25);
@@ -194,11 +280,14 @@ export class GuardRagdoll {
     this.links.push({
       a: first,
       b: last,
-      min: length * 0.18,
-      max: length * 1.001,
+      min: length * (knee ? 0.3 : 0.28),
+      max: length * 0.998,
       stiffness: 0.9,
     });
-    if (knee) this.knees.push([first, joint, last]);
+    if (knee) {
+      this.knees.push([first, joint, last]);
+      this.kneeChords.push({ link: this.links[this.links.length - 1], length });
+    }
   }
   private bodyFrame(n: Node) {
     const upper = n.name !== 'Hips';
@@ -239,6 +328,7 @@ export class GuardRagdoll {
     if (x && y) this.link(x, y, min, max, stiffness);
   }
   impulse(g: Guard) {
+    if (g.hitLift > 0.7) this.blast = true;
     this.sleeping = false;
     this.quiet = 0;
     const point = new T.Vector3(g.hitPoint.x, g.hitPoint.y, g.hitPoint.z);
@@ -248,13 +338,187 @@ export class GuardRagdoll {
         nearest = n;
     for (const n of this.nodes) {
       const proximity = Math.exp(-n.p.distanceToSquared(nearest.p) * 12);
-      const power = g.hitPower ?? 1;
+      // A bullet creates a local kick. Sustained whole-body launch belongs to a blast.
+      const power =
+        this.blast || g.hitLift > 0.7
+          ? (g.hitPower ?? 1)
+          : Math.min(1.35, g.hitPower ?? 1);
       const impulse =
         proximity * (n === nearest ? 1.25 : 0.48) +
         Math.max(0, power - 1) * (n.p.y > 0.65 ? 1 : 0.55);
       n.old.x -= g.hitDirection.x * impulse * STEP;
       n.old.z -= g.hitDirection.z * impulse * STEP;
-      n.old.y -= (Math.min(0.12, impulse * 0.08) + (g.hitLift ?? 0)) * STEP;
+      n.old.y -=
+        (Math.min(0.12, impulse * 0.08) + (g.hitLift > 0.7 ? g.hitLift : 0)) *
+        STEP;
+    }
+  }
+  private axes() {
+    const left = this.limbs[0],
+      right = this.limbs[1];
+    const up = this.nodes
+      .find((n) => n.name === 'Neck')!
+      .p.clone()
+      .sub(this.nodes.find((n) => n.name === 'Spine1')!.p)
+      .normalize();
+    const across = right.shoulder.p.clone().sub(left.shoulder.p).normalize();
+    const forward = new T.Vector3().crossVectors(up, across).normalize();
+    return { up, across, forward };
+  }
+  private driveLimbs() {
+    const { up, across, forward } = this.axes();
+    const drive = (
+      node: Node,
+      anchor: Node,
+      target: T.Vector3,
+      strength: number,
+    ) => {
+      const correction = target
+        .sub(node.p)
+        .multiplyScalar(strength)
+        .clampLength(0, 0.018);
+      node.p.add(correction);
+      node.old.add(correction);
+      const balance = anchor.weight / node.weight;
+      anchor.p.addScaledVector(correction, -balance);
+      anchor.old.addScaledVector(correction, -balance);
+    };
+    if (!this.blast && this.age < 0.72) {
+      const phase = Math.min(1, this.age / 0.48),
+        fade = Math.min(1, (0.72 - this.age) / 0.24);
+      const angle =
+        phase *
+        (this.model === 'side-collapse'
+          ? 1.0
+          : this.model === 'backward-stumble'
+            ? 0.9
+            : 0.62);
+      const target = new T.Vector3(0, Math.cos(angle), 0).addScaledVector(
+        this.lean,
+        Math.sin(angle),
+      );
+      const hips = this.nodes[0],
+        chest = this.nodes.find((n) => n.name === 'Spine2')!;
+      drive(
+        chest,
+        hips,
+        hips.p.clone().addScaledVector(target, this.trunkLength),
+        0.1 * fade,
+      );
+    }
+    for (const limb of this.limbs) {
+      const pose = fallPose(this.model, this.age, limb.side === this.leading);
+      const strength = (this.blast ? 0.012 : 0.055) * pose.brace;
+      const arm = up
+        .clone()
+        .multiplyScalar(-Math.cos(pose.shoulder))
+        .addScaledVector(forward, Math.sin(pose.shoulder))
+        .addScaledVector(across, limb.side * pose.spread)
+        .normalize();
+      drive(
+        limb.elbow,
+        limb.shoulder,
+        limb.shoulder.p.clone().addScaledVector(arm, limb.upperArm),
+        strength,
+      );
+      const forearm = up
+        .clone()
+        .multiplyScalar(-Math.cos(pose.shoulder + pose.elbow))
+        .addScaledVector(forward, Math.sin(pose.shoulder + pose.elbow))
+        .addScaledVector(across, limb.side * pose.spread * 0.6)
+        .normalize();
+      drive(
+        limb.hand,
+        limb.elbow,
+        limb.elbow.p.clone().addScaledVector(forearm, limb.lowerArm),
+        strength * 0.8,
+      );
+      const thigh = up
+        .clone()
+        .multiplyScalar(-Math.cos(pose.hip))
+        .addScaledVector(forward, Math.sin(pose.hip))
+        .addScaledVector(across, limb.side * 0.12)
+        .normalize();
+      drive(
+        limb.knee,
+        limb.hip,
+        limb.hip.p.clone().addScaledVector(thigh, limb.thigh),
+        strength * 0.7,
+      );
+      const shin = up
+        .clone()
+        .multiplyScalar(-Math.cos(pose.hip - pose.knee))
+        .addScaledVector(forward, Math.sin(pose.hip - pose.knee))
+        .normalize();
+      drive(
+        limb.foot,
+        limb.knee,
+        limb.knee.p.clone().addScaledVector(shin, limb.shin),
+        strength * 0.5,
+      );
+      if (!this.blast && pose.support > 0) {
+        const target = limb.support
+          .clone()
+          .addScaledVector(
+            this.direction,
+            pose.step * Math.min(1, this.age / 0.28),
+          );
+        const correction = target
+          .sub(limb.foot.p)
+          .multiplyScalar(pose.support * 0.65)
+          .clampLength(0, 0.028);
+        limb.foot.p.add(correction);
+        limb.foot.old.add(correction);
+      }
+    }
+  }
+  private jointLimits() {
+    const { up, across, forward } = this.axes();
+    for (const limb of this.limbs) {
+      const beforeKnee = limb.knee.p.clone(),
+        beforeElbow = limb.elbow.p.clone();
+      // Femurs cannot fold backward or swing sideways into a split.
+      const v = limb.knee.p.clone().sub(limb.hip.p).divideScalar(limb.thigh);
+      const lateral = v.dot(across),
+        backwards = v.dot(forward);
+      if (Math.abs(lateral) > 0.4)
+        limb.knee.p.addScaledVector(
+          across,
+          (Math.sign(lateral) * 0.4 - lateral) * limb.thigh * 0.8,
+        );
+      if (backwards < -0.45)
+        limb.knee.p.addScaledVector(
+          forward,
+          (-0.45 - backwards) * limb.thigh * 0.8,
+        );
+      // The elbow bends toward the palm/front, rather than freely rotating through the ribcage.
+      const axis = limb.hand.p.clone().sub(limb.shoulder.p).normalize();
+      const bend = forward
+        .clone()
+        .negate()
+        .addScaledVector(axis, forward.dot(axis))
+        .normalize();
+      const signed = limb.elbow.p.clone().sub(limb.shoulder.p).dot(bend);
+      if (signed < -0.012)
+        limb.elbow.p.addScaledVector(bend, (-0.012 - signed) * 0.8);
+      // Keep upper arms outside the trunk; a crossed forearm remains possible.
+      const armSide =
+        limb.elbow.p.clone().sub(limb.shoulder.p).dot(across) * limb.side;
+      if (armSide < -0.04)
+        limb.elbow.p.addScaledVector(
+          across,
+          limb.side * (-0.04 - armSide) * 0.8,
+        );
+      // Prevent legs reversing upwards behind the pelvis.
+      const raised = v.dot(up);
+      if (raised > 0.2)
+        limb.knee.p.addScaledVector(up, (0.2 - raised) * limb.thigh * 0.8);
+      const kneeChange = limb.knee.p.clone().sub(beforeKnee),
+        elbowChange = limb.elbow.p.clone().sub(beforeElbow);
+      limb.hip.p.addScaledVector(kneeChange, -0.5);
+      limb.foot.p.addScaledVector(kneeChange, -0.5);
+      limb.shoulder.p.addScaledVector(elbowChange, -0.5);
+      limb.hand.p.addScaledVector(elbowChange, -0.5);
     }
   }
   private collide(n: Node) {
@@ -309,12 +573,22 @@ export class GuardRagdoll {
       this.accumulator -= STEP;
       this.age += STEP;
       for (const n of this.nodes) {
+        n.stepStart.copy(n.p);
         delta.subVectors(n.p, n.old).multiplyScalar(0.993);
         n.old.copy(n.p);
         n.p.add(delta);
         n.p.y -= 9.81 * STEP * STEP;
       }
-      for (let iteration = 0; iteration < 10; iteration++) {
+      if (!this.blast)
+        for (const chord of this.kneeChords) {
+          const release = Math.max(0, Math.min(1, (this.age - 0.38) / 0.55));
+          const start = this.model === 'knee-buckle' ? 0.42 : 0.93;
+          chord.link.min =
+            chord.length * (start * (1 - release) + 0.42 * release);
+        }
+      this.driveLimbs();
+      for (const n of this.nodes) n.predicted.copy(n.p);
+      for (let iteration = 0; iteration < 14; iteration++) {
         for (const c of this.links) {
           delta.subVectors(c.b.p, c.a.p);
           const distance = delta.length();
@@ -336,9 +610,14 @@ export class GuardRagdoll {
             .addScaledVector(axis, -front.dot(axis))
             .normalize();
           const signed = knee.p.clone().sub(hip.p).dot(bend);
-          if (signed < -0.015)
-            knee.p.addScaledVector(bend, (-0.015 - signed) * 0.7);
+          if (signed < -0.015) {
+            const correction = bend.multiplyScalar((-0.015 - signed) * 0.7);
+            knee.p.add(correction);
+            hip.p.addScaledVector(correction, -0.5);
+            ankle.p.addScaledVector(correction, -0.5);
+          }
         }
+        this.jointLimits();
         for (const [a, b] of this.selfContacts) {
           delta.subVectors(b.p, a.p);
           const distance = delta.length(),
@@ -352,6 +631,20 @@ export class GuardRagdoll {
         }
         for (const n of this.nodes) this.collide(n);
       }
+      // Constraint projection removes penetration; it must not become a spring
+      // that launches the body on the next Verlet step.
+      for (const n of this.nodes)
+        n.old.addScaledVector(n.p.clone().sub(n.predicted), 0.65);
+      // Damp relative joint motion while retaining the body's shared momentum.
+      // This removes the long, independent limb oscillation after a landing.
+      const centerVelocity = new T.Vector3();
+      for (const n of this.nodes) centerVelocity.add(n.p.clone().sub(n.old));
+      centerVelocity.divideScalar(this.nodes.length);
+      const damping = this.floorImpact ? 0.18 : 0.055;
+      for (const n of this.nodes) {
+        const velocity = n.p.clone().sub(n.old).lerp(centerVelocity, damping);
+        n.old.copy(n.p).sub(velocity);
+      }
       let speed = 0;
       for (const n of this.nodes) {
         if (n.contact) {
@@ -362,7 +655,7 @@ export class GuardRagdoll {
             n.old.y = n.p.y;
           }
         }
-        speed = Math.max(speed, n.p.distanceTo(n.old) / STEP);
+        speed = Math.max(speed, n.p.distanceTo(n.stepStart) / STEP);
       }
       this.quiet = speed < 0.055 ? this.quiet + STEP : 0;
       if (this.quiet > 0.45 && this.age > 0.8) {

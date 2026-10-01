@@ -429,8 +429,8 @@ export function shootBunker(b: BunkerState) {
     if (wasAlive && target.health <= 0) {
       prepareDeath(target, b.time);
       if (target.deathAction === 'reel') {
-        target.hitPower = 2.4;
-        target.hitLift = 0.4;
+        target.hitPower = 1.25;
+        target.hitLift = 0;
       }
     }
   }
