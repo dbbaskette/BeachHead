@@ -263,3 +263,76 @@ void test('blast launches an articulated body into cover without tunneling or lo
     'body settles after impact',
   );
 });
+void test('three fall models have different loss-of-support trajectories on the actual soldier', async () => {
+  const source = await sourceModel();
+  const poses: { hip: T.Vector3; lean: T.Vector3 }[] = [];
+  for (const action of ['reel', 'kneel', 'spin'] as const) {
+    const scene = new T.Scene(),
+      a = rig(source, scene),
+      g = createBunker().guards[0];
+    g.x = 0;
+    g.z = 8;
+    g.yaw = Math.PI;
+    g.hitDirection = { x: 0, z: -1 };
+    g.hitSide = 0.5;
+    animateGuard(a, g, 0, scene, true);
+    g.health = 0;
+    g.deathAction = action;
+    for (let i = 0; i < 36; i++) animateGuard(a, g, 1 / 60, scene, true);
+    const nodes = a.ragdoll!.nodes,
+      hip = nodes.find((n) => n.name === 'Hips')!.p,
+      chest = nodes.find((n) => n.name === 'Spine2')!.p;
+    poses.push({ hip: hip.clone(), lean: chest.clone().sub(hip) });
+  }
+  assert.ok(
+    poses[1].hip.y < poses[0].hip.y - 0.15,
+    'buckling loses height before a backward stumble',
+  );
+  assert.ok(
+    poses[0].lean.z < -0.2,
+    'backward stumble carries the chest behind the hips',
+  );
+  assert.ok(
+    Math.abs(poses[2].lean.x) > Math.abs(poses[0].lean.x) + 0.1,
+    'side collapse leads laterally',
+  );
+});
+void test('ribcage width and trunk length survive floor contact, bursts and a blast without folding into a noodle', async () => {
+  const source = await sourceModel();
+  for (const action of ['reel', 'kneel', 'spin'] as const) {
+    const scene = new T.Scene(),
+      a = rig(source, scene),
+      g = createBunker().guards[0];
+    g.x = 0;
+    g.z = 8;
+    g.yaw = Math.PI;
+    g.hitDirection = { x: 0, z: -1 };
+    animateGuard(a, g, 0, scene, true);
+    g.health = 0;
+    g.deathAction = action;
+    animateGuard(a, g, 0, scene, true);
+    const get = (name: string) =>
+      a.ragdoll!.nodes.find((n) => n.name === name)!;
+    const width = get('LeftArm').p.distanceTo(get('RightArm').p),
+      length = get('Hips').p.distanceTo(get('Spine2').p);
+    for (let i = 0; i < 300; i++) {
+      if (i === 12 || i === 22 || i === 110) {
+        g.hitPoint = {
+          x: get('Spine2').p.x,
+          y: get('Spine2').p.y,
+          z: get('Spine2').p.z,
+        };
+        g.hits++;
+        if (i === 110) {
+          g.hitPower = 4;
+          g.hitLift = 1.5;
+        }
+      }
+      animateGuard(a, g, 1 / 60, scene, true);
+      const w = get('LeftArm').p.distanceTo(get('RightArm').p) / width,
+        l = get('Hips').p.distanceTo(get('Spine2').p) / length;
+      assert.ok(w > 0.94 && w < 1.06, `${action}: ribcage width ${w}`);
+      assert.ok(l > 0.88 && l < 1.07, `${action}: trunk length ${l}`);
+    }
+  }
+});

@@ -13,7 +13,7 @@ Keyboard-only play uses **WASD** for movement/strafe, **arrows** for horizontal 
 Existing touch movement/turning and release fixes are preserved. Pause freezes reactions and dropped equipment; retry restores bones, animation weights and rifle ownership.
 
 ## Verification
-- All 149 game tests, typecheck, scoped lint and the production build with the GitHub Pages base path pass.
+- All 151 game tests, typecheck, scoped lint and the production build with the GitHub Pages base path pass.
 - Actual WWII GLB tests cover multiple initial impulses/facings, floor support, detached equipment and retry restoration.
 - Regression checks prove the model root remains fixed while the individual knees/arms rotate, sleep/wake behavior, repeated bullet hits, and equivalent results at 30/60/120 fps next to a wall.
 - A temporary local study (removed before build) checks a burst and frame-by-frame collapse from player and side views, including the torso landing before the limbs settle.
@@ -26,3 +26,7 @@ Two additional rooms add a radio rack and a diesel generator with switchgear, pi
 Three grenades per attempt are thrown with G or a separate touch button. One press releases one grenade, with a short cooldown. Gravity, floor/ceiling/wall bounces and a 2.3-second fuse run in the gameplay simulation. Blast damage falls off over 5.5 metres and solid cover blocks it. Nearby blasts can injure the player. Blasts add a stronger outward/lifting impulse to guards and fallen bodies, a brief warm flash, debris, residual dust and reduced-motion-aware camera shake. Pause freezes fuses and door travel; retry resets inventory, doors and effects.
 
 Verification adds full five-space progression, closed/open door obstruction, grenade bounce and single detonation, blast cover and self-damage, and an actual-model blast against a closed door. Desktop and narrow touch layouts are checked in the browser; no physical iPhone hardware verification is claimed.
+
+## Grounded fall revision
+
+The free-collapse response has been revised into three brief controlled performances with firmer torso braces, bounded hip/elbow motion and balanced, damped joint corrections. Bullet-driven lift is removed; grenade launch remains. See [research, rationale and verification](grounded-fall-research.md).
