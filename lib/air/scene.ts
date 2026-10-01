@@ -5,7 +5,7 @@ import { COASTAL_SUN } from '../naval/daylight';
 import { ShellSplashVisuals } from '../naval/shell-splashes';
 import { AirEffects } from './effects';
 import { makeCoastalAtmosphere } from './coastal-atmosphere';
-import { hardpoint } from './flight';
+import { placePilotCamera } from './pilot-view';
 import {
   bombSolution,
   gunSolutions,
@@ -149,7 +149,7 @@ export class AirScene {
     this.width = this.host.clientWidth;
     this.height = this.host.clientHeight;
     this.camera.aspect = this.width / Math.max(1, this.height);
-    this.camera.fov = this.camera.aspect < 1 ? 76 : 64;
+    this.camera.fov = this.camera.aspect < 1 ? 76 : 72;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
     this.predictTime = -1;
@@ -185,25 +185,17 @@ export class AirScene {
     this.aircraft.prop.visible = !reduced;
     this.aircraft.altitudeNeedle.rotation.z =
       -(0.68 + (f.position.y / 700) * 1.65) * Math.PI - Math.PI / 2;
+    this.aircraft.attitude.uniforms.bank.value = f.bank;
+    this.aircraft.attitude.uniforms.pitch.value = f.pitch;
     this.aircraft.ailerons.forEach((aileron, i) => {
       aileron.rotation.x = f.bank * (i === 0 ? -0.5 : 0.5);
     });
-    this.aircraft.cockpit.visible =
-      !this.touch.matches || this.camera.aspect >= 1;
     this.aircraft.bombs.forEach((rack, i) => {
       rack.visible = b.bombs > 1 || (b.bombs === 1 && i === b.released % 2);
     });
-    const view = {
-      ...f,
-      pitch: reduced ? 0 : f.pitch * 0.42,
-      bank: reduced ? 0 : f.bank * 0.66,
-    };
-    const eye = hardpoint(view, { x: 0, y: 4.4, z: 1.4 }),
-      look = hardpoint(view, { x: 0, y: -175, z: -740 });
-    this.camera.position.copy(eye);
-    this.camera.lookAt(look.x, look.y, look.z);
+    placePilotCamera(this.camera, f, reduced);
     this.camera.rotateZ(
-      reduced ? 0 : f.bank * 0.66 + Math.sin(b.time * 61) * this.shake * 0.014,
+      reduced ? 0 : Math.sin(b.time * 61) * this.shake * 0.014,
     );
     const boats = b.targets
       .filter(
