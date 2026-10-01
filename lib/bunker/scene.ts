@@ -1,6 +1,14 @@
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Sky } from 'three/addons/objects/Sky.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
+import { uniformMaterial, guardClips } from './uniform';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
 import { rooms, solids, type BunkerState, type Effect } from './simulation';
@@ -11,7 +19,7 @@ type Actor = {
   mixer: T.AnimationMixer;
   idle: T.AnimationAction;
   walk: T.AnimationAction;
-  helmet: T.Mesh;
+  helmet?: T.Object3D;
   head?: T.Object3D;
   flash: T.Mesh;
   arms: (T.Object3D | undefined)[];
@@ -26,6 +34,9 @@ export class BunkerScene {
   private scene = new T.Scene();
   private camera = new T.PerspectiveCamera(68, 1, 0.05, 180);
   private renderer: T.WebGLRenderer;
+  private composer?: EffectComposer;
+  private ao?: SSAOPass;
+  private output?: OutputPass;
   private observer: ResizeObserver;
   private weapon = new T.Group();
   private muzzle: T.Mesh;
@@ -42,7 +53,7 @@ export class BunkerScene {
   private disposed = false;
   private environment: T.WebGLRenderTarget;
   private resources = new Set<T.Texture>();
-  private world = new T.Vector3();
+  private detailShadows = false;
   private metal = new T.MeshStandardMaterial({
     color: '#434b49',
     roughness: 0.58,
@@ -64,6 +75,7 @@ export class BunkerScene {
   });
   readonly ready: Promise<void>;
   constructor(host: HTMLElement, touch: boolean) {
+    this.detailShadows = !touch;
     this.renderer = new T.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
@@ -73,7 +85,7 @@ export class BunkerScene {
     );
     this.renderer.outputColorSpace = T.SRGBColorSpace;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.35;
+    this.renderer.toneMappingExposure = 1.18;
     this.renderer.shadowMap.enabled = !touch;
     this.renderer.shadowMap.type = T.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
@@ -81,12 +93,12 @@ export class BunkerScene {
     const pmrem = new T.PMREMGenerator(this.renderer);
     this.environment = pmrem.fromScene(environment, 0.05);
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.32;
+    this.scene.environmentIntensity = 0.22;
     environment.dispose();
     pmrem.dispose();
     this.scene.background = new T.Color('#6f8991');
-    this.scene.fog = new T.FogExp2('#667577', 0.009);
-    this.scene.add(new T.HemisphereLight('#c5d5d4', '#484035', 1.65));
+    this.scene.fog = new T.FogExp2('#33332f', 0.012);
+    this.scene.add(new T.HemisphereLight('#c5d5d4', '#484035', 0.42));
     const sun = new T.DirectionalLight('#d9e9ed', touch ? 0.65 : 3.3);
     sun.position.set(-20, 12, 10);
     sun.castShadow = !touch;
@@ -97,6 +109,29 @@ export class BunkerScene {
     sun.shadow.camera.bottom = -25;
     sun.shadow.normalBias = 0.035;
     this.scene.add(sun);
+    const sky = new Sky();
+    sky.scale.setScalar(150);
+    sky.material.uniforms.turbidity.value = 8;
+    sky.material.uniforms.rayleigh.value = 0.6;
+    sky.material.uniforms.sunPosition.value.set(-1, 0.35, 0.4);
+    this.scene.add(sky);
+    const steel = new T.TextureLoader().load(
+      assetUrl('/textures/bunker-worn-steel.jpg'),
+    );
+    steel.colorSpace = T.SRGBColorSpace;
+    steel.wrapS = steel.wrapT = T.RepeatWrapping;
+    steel.anisotropy = 8;
+    this.resources.add(steel);
+    this.metal.map = steel;
+    this.metal.bumpMap = steel;
+    this.metal.bumpScale = 0.008;
+    this.metal.color.set('#efeee8');
+    this.metal.metalness = 0.28;
+    this.metal.roughness = 0.53;
+    this.dark.map = steel;
+    this.dark.color.set('#b0b3ac');
+    this.dark.metalness = 0.5;
+    this.dark.roughness = 0.43;
     const timber = new T.TextureLoader().load(
       assetUrl('/textures/deck-color.jpg'),
     );
@@ -105,8 +140,8 @@ export class BunkerScene {
     timber.repeat.set(1.5, 1.5);
     this.resources.add(timber);
     this.wood.map = timber;
-    const concrete = this.surface('pillbox-concrete', '#a3a098', 1.1);
-    const floor = this.surface('pillbox-concrete', '#77786e', 2.4);
+    const concrete = this.surface('pillbox-concrete', '#aaa79c', 0.6);
+    const floor = this.surface('pillbox-concrete', '#77786e', 0.7);
     for (const r of rooms) {
       this.box(r.x, -0.15, r.z, r.w, 0.3, r.d, floor);
       this.box(r.x, r.h + 0.18, r.z, r.w, 0.36, r.d, concrete);
@@ -144,25 +179,6 @@ export class BunkerScene {
             this.dark,
           );
       }
-    }
-    const damp = new T.MeshStandardMaterial({
-      color: '#393c34',
-      roughness: 0.3,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-    });
-    for (let i = 0; i < 22; i++) {
-      const z = 14 - i * 1.65,
-        width = z > 2 ? 12 : z < -10 ? 10 : 3;
-      const puddle = new T.Mesh(
-        new T.CircleGeometry(0.4 + (i % 4) * 0.2, 18),
-        damp,
-      );
-      puddle.rotation.x = -Math.PI / 2;
-      puddle.scale.set(1.8, 1, 1);
-      puddle.position.set(Math.sin(i * 2.39) * (width / 2 - 1), 0.012, z);
-      this.scene.add(puddle);
     }
     // Steel lintels, ribs, pipes and cable runs give the corridor readable depth.
     for (const z of [1.7, -1, -4, -7, -9.7]) {
@@ -206,12 +222,27 @@ export class BunkerScene {
       [4, -20, 3.1],
     ])
       this.lamp(x, z, h);
+    const gunFill = new T.SpotLight('#c9dbdf', 36, 13, 0.75, 0.65, 2);
+    gunFill.position.set(-6, 3.2, 11);
+    gunFill.target.position.set(-4.4, 1.2, 8.5);
+    gunFill.castShadow = !touch;
+    gunFill.shadow.mapSize.set(512, 512);
+    gunFill.shadow.bias = -0.001;
+    this.scene.add(gunFill, gunFill.target);
     // Embrasure: sea, distant shoreline, and a heavy gun pointing out of the slit.
     const seaMat = new T.MeshStandardMaterial({
       color: '#607d84',
       roughness: 0.25,
       metalness: 0.35,
     });
+    const waterNormal = new T.TextureLoader().load(
+      assetUrl('/textures/water-normal.jpg'),
+    );
+    waterNormal.wrapS = waterNormal.wrapT = T.RepeatWrapping;
+    waterNormal.repeat.set(45, 45);
+    this.resources.add(waterNormal);
+    seaMat.normalMap = waterNormal;
+    seaMat.normalScale.set(0.6, 0.6);
     this.sea = new T.Mesh(new T.PlaneGeometry(170, 170, 40, 40), seaMat);
     this.sea.rotation.x = -Math.PI / 2;
     this.sea.position.set(-65, -3, 0);
@@ -222,7 +253,10 @@ export class BunkerScene {
       rock.position.set(-50 - i * 5, -2, 20 - i * 9);
       this.scene.add(rock);
     }
+    floor.roughness = 0.78;
+    floor.metalness = 0.18;
     this.gun();
+    addBunkerDetail(this.scene, concrete, this.metal, this.dark, this.brass);
     for (let i = 0; i < 7; i++) {
       const z = 4.2 + i * 0.34;
       this.cylinder(-5.8, 0.55, z, 0.1, 1.1, this.brass);
@@ -390,6 +424,7 @@ export class BunkerScene {
       glove,
       [-0.025, -0.085, -0.23],
     );
+    addWeaponDetail(this.weapon, this.metal, this.dark, this.wood);
     this.muzzle = this.part(
       this.weapon,
       new T.ConeGeometry(0.06, 0.23, 7),
@@ -404,11 +439,23 @@ export class BunkerScene {
     this.muzzle.visible = false;
     this.muzzleLight.position.set(0.1, -0.1, -0.7);
     this.camera.add(this.muzzleLight);
+    if (!touch) {
+      this.composer = new EffectComposer(this.renderer);
+      this.ao = new SSAOPass(this.scene, this.camera, 1, 1, 16);
+      this.ao.kernelRadius = 0.65;
+      this.ao.minDistance = 0.001;
+      this.ao.maxDistance = 0.08;
+      this.output = new OutputPass();
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer.addPass(this.ao);
+      this.composer.addPass(this.output);
+    }
     const resize = () => {
       if (this.disposed) return;
       this.camera.aspect = host.clientWidth / Math.max(1, host.clientHeight);
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(host.clientWidth, host.clientHeight);
+      this.composer?.setSize(host.clientWidth, host.clientHeight);
     };
     this.observer = new ResizeObserver(resize);
     this.observer.observe(host);
@@ -425,11 +472,18 @@ export class BunkerScene {
       this.resources.add(map);
       return map;
     };
-    const map = load('diffuse');
+    const map = loader.load(
+      assetUrl('/textures/bunker-weathered-concrete.jpg'),
+    );
+    map.wrapS = map.wrapT = T.RepeatWrapping;
+    map.repeat.set(repeat, repeat);
+    map.anisotropy = 8;
+    this.resources.add(map);
     map.colorSpace = T.SRGBColorSpace;
     return new T.MeshStandardMaterial({
       map,
-      normalMap: load('normal'),
+      bumpMap: map,
+      bumpScale: 0.045,
       roughnessMap: load('roughness'),
       normalScale: new T.Vector2(0.45, 0.45),
       color,
@@ -460,7 +514,20 @@ export class BunkerScene {
     d: number,
     mat: T.Material,
   ) {
-    return this.part(this.scene, new T.BoxGeometry(w, h, d), mat, [x, y, z]);
+    return this.part(
+      this.scene,
+      worldUV(
+        new RoundedBoxGeometry(
+          w,
+          h,
+          d,
+          2,
+          Math.min(0.035, w / 8, h / 8, d / 8),
+        ),
+      ),
+      mat,
+      [x, y, z],
+    );
   }
   private cylinder(
     x: number,
@@ -497,7 +564,15 @@ export class BunkerScene {
       new T.MeshBasicMaterial({ color: '#ffda8c' }),
       [x, y - 0.09, z],
     );
-    const light = new T.PointLight('#ffd295', 32, 11, 2);
+    const light = new T.SpotLight('#ffd7a1', 75, 12, 1.15, 0.7, 2);
+    light.target.position.set(x, 0, z);
+    light.castShadow = this.detailShadows && (z === 4 || z === -1);
+    light.shadow.mapSize.set(512, 512);
+    light.shadow.bias = -0.0005;
+    this.scene.add(light.target);
+    const bounce = new T.PointLight('#ffcf93', 4, 6, 2);
+    bounce.position.set(x, y - 0.4, z);
+    this.scene.add(bounce);
     light.position.set(x, y - 0.25, z);
     this.scene.add(light);
     this.cylinder(
@@ -520,9 +595,9 @@ export class BunkerScene {
     this.cylinder(-6.6, 1.7, 8.5, 0.19, 5.6, this.metal, 'x');
     this.cylinder(-7.6, 1.7, 8.5, 0.125, 4.7, this.dark, 'x');
     this.cylinder(-4.3, 1.9, 8.5, 0.13, 1.8, this.metal, 'x');
-    this.box(-3.65, 1.65, 8.5, 0.65, 0.6, 0.6, this.dark);
+    this.box(-3.65, 1.76, 8.5, 0.8, 0.8, 0.75, this.dark);
     for (const z of [7.98, 9.02]) {
-      this.box(-4.7, 1.2, z, 1.8, 0.8, 0.2, this.metal);
+      this.box(-4.7, 1.43, z, 1.9, 1.26, 0.22, this.metal);
       const wheel = this.part(
         this.scene,
         new T.TorusGeometry(0.32, 0.032, 8, 24),
@@ -577,9 +652,16 @@ export class BunkerScene {
   }
   private async loadGuards() {
     const gltf = await new GLTFLoader().loadAsync(
-      assetUrl('/models/Soldier.glb'),
+      assetUrl('/models/bunker/ww2-soldier.glb'),
     );
     if (this.disposed) {
+      this.release(gltf.scene);
+      return;
+    }
+    const material = await uniformMaterial();
+    if (this.disposed) {
+      material.map?.dispose();
+      material.dispose();
       this.release(gltf.scene);
       return;
     }
@@ -587,45 +669,16 @@ export class BunkerScene {
       scale = 1.8 / (bounds.max.y - bounds.min.y);
     gltf.scene.traverse((o) => {
       if (o instanceof T.Mesh) {
-        if (o.name.toLowerCase().includes('visor')) o.visible = false;
-        o.geometry.computeBoundingBox();
-        const low = o.geometry.boundingBox!.min.z,
-          span = Math.max(0.001, o.geometry.boundingBox!.max.z - low);
-        for (const m of Array.isArray(o.material) ? o.material : [o.material])
-          if (m instanceof T.MeshStandardMaterial) {
-            m.color.set('#b2b2a7');
-            m.onBeforeCompile = (shader) => {
-              shader.vertexShader =
-                'varying float vUniformHeight;\n' + shader.vertexShader;
-              shader.vertexShader = shader.vertexShader.replace(
-                '#include <begin_vertex>',
-                `#include <begin_vertex>\nvUniformHeight=(position.z - (${low.toFixed(5)}))/${span.toFixed(5)};`,
-              );
-              shader.fragmentShader =
-                'varying float vUniformHeight;\n' + shader.fragmentShader;
-              shader.fragmentShader = shader.fragmentShader.replace(
-                '#include <map_fragment>',
-                `#include <map_fragment>
-                float detail=clamp(dot(diffuseColor.rgb,vec3(.299,.587,.114))*.7+.45,.4,1.);
-                vec3 wool=vec3(.22,.25,.19)*detail;
-                vec3 leather=vec3(.06,.048,.037)*detail;
-                diffuseColor.rgb=mix(diffuseColor.rgb,mix(leather,wool,smoothstep(.12,.2,vUniformHeight)),1.-smoothstep(.8,.87,vUniformHeight));`,
-              );
-            };
-            m.customProgramCacheKey = () => 'bunker-field-grey-v1';
-            m.roughness = 1;
-            m.metalness = 0;
-          }
+        (o.material as T.Material).dispose();
+        o.material = material;
       }
     });
-    const idleClip = gltf.animations.find(
-        (a) => a.name.toLowerCase() === 'idle',
-      )!,
-      walkClip = gltf.animations.find((a) => a.name.toLowerCase() === 'walk')!;
+    const [idleClip, walkClip] = guardClips(gltf.scene);
     for (let i = 0; i < 4; i++) {
       const root = new T.Group(),
         model = clone(gltf.scene);
       model.scale.setScalar(scale);
+      model.rotation.y = Math.PI;
       model.position.y = -bounds.min.y * scale;
       root.add(model);
       this.scene.add(root);
@@ -638,13 +691,7 @@ export class BunkerScene {
           o.frustumCulled = false;
         }
       });
-      const helmet = this.part(
-        root,
-        new T.SphereGeometry(0.175, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.6),
-        this.metal,
-        [0, 1.72, 0],
-      );
-      helmet.scale.y = 0.75;
+      const helmet = model.getObjectByName('Helmet');
       const flash = this.part(
         root,
         new T.SphereGeometry(0.09, 8, 6),
@@ -808,13 +855,6 @@ export class BunkerScene {
           bone.updateMatrixWorld(true);
         }
       }
-      if (a.head) {
-        a.root.updateMatrixWorld(true);
-        a.head.getWorldPosition(this.world);
-        a.helmet.position.copy(a.root.worldToLocal(this.world));
-        a.helmet.position.y += 0.06;
-      }
-      a.helmet.visible = g.down < 0.9;
       a.flash.visible = active && g.health > 0 && g.flash > 0;
     });
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -831,7 +871,10 @@ export class BunkerScene {
       }
     }
     this.sea.position.y = -3 + Math.sin(b.time * 0.45) * 0.07;
-    this.renderer.render(this.scene, this.camera);
+    const seaNormal = (this.sea.material as T.MeshStandardMaterial).normalMap;
+    if (seaNormal) seaNormal.offset.set(b.time * 0.009, b.time * 0.004);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
   private release(root: T.Object3D) {
     const geometries = new Set<T.BufferGeometry>(),
@@ -860,6 +903,9 @@ export class BunkerScene {
       g.mixer.uncacheRoot(g.model);
     });
     this.release(this.scene);
+    this.ao?.dispose();
+    this.output?.dispose();
+    this.composer?.dispose();
     this.environment.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

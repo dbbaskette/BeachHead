@@ -1,0 +1,13 @@
+WWII soldier base mesh and original texture
+Author: nisu
+Source: https://opengameart.org/content/rigged-lowpoly-ww2-soldier
+Original download: https://opengameart.org/sites/default/files/lowpolysoldier.zip
+License: CC0 1.0 Universal https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved 2026-10-01.
+
+Changes: converted original FBX to GLB with Three.js, normalized skin weights,
+recomputed normals, replaced original materials. Original diffuse atlas retained
+as ww2-soldier.png. New AI-assisted texture interpretation in
+ww2-soldier-detailed.jpg, with runtime field-grey tint masked by original atlas.
+Patrol/breathing clips and rifle-arm posing authored for Beach Head.
+No animations or model geometry from other commercial games are included.
