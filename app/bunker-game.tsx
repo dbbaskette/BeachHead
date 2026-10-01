@@ -13,7 +13,12 @@ import {
 } from 'lucide-react';
 import { useTouchLayout } from './touch-controls';
 import { StageFourPreview } from './stage-four-preview';
-import { TouchDrag, thumbAxis, TOUCH_LAYOUT_QUERY } from '@/lib/touch-input';
+import { TOUCH_LAYOUT_QUERY } from '@/lib/touch-input';
+import {
+  BunkerControls,
+  bindControlRelease,
+  type ControlRole,
+} from '@/lib/bunker/controls';
 import {
   createBunker,
   emptyInput,
@@ -49,12 +54,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     scene = useRef<BunkerScene | null>(null),
     audio = useRef<PillboxAudio | null>(null);
   const keys = useRef(new Set<string>()),
-    pad = useRef({ x: 0, y: 0 }),
-    fire = useRef(false),
-    gesture = useRef(new TouchDrag()),
-    fireGesture = useRef(new TouchDrag());
-  const movePointer = useRef<number | null>(null),
-    moveOrigin = useRef({ x: 0, y: 0 }),
+    controls = useRef(new BunkerControls()),
     locked = useRef(false);
   const [hud, setHud] = useState(() => snapshot(createBunker())),
     [loaded, setLoaded] = useState(false),
@@ -63,16 +63,17 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     [preview, setPreview] = useState(false),
     [mouseLocked, setMouseLocked] = useState(false);
   const [stick, setStick] = useState({ x: 0, y: 0 });
+  const [aimStick, setAimStick] = useState({ x: 0, y: 0 });
+  const updateSticks = () => {
+    setStick({ ...controls.current.stick });
+    setAimStick({ ...controls.current.aimStick });
+  };
   const touch = useTouchLayout();
   const publish = () => setHud(snapshot(battle.current));
   const clear = () => {
     keys.current.clear();
-    pad.current = { x: 0, y: 0 };
-    fire.current = false;
-    gesture.current.clear();
-    fireGesture.current.clear();
-    movePointer.current = null;
-    setStick({ x: 0, y: 0 });
+    controls.current.clear();
+    updateSticks();
   };
   const unlock = () => {
     if (document.pointerLockElement === surface.current)
@@ -161,8 +162,26 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       if (document.pointerLockElement === surface.current)
         look(battle.current, e.movementX, e.movementY);
     };
-    const pointerup = (e: PointerEvent) => {
-      if (e.pointerType === 'mouse') fire.current = false;
+    const releaseControls = bindControlRelease(
+      window,
+      controls.current,
+      updateSticks,
+    );
+    const pointermove = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.buttons === 0) {
+        if (controls.current.end(e.pointerId)) updateSticks();
+        return;
+      }
+      const previousStick = controls.current.stick,
+        previousAimStick = controls.current.aimStick;
+      const delta = controls.current.move(e.pointerId, e.clientX, e.clientY);
+      if (
+        previousStick !== controls.current.stick ||
+        previousAimStick !== controls.current.aimStick
+      )
+        updateSticks();
+      if (delta && !(locked.current && e.pointerType === 'mouse'))
+        look(battle.current, delta.x, delta.y);
     };
     const lockChange = () => {
       const now = document.pointerLockElement === surface.current;
@@ -177,7 +196,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
     window.addEventListener('mousemove', mouse);
-    window.addEventListener('pointerup', pointerup);
+    window.addEventListener('pointermove', pointermove, true);
     window.addEventListener('blur', pause);
     document.addEventListener('pointerlockchange', lockChange);
     document.addEventListener('visibilitychange', visibility);
@@ -188,15 +207,22 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       const input = emptyInput(),
         held = (code: string) => keys.current.has(code);
       input.forward =
-        -pad.current.y +
+        -controls.current.axis.y +
         (held('KeyW') || held('ArrowUp') ? 1 : 0) -
         (held('KeyS') || held('ArrowDown') ? 1 : 0);
       input.strafe =
-        pad.current.x + (held('KeyD') ? 1 : 0) - (held('KeyA') ? 1 : 0);
+        controls.current.axis.x +
+        (held('KeyD') ? 1 : 0) -
+        (held('KeyA') ? 1 : 0);
       input.turn = (held('ArrowRight') ? 1 : 0) - (held('ArrowLeft') ? 1 : 0);
-      input.fire = fire.current || held('Space');
+      input.fire = controls.current.firing || held('Space');
       input.reload = held('KeyR');
       const before = battle.current.status;
+      look(
+        battle.current,
+        controls.current.turn.x * dt * 650,
+        controls.current.turn.y * dt * 520,
+      );
       stepBunker(battle.current, input, dt);
       const events = battle.current.effects.splice(0);
       for (const e of events) {
@@ -250,7 +276,8 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       window.removeEventListener('keydown', keydown);
       window.removeEventListener('keyup', keyup);
       window.removeEventListener('mousemove', mouse);
-      window.removeEventListener('pointerup', pointerup);
+      window.removeEventListener('pointermove', pointermove, true);
+      releaseControls();
       window.removeEventListener('blur', pause);
       document.removeEventListener('pointerlockchange', lockChange);
       document.removeEventListener('visibilitychange', visibility);
@@ -261,6 +288,32 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       audio.current = null;
     };
   }, []);
+  const beginPointer = (
+    role: ControlRole,
+    e: React.PointerEvent<HTMLElement>,
+  ) => {
+    if (battle.current.status !== 'playing' || e.button !== 0) return;
+    e.preventDefault();
+    if (
+      !controls.current.begin(
+        role,
+        e.pointerId,
+        e.clientX,
+        e.clientY,
+        e.pointerType,
+      )
+    )
+      return;
+    // Global move/release handling remains active if capture is unavailable/interrupted.
+    try {
+      if (!(role === 'look' && e.pointerType === 'mouse' && locked.current))
+        e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer may already have ended */
+    }
+    if (role === 'fire' || (role === 'look' && e.pointerType === 'mouse'))
+      shootBunker(battle.current);
+  };
   const playing = hud.status === 'playing';
   return (
     <main
@@ -279,41 +332,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
         className={`bunker-look ${playing ? 'active' : ''}`}
         aria-label="Drag to look around"
         onContextMenu={(e) => e.preventDefault()}
-        onPointerDown={(e) => {
-          if (!playing || e.button !== 0) return;
-          if (
-            e.pointerType === 'mouse' &&
-            document.pointerLockElement === surface.current
-          ) {
-            fire.current = true;
-            shootBunker(battle.current);
-            return;
-          }
-          if (!gesture.current.begin(e.pointerId, e.clientX, e.clientY)) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          if (e.pointerType === 'mouse') {
-            fire.current = true;
-            shootBunker(battle.current);
-          }
-        }}
-        onPointerMove={(e) => {
-          if (locked.current) return;
-          const delta = gesture.current.move(e.pointerId, e.clientX, e.clientY);
-          if (delta) look(battle.current, delta.x, delta.y);
-        }}
-        onPointerUp={(e) => {
-          if (gesture.current.end(e.pointerId) && e.pointerType === 'mouse')
-            fire.current = false;
-        }}
-        onPointerCancel={(e) => {
-          gesture.current.end(e.pointerId);
-          if (e.pointerType === 'mouse') fire.current = false;
-        }}
-        onLostPointerCapture={(e) => {
-          gesture.current.end(e.pointerId);
-          if (e.pointerType === 'mouse' && !locked.current)
-            fire.current = false;
-        }}
+        onPointerDown={(e) => beginPointer('look', e)}
       />
       <header className="bunker-header">
         <div>
@@ -364,7 +383,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               {hud.room}
               <small>
                 {touch
-                  ? 'Left pad: move · Drag view: look'
+                  ? 'Left stick: walk · Right stick: look'
                   : mouseLocked
                     ? 'WASD move · Click fire · R reload · Esc pause'
                     : 'WASD move · Drag to look · Click fire · R reload'}
@@ -393,40 +412,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 className="bunker-move"
                 aria-label="Drag left pad to move"
                 onContextMenu={(e) => e.preventDefault()}
-                onPointerDown={(e) => {
-                  if (movePointer.current !== null) return;
-                  e.preventDefault();
-                  movePointer.current = e.pointerId;
-                  moveOrigin.current = { x: e.clientX, y: e.clientY };
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  if (movePointer.current !== e.pointerId) return;
-                  const x = e.clientX - moveOrigin.current.x,
-                    y = e.clientY - moveOrigin.current.y;
-                  pad.current = thumbAxis(x, y);
-                  const s = Math.min(1, 25 / Math.max(1, Math.hypot(x, y)));
-                  setStick({ x: x * s, y: y * s });
-                }}
-                onPointerUp={(e) => {
-                  if (movePointer.current === e.pointerId) {
-                    movePointer.current = null;
-                    pad.current = { x: 0, y: 0 };
-                    setStick({ x: 0, y: 0 });
-                  }
-                }}
-                onPointerCancel={(e) => {
-                  if (movePointer.current !== e.pointerId) return;
-                  movePointer.current = null;
-                  pad.current = { x: 0, y: 0 };
-                  setStick({ x: 0, y: 0 });
-                }}
-                onLostPointerCapture={(e) => {
-                  if (movePointer.current !== e.pointerId) return;
-                  movePointer.current = null;
-                  pad.current = { x: 0, y: 0 };
-                  setStick({ x: 0, y: 0 });
-                }}
+                onPointerDown={(e) => beginPointer('move', e)}
               >
                 <Footprints />
                 <i
@@ -435,47 +421,28 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 <span>Move</span>
               </button>
               <button
-                className="bunker-fire"
+                className="bunker-aim"
+                aria-label="Drag right stick to turn and aim"
+                onContextMenu={(e) => e.preventDefault()}
+                onPointerDown={(e) => beginPointer('turn', e)}
+              >
+                <Crosshair />
+                <i
+                  style={{
+                    transform: `translate(${aimStick.x}px,${aimStick.y}px)`,
+                  }}
+                />
+                <span>Look</span>
+              </button>
+              <button
+                className="bunker-fire bunker-fire-separate"
                 aria-label="Hold to fire and drag to aim"
                 onContextMenu={(e) => e.preventDefault()}
-                onPointerDown={(e) => {
-                  if (
-                    !fireGesture.current.begin(
-                      e.pointerId,
-                      e.clientX,
-                      e.clientY,
-                    )
-                  )
-                    return;
-                  e.preventDefault();
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  fire.current = true;
-                  shootBunker(battle.current);
-                }}
-                onPointerMove={(e) => {
-                  const delta = fireGesture.current.move(
-                    e.pointerId,
-                    e.clientX,
-                    e.clientY,
-                  );
-                  if (delta) look(battle.current, delta.x, delta.y);
-                }}
-                onPointerUp={(e) => {
-                  if (fireGesture.current.end(e.pointerId))
-                    fire.current = false;
-                }}
-                onPointerCancel={(e) => {
-                  if (fireGesture.current.end(e.pointerId))
-                    fire.current = false;
-                }}
-                onLostPointerCapture={(e) => {
-                  if (fireGesture.current.end(e.pointerId))
-                    fire.current = false;
-                }}
+                onPointerDown={(e) => beginPointer('fire', e)}
               >
                 <Crosshair />
                 <b>Fire</b>
-                <span>Drag to aim</span>
+                <span>Hold</span>
               </button>
             </div>
           )}
@@ -522,7 +489,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 </div>
                 <p className="bunker-control-help">
                   {touch
-                    ? 'Left pad to move. Drag the view to look. Hold Fire and drag it to aim while shooting. Tap the ammo counter to reload.'
+                    ? 'Use the left stick to walk and the right stick to turn and aim at the same time. Hold Fire to shoot. You can also drag the view or Fire button to aim. Tap the ammo counter to reload.'
                     : 'WASD to move · Mouse to look · Click to fire · R to reload. Arrow keys also move and turn. Esc pauses and releases the mouse.'}
                 </p>
                 <p className="bunker-tip">

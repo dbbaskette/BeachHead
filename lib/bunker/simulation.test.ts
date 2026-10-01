@@ -155,3 +155,49 @@ void test('sample can be completed through movement and gunfire without bypassin
   assert.ok(b.reserve < 128, 'automatic reload used reserve ammunition');
   assert.ok(b.health > 0);
 });
+
+void test('wounds carry their actual point and direction, interrupt firing and briefly stagger a living guard', () => {
+  const b = active(),
+    g = b.guards[0];
+  g.x = 0;
+  g.z = 6;
+  g.windup = 0.1;
+  b.pitch = Math.atan2(1.05 - 1.65, b.z - g.z);
+  shootBunker(b);
+  assert.equal(g.hitRegion, 'torso');
+  assert.equal(g.health, 66);
+  assert.equal(g.windup, 0);
+  assert.ok(g.hitTime > 0);
+  const hit = b.effects.find((e) => e.kind === 'hit')!;
+  assert.equal(hit.guardId, g.id);
+  assert.equal(hit.fatal, false);
+  assert.ok(hit.y > 0.9 && hit.y < 1.2);
+  assert.ok(hit.direction![2] < 0);
+  const position = [g.x, g.z];
+  stepBunker(b, emptyInput(), 0.05);
+  assert.deepEqual([g.x, g.z], position);
+  assert.equal(g.flash, 0);
+  b.status = 'paused';
+  const before = structuredClone(b);
+  stepBunker(b, emptyInput(), 0.05);
+  assert.deepEqual(b, before);
+});
+void test('fatal head hits initiate a bounded collapse and dead guards cannot fire', () => {
+  const b = active(),
+    g = b.guards[0];
+  g.x = 0;
+  g.z = 6;
+  g.health = 50;
+  g.windup = 0.01;
+  shootBunker(b);
+  assert.equal(g.hitRegion, 'head');
+  assert.equal(b.effects.find((e) => e.kind === 'hit')?.fatal, true);
+  for (let i = 0; i < 30; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.equal(g.down, 1);
+  assert.equal(g.flash, 0);
+  assert.equal(
+    b.effects.filter((e) => e.kind === 'enemy' && e.x === g.x && e.z === g.z)
+      .length,
+    0,
+  );
+});
