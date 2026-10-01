@@ -183,6 +183,11 @@ export class AirScene {
     this.aircraft.root.rotation.set(f.pitch, -f.heading, f.bank, 'YXZ');
     this.aircraft.prop.rotation.z = b.time * 68;
     this.aircraft.prop.visible = !reduced;
+    this.aircraft.altitudeNeedle.rotation.z =
+      -(0.68 + (f.position.y / 700) * 1.65) * Math.PI - Math.PI / 2;
+    this.aircraft.ailerons.forEach((aileron, i) => {
+      aileron.rotation.x = f.bank * (i === 0 ? -0.5 : 0.5);
+    });
     this.aircraft.cockpit.visible =
       !this.touch.matches || this.camera.aspect >= 1;
     this.aircraft.bombs.forEach((rack, i) => {
