@@ -34,7 +34,15 @@ import {
   chooseSupplies,
 } from '@/lib/pillbox/combat-actions';
 
-export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
+export default function PillboxGame({
+  onReturn,
+  onContinue,
+  campaign = false,
+}: {
+  onReturn: () => void;
+  onContinue: () => void;
+  campaign?: boolean;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const aimSurface = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLElement>(null);
@@ -576,7 +584,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
                 : paused
                   ? 'ALL STATIONS HOLDING'
                   : hud.status === 'won'
-                    ? 'CAMPAIGN COMPLETE'
+                    ? campaign
+                      ? 'BEACH SECURED'
+                      : 'MISSION COMPLETE'
                     : 'POSITION OVERRUN'}
             </p>
             <h2>
@@ -593,7 +603,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
                 (paused
                   ? 'The assault is paused. Resume when you are ready.'
                   : hud.status === 'won'
-                    ? 'Blockade broken. Counterattack defeated. Your fleet holds the island.'
+                    ? campaign
+                      ? 'Counterattack defeated. Take to the skies and break the enemy landing force.'
+                      : 'Counterattack defeated. Your fleet holds the beach.'
                     : 'Watch the closest soldiers, catch them between cover, and manage your barrel heat.')}
             </p>
             {!paused && !error && (
@@ -615,7 +627,13 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
             <button
               className="pillbox-primary"
               onClick={
-                error ? () => window.location.reload() : paused ? pause : start
+                error
+                  ? () => window.location.reload()
+                  : paused
+                    ? pause
+                    : hud.status === 'won' && campaign
+                      ? onContinue
+                      : start
               }
             >
               {paused ? <Play size={18} /> : <RotateCcw size={18} />}
@@ -623,7 +641,9 @@ export default function PillboxGame({ onReturn }: { onReturn: () => void }) {
                 ? 'Reload game'
                 : paused
                   ? 'Resume defense'
-                  : 'Retry Stage 2'}
+                  : hud.status === 'won' && campaign
+                    ? 'Stage 3 — Air assault'
+                    : 'Retry Stage 2'}
             </button>
             <button className="pillbox-back" onClick={onReturn}>
               Return to main menu
