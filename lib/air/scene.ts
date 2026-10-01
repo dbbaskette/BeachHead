@@ -149,7 +149,7 @@ export class AirScene {
     this.width = this.host.clientWidth;
     this.height = this.host.clientHeight;
     this.camera.aspect = this.width / Math.max(1, this.height);
-    this.camera.fov = this.camera.aspect < 1 ? 76 : 72;
+    this.camera.fov = this.camera.aspect < 1 ? 70 : 64;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
     this.predictTime = -1;
