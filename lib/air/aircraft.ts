@@ -8,11 +8,11 @@ import { instrumentTexture, aircraftSkin } from './surfaces';
 /** Smooth elliptical sections give the cowling and tail a continuous silhouette. */
 function fuselageGeometry() {
   const sections = [
-    [-6.3, -0.48, 0.92, 0.92],
-    [-6.1, -0.48, 1.08, 1.03],
-    [-5, -0.48, 1.11, 1.06],
-    [-3.8, -0.48, 1.08, 1.02],
-    [-2, -0.43, 1.02, 1.03],
+    [-4.68, -0.1, 1.16, 1.16],
+    [-4.48, -0.1, 1.3, 1.22],
+    [-3.65, -0.1, 1.32, 1.25],
+    [-2.8, -0.15, 1.25, 1.25],
+    [-1.7, -0.25, 1.12, 1.16],
     [0, -0.35, 0.93, 1.04],
     [2, -0.26, 0.68, 0.79],
     [4, -0.14, 0.43, 0.54],
@@ -27,7 +27,7 @@ function fuselageGeometry() {
       const [z, y, rx, ry] = sections[row],
         theta = (col / 48) * Math.PI * 2;
       positions.push(Math.cos(theta) * rx, y + Math.sin(theta) * ry, z);
-      uv.push(col / 48, (z + 6.3) / 12.7);
+      uv.push(col / 48, (z + 4.68) / 11.08);
       if (row < sections.length - 1 && col < 48) {
         const n = row * 49 + col;
         indices.push(n, n + 1, n + 49, n + 1, n + 50, n + 49);
@@ -82,9 +82,9 @@ export function wingGeometry(side: number) {
 
 export function makeAirframe(a: AirArt) {
   const root = new THREE.Group();
-  root.name = 'player-fighter-bomber';
+  root.name = 'fw190-inspired-ground-attack';
   const smooth = a.geo(new THREE.SphereGeometry(1, 32, 20));
-  const paint = a.mat('#73795c', 0.63);
+  const paint = a.mat('#68736b', 0.72);
   paint.map = a.paint;
   const metal = a.mat('#7f8581', 0.4),
     black = a.mat('#222a24', 0.87),
@@ -97,43 +97,35 @@ export function makeAirframe(a: AirArt) {
     [1, 1, 1],
   );
   body.name = 'shaped-fuselage';
-  // Cowling lips, cooling flaps, exhaust stacks and anti-glare upper skin.
-  for (const z of [-6.24, -4.15]) {
-    const ring = a.mesh(
+  // Short, broad radial-engine housing with a recessed cooling ring.
+  const cooling = a.mesh(
+    root,
+    a.geo(new THREE.RingGeometry(0.45, 1.15, 64)),
+    black,
+    [0, -0.1, -4.7],
+    [1, 1, 1],
+  );
+  cooling.rotation.y = Math.PI;
+  for (const z of [-4.65, -2.9]) {
+    a.mesh(
       root,
-      a.geo(new THREE.TorusGeometry(1.025, 0.027, 6, 48)),
+      a.geo(new THREE.TorusGeometry(1.18, 0.022, 6, 64)),
       metal,
-      [0, -0.48, z],
-      [1, 1, 1],
+      [0, -0.1, z],
+      [1.04, 1, 1],
     );
-    ring.name = 'cowling-seam';
   }
-  a.mesh(root, smooth, black, [0, 0.2, -4.75], [0.7, 0.42, 1.5]);
   for (const side of [-1, 1]) {
-    for (let i = 0; i < 5; i++) {
-      const exhaust = a.mesh(
-        root,
-        a.cylinder,
-        metal,
-        [side * 1.02, -0.18, -3.9 + i * 0.28],
-        [0.085, 0.29, 0.085],
-      );
-      exhaust.rotation.z = side * 1.15;
-      a.mesh(
-        root,
-        a.sphere,
-        black,
-        [side * 1.09, -0.05, -3.88 + i * 0.28],
-        [0.045, 0.045, 0.065],
-      );
+    for (let i = 0; i < 6; i++) {
       const flap = a.block(
         root,
         paint,
-        [side * 1.075, -0.55, -4.25 + i * 0.16],
-        [0.055, 0.65, 0.11],
+        [side * 1.24, -0.15, -3.15 + i * 0.13],
+        [0.045, 0.65, 0.095],
       );
       flap.rotation.z = side * 0.12;
     }
+    a.mesh(root, smooth, black, [side * 1.17, -0.47, -2.6], [0.09, 0.17, 0.38]);
   }
   const wingPaint = a.mat('#ffffff', 0.68),
     skin = aircraftSkin();
@@ -172,8 +164,8 @@ export function makeAirframe(a: AirArt) {
   a.mesh(root, smooth, paint, [0, 1.04, 5.25], [0.105, 1.3, 0.96]).rotation.x =
     -0.28;
   // A continuous cockpit tub, rather than rails floating above the fuselage.
-  const interior = a.mat('#424c3d', 0.87),
-    trim = a.mat('#181f1b', 0.92);
+  const interior = a.mat('#41484a', 0.87),
+    trim = a.mat('#1e2325', 0.92);
   interior.map = a.paint;
   const cockpit = new THREE.Group();
   root.add(cockpit);
@@ -332,10 +324,10 @@ export function makeAirframe(a: AirArt) {
     hoodUV: number[] = [],
     hoodIndices: number[] = [];
   const hoodSections = [
-    [-5.8, 0.52, 0.82],
-    [-4.5, 0.79, 1.03],
-    [-2.8, 0.95, 1.16],
-    [-0.65, 1.42, 1.39],
+    [-4.65, 1.06, 1.16],
+    [-4.35, 1.14, 1.29],
+    [-2.8, 1.28, 1.25],
+    [-0.65, 1.55, 1.39],
     [0.8, 1.7, 1.68],
   ];
   for (let row = 0; row < hoodSections.length; row++)
@@ -361,11 +353,11 @@ export function makeAirframe(a: AirArt) {
   hoodGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(hoodUV, 2));
   hoodGeometry.setIndex(hoodIndices);
   hoodGeometry.computeVertexNormals();
-  const antiGlare = a.mat('#828568', 0.78);
+  const antiGlare = a.mat('#717e77', 0.78);
   antiGlare.map = a.paint;
   a.mesh(root, hoodGeometry, antiGlare, [0, 0, 0], [1, 1, 1]);
   // Fine transverse seams and paired fasteners give the visible cowling scale and depth.
-  const seam = a.mat('#515842', 0.82);
+  const seam = a.mat('#39433f', 0.82);
   for (const [z, top, width] of hoodSections.slice(1, 4)) {
     const points = Array.from({ length: 13 }, (_, i) => {
       const angle = 0.2 + (i / 12) * (Math.PI - 0.4);
@@ -386,6 +378,18 @@ export function makeAirframe(a: AirArt) {
         [0.024, 0.01, 0.024],
       );
     }
+  }
+  // Paired breech fairings and shallow gun troughs identify the Fw 190-style upper cowl.
+  for (const side of [-1, 1]) {
+    const fairing = a.mesh(
+      root,
+      smooth,
+      antiGlare,
+      [side * 0.49, 1.46, -1.45],
+      [0.22, 0.09, 0.72],
+    );
+    fairing.rotation.x = 0.1;
+    a.mesh(root, smooth, seam, [side * 0.49, 1.32, -2.75], [0.1, 0.027, 0.42]);
   }
   // Broad, curved bulkhead with an opaque lower panel and padded glare shield.
   const panelShape = new THREE.Shape();
@@ -483,28 +487,28 @@ export function makeAirframe(a: AirArt) {
   // Reflector sight has a glass plate, metal clips, projector lens and supporting arm.
   brace(
     [
-      [0, 2.45, 1.05],
-      [0, 2.58, 0.1],
+      [0, 2.48, 1.05],
+      [0, 2.58, 0.85],
     ],
     0.065,
     trim,
   );
-  a.block(root, trim, [0, 2.67, 0.1], [0.26, 0.19, 0.35]);
-  a.mesh(root, a.cylinder, black, [0, 2.83, 0.04], [0.105, 0.045, 0.105]);
+  a.block(root, trim, [0, 2.67, 0.85], [0.23, 0.19, 0.3]);
+  a.mesh(root, a.cylinder, black, [0, 2.83, 0.8], [0.105, 0.045, 0.105]);
   const lens = a.mat('#95b5a5', 0.16);
-  a.mesh(root, a.cylinder, lens, [0, 2.86, 0.04], [0.077, 0.008, 0.077]);
+  a.mesh(root, a.cylinder, lens, [0, 2.86, 0.8], [0.077, 0.008, 0.077]);
   for (const side of [-1, 1])
-    a.block(root, metal, [side * 0.155, 2.99, -0.03], [0.023, 0.28, 0.028]);
+    a.block(root, metal, [side * 0.155, 3.06, 0.72], [0.018, 0.35, 0.024]);
   windowPane([
-    [-0.15, 2.96, -0.055],
-    [0.15, 2.96, -0.055],
-    [0.15, 3.18, -0.09],
-    [-0.15, 3.18, -0.09],
+    [-0.15, 2.93, 0.695],
+    [0.15, 2.93, 0.695],
+    [0.15, 3.26, 0.6],
+    [-0.15, 3.26, 0.6],
   ]);
   const prop = new THREE.Group();
-  prop.position.set(0, -0.48, -6.42);
+  prop.position.set(0, -0.1, -4.76);
   root.add(prop);
-  const blur = a.mat('#544e35', 0.8);
+  const blur = a.mat('#41494a', 0.8);
   Object.assign(blur, {
     side: THREE.DoubleSide,
     transparent: true,
@@ -513,26 +517,26 @@ export function makeAirframe(a: AirArt) {
   });
   a.mesh(
     prop,
-    a.geo(new THREE.RingGeometry(0.3, 2.28, 80)),
+    a.geo(new THREE.RingGeometry(0.45, 2.05, 80)),
     blur,
     [0, 0, 0],
     [1, 1, 1],
   );
-  const tipBlur = a.mat('#c4b66d', 0.7);
+  const tipBlur = a.mat('#97a3a3', 0.7);
   Object.assign(tipBlur, {
     side: THREE.DoubleSide,
     transparent: true,
-    opacity: 0.1,
+    opacity: 0.045,
     depthWrite: false,
   });
   a.mesh(
     prop,
-    a.geo(new THREE.RingGeometry(2.13, 2.28, 80)),
+    a.geo(new THREE.RingGeometry(1.98, 2.05, 80)),
     tipBlur,
     [0, 0, -0.005],
     [1, 1, 1],
   );
-  a.mesh(root, smooth, metal, [0, -0.48, -6.52], [0.34, 0.34, 0.47]);
+  a.mesh(root, smooth, black, [0, -0.1, -4.87], [0.48, 0.48, 0.52]);
   const gunNodes = GUNS.map((p, i) => {
     const n = new THREE.Object3D();
     n.name = `air-gun-${i}`;

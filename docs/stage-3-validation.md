@@ -49,3 +49,7 @@ Browser checks show a solid instrument bulkhead, connected quarter windows, side
 ## Forward nose visibility — 2026-09-30
 
 All **104 tests**, TypeScript, scoped authored-source lint, whitespace checks and the `/BeachHead/` production export pass. A new ray test verifies that both upper cowling shoulders remain visible from the pilot seat, alongside the existing 27 aiming-clearance checks. Browser inspection confirmed the exposed nose, seams and propeller blur in desktop, 844 × 390 landscape and 390 × 844 portrait views. Banking remains anchored; mobile-layout firing raised gun heat and bomb release reduced inventory from six to five. The fresh browser tab reported no console errors. The README capture was refreshed. These viewport checks run on desktop hardware and do not replace physical-phone testing.
+
+## German aircraft and cowling revision — 2026-09-30
+
+All **104 tests**, TypeScript, scoped lint and the production Pages export pass. The cowling visibility samples follow the revised engine housing; all 27 gun-aim clearance poses and modeled weapon-hardpoint alignment checks pass. Browser checks verified the German/Allied mission briefing, broad engine cowling, closer sight, banking and firing. Mobile landscape bomb release changed inventory from six to five; portrait and landscape retained visible reticles and nose geometry. No console errors were reported. The README image was refreshed. These are desktop-host viewport checks, not physical-device performance measurements.

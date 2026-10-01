@@ -40,3 +40,9 @@ The cockpit is now a continuous tub with an opaque, curved instrument bulkhead, 
 ## Forward cowling visibility
 
 The rear hood and dashboard brow are lower, exposing the engine cowling beyond the windshield. Lighter olive paint, fine transverse seams, paired fasteners and a more visible translucent propeller disc distinguish the external nose from the dark cockpit. The reflector sight now has an explicit support from the panel. Camera mounting and weapon alignment are unchanged.
+
+## German ground-attack aircraft
+
+Stage 3 now explicitly casts the player as a German pilot attacking an Allied landing. The aircraft is inspired by the radial-engined Fw 190 ground-attack family: a shorter, broader cowling, cooling ring and flaps, paired upper-cowl breech fairings, a closer reflector sight, gray-green splinter camouflage and straight Balkenkreuz wing markings. American stars and invasion stripes are removed. Instrument labels and decorative units use German/metric conventions. The nose and propeller share a revised engine axis; the existing physical wing-gun and bomb-rack positions are retained.
+
+Reference: [Smithsonian National Air and Space Museum — Fw 190 F-8/R1](https://airandspace.si.edu/collection-objects/focke-wulf-fw-190-f-8r1/nasm_A19600318000), documenting the radial-engined F-8 ground-attack variant. This is an original, Fw 190-inspired arcade model and fictional encounter, not a claim of exact historical dimensions, loadout, cockpit instrumentation or a reenactment of a particular D-Day sortie. All markings and geometry are original procedural art; no museum photographs were incorporated.

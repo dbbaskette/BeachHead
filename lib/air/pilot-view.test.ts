@@ -91,7 +91,7 @@ void test('pilot can see both shoulders of the engine cowling beyond the dashboa
   camera.updateMatrixWorld(true);
   for (const side of [-1, 1]) {
     // Sample the exposed upper engine housing, leaving tolerance for its seam.
-    const cowling = new THREE.Vector3(side * 0.45, 0.94, -2.8).applyMatrix4(
+    const cowling = new THREE.Vector3(side * 0.8, 1.14, -3.8).applyMatrix4(
       plane.root.matrixWorld,
     );
     const distance = camera.position.distanceTo(cowling);
