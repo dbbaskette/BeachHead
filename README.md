@@ -1,45 +1,53 @@
 <div align="center">
   <a href="https://dbbaskette.github.io/BeachHead/">
-    <img src="docs/images/beach-head-banner.svg" width="100%" alt="Beach Head — Battle Stations. Three playable stages, from sea to beach to sky. Play in your browser." />
+    <img src="docs/images/beach-head-banner.svg" width="100%" alt="Beach Head — Battle Stations. Three playable stages, from sea to sky to beach. Play in your browser." />
   </a>
 
-  <p><strong>A coastal battle, from the gun deck to the pillbox to the cockpit.</strong></p>
+  <p><strong>A coastal battle, from the gun deck to the cockpit to the pillbox.</strong></p>
 
   <a href="https://github.com/dbbaskette/BeachHead/actions/workflows/pages.yml"><img src="https://github.com/dbbaskette/BeachHead/actions/workflows/pages.yml/badge.svg?branch=main" alt="Live build and GitHub Pages deployment status" /></a>
-  <a href="https://github.com/dbbaskette/BeachHead/issues?q=is%3Aissue+is%3Aopen+label%3Astage-3-task"><img src="https://img.shields.io/github/issues/dbbaskette/BeachHead/stage-3-task?label=Stage%203%20tasks%20open&amp;color=d0ad73&amp;style=flat-square" alt="Live count of open Stage 3 tasks" /></a>
-  <a href="https://github.com/dbbaskette/BeachHead/issues?q=is%3Aissue+is%3Aclosed+label%3Astage-3-task"><img src="https://img.shields.io/github/issues-closed/dbbaskette/BeachHead/stage-3-task?label=Stage%203%20tasks%20done&amp;color=619d8c&amp;style=flat-square" alt="Live count of completed Stage 3 tasks" /></a>
+  <a href="https://github.com/dbbaskette/BeachHead/issues?q=is%3Aissue+is%3Aopen+label%3Astage-3-task"><img src="https://img.shields.io/github/issues/dbbaskette/BeachHead/stage-3-task?label=Air%20assault%20tasks%20open&amp;color=d0ad73&amp;style=flat-square" alt="Live count of open air-assault tasks" /></a>
+  <a href="https://github.com/dbbaskette/BeachHead/issues?q=is%3Aissue+is%3Aclosed+label%3Astage-3-task"><img src="https://img.shields.io/github/issues-closed/dbbaskette/BeachHead/stage-3-task?label=Air%20assault%20tasks%20done&amp;color=619d8c&amp;style=flat-square" alt="Live count of completed air-assault tasks" /></a>
 
-  <p><a href="https://dbbaskette.github.io/BeachHead/"><strong>▶ PLAY NOW</strong></a> &nbsp; · &nbsp; <a href="https://github.com/dbbaskette/BeachHead/issues/3">Stage 3 roadmap</a> &nbsp; · &nbsp; <a href="#controls">Controls</a> &nbsp; · &nbsp; <a href="#run-locally">Run locally</a></p>
+  <p><a href="https://dbbaskette.github.io/BeachHead/"><strong>▶ PLAY NOW</strong></a> &nbsp; · &nbsp; <a href="https://github.com/dbbaskette/BeachHead/issues/3">Air-assault roadmap</a> &nbsp; · &nbsp; <a href="#controls">Controls</a> &nbsp; · &nbsp; <a href="#run-locally">Run locally</a></p>
 </div>
 
-A 3D browser game inspired by **Beach-Head** and **Beach-Head II**. Break a naval blockade, hold a captured pillbox against a landing force, then fly three attack passes over the coast. Textured battlefields, physically consistent weapon origins, smoke, persistent wrecks and spatial weapon effects bring the classic idea into a modern browser.
+A 3D browser game inspired by **Beach-Head** and **Beach-Head II**. Lead the Allied fleet through a naval blockade, switch to a German fighter-bomber attacking the landing, then hold the German pillbox as troops reach shore. Textured battlefields, physically consistent weapon origins, smoke, persistent wrecks and spatial weapon effects bring the classic idea into a modern browser.
 
-**All three stages are playable.** Choose **Play campaign** for the complete sea–beach–air operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
+**All three stages are playable.** Choose **Play campaign** for the complete sea–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
 
 ## The campaign
 
 <table>
   <tr>
-    <td width="50%" valign="top">
-      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-1-naval.png" width="100%" alt="Stage 1 gameplay through the gunnery optic: a warship, sea reflections and drifting wreckage without floating target labels." /></a>
+    <td width="33%" valign="top">
+      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-1-naval.png" width="100%" alt="Stage 1: naval gunnery from the Allied fleet." /></a>
       <h3>01 / Break the blockade</h3>
-      <p><strong>PLAYABLE · NAVAL GUNNERY</strong></p>
-      <p>Set bearing and range, lead moving warships, and correct your next salvo from the splashes. Both shells leave the actual barrels along their bore direction. Use the magnified optic for distant targets.</p>
+      <p><strong>ALLIED FLEET</strong></p>
+      <p>Lead the invasion fleet toward shore. Set bearing and range, lead warships and correct your salvos from the splashes.</p>
     </td>
-    <td width="50%" valign="top">
-      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-2-beach.png" width="100%" alt="Stage 2 gameplay: a clear view from the pillbox across foxholes, infantry, a jeep and landing craft, without enemy labels or hit counters." /></a>
-      <h3>02 / Hold the beach</h3>
-      <p><strong>PLAYABLE · PILLBOX DEFENSE</strong></p>
-      <p>Repel three waves. Infantry shelter in foxholes, crawl behind cover and use smoke. Stop jeeps and landing-craft gunners; manage gun heat, rifle grenades and earned air support.</p>
+    <td width="33%" valign="top">
+      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-3-air.jpg" width="100%" alt="Stage 2: the German fighter-bomber attacks the approaching Allied landing." /></a>
+      <h3>02 / Break the landing</h3>
+      <p><strong>GERMAN AIRCRAFT</strong></p>
+      <p>Switch sides. Fly three guided passes, strafe landing craft and place six bombs to disrupt the approaching assault.</p>
+    </td>
+    <td width="33%" valign="top">
+      <a href="https://dbbaskette.github.io/BeachHead/"><img src="docs/images/stage-2-beach.png" width="100%" alt="Stage 3: the German pillbox holds against troops reaching the beach." /></a>
+      <h3>03 / Hold the beach</h3>
+      <p><strong>GERMAN PILLBOX · FINAL STAND</strong></p>
+      <p>Hold through three waves as the landing reaches shore. Infantry use cover and smoke; stop jeeps, manage gun heat and defend the line.</p>
     </td>
   </tr>
 </table>
 
+The campaign tells one fictional landing from opposing viewpoints: Allied naval approach, German air attack, then German beach defense. Air victory continues to the pillbox; beach victory completes the campaign. Each stage keeps its own starting forces and ammunition.
+
 Actual gameplay captures. All stages keep floating enemy labels, health bars and hit reports out of the battlefield. Read damage from impacts, smoke and wreckage; weapon instruments stay at the edges.
 
-## 03 / Break the landing
+## Air assault — Stage 2
 
-[![Stage 3 gameplay: a fighter-bomber banks above landing craft, with separate gun and bomb aiming marks.](docs/images/stage-3-air.jpg)](https://dbbaskette.github.io/BeachHead/)
+[![Stage 2 gameplay: a fighter-bomber banks above landing craft, with separate gun and bomb aiming marks.](docs/images/stage-3-air.jpg)](https://dbbaskette.github.io/BeachHead/)
 
 **PLAYABLE · GUIDED FIGHTER-BOMBER MISSION**
 
@@ -53,19 +61,19 @@ The circular crosshair follows the guns; the amber ring shows where a bomb relea
 
 ## Controls
 
-| Action | Stage 1 — Naval battle | Stage 2 — Beach defense | Stage 3 — Air assault |
+| Action | Stage 1 — Naval battle | Stage 2 — Air assault | Stage 3 — Beach defense |
 | --- | --- | --- | --- |
-| Aim / fly | Mouse; WASD / arrows | Mouse; WASD / arrows | Move mouse; WASD / arrows |
-| Fire guns | Hold left mouse or Space | Hold left mouse or Space | Hold left mouse or **F** |
-| Range / altitude | Mouse wheel; W/S | Mouse wheel; W/S | Mouse up/down; W/S or up/down arrows |
-| Fine control | Shift / right mouse | Small pointer movements | **Shift** |
-| Special actions | Z: optic · Tab: target | G: grenade · V: air support | **Space / right click: drop one bomb** |
+| Aim / fly | Mouse; WASD / arrows | Move mouse; WASD / arrows | Mouse; WASD / arrows |
+| Fire guns | Hold left mouse or Space | Hold left mouse or **F** | Hold left mouse or Space |
+| Range / altitude | Mouse wheel; W/S | Mouse up/down; W/S or up/down arrows | Mouse wheel; W/S |
+| Fine control | Shift / right mouse | **Shift** | Small pointer movements |
+| Special actions | Z: optic · Tab: target | **Space / right click: drop one bomb** | G: grenade · V: air support |
 | Pause | Escape / pause button | Escape / pause button | Escape / pause button |
 | Leave the mission | Main menu / pause menu | Main menu / pause menu | Main menu / pause menu |
 
 All stages have visible controls, mute and reduced camera motion. Leaving the tab pauses combat. Focused buttons retain normal keyboard behavior.
 
-**Phones and tablets:** the game automatically switches to touch controls with a clear central view. In Stage 1, gently move and hold the left pad to aim; hold Fire to shoot again after reloading, tap the target readout to cycle ships, and tap the optic for a closer view. In Stage 2, swipe the left pad to aim: the sight stops when your thumb stops. Lift and swipe again to keep moving. Hold Fire with your other thumb, use short bursts, and tap the grenade / air-support buttons beside the controls (above them in portrait). Both thumbs work independently, and dragging the battlefield also adjusts aim without firing. In Stage 3, the left pad controls bank and altitude, the right button fires the guns, and the separate Bomb button releases one bomb. You can also drag the sky to steer. Pause opens the route back to the menu.
+**Phones and tablets:** the game automatically switches to touch controls with a clear central view. In Stage 1, gently move and hold the left pad to aim; hold Fire to shoot again after reloading, tap the target readout to cycle ships, and tap the optic for a closer view. In Stage 2, the left pad controls bank and altitude, the right button fires the guns, and the separate Bomb button releases one bomb. You can also drag the sky to steer. Pause opens the route back to the menu. In Stage 3, swipe the left pad to aim: the sight stops when your thumb stops. Lift and swipe again to keep moving. Hold Fire with your other thumb, use short bursts, and tap the grenade / air-support buttons beside the controls (above them in portrait). Both thumbs work independently, and dragging the battlefield also adjusts aim without firing.
 
 Portrait and landscape are supported; landscape offers the widest view. Menus scroll on small screens, controls respect screen notches, and rotating or leaving the app pauses combat. Mobile rendering uses a lower pixel-density cap and shadow resolution. Device performance and touch feel still depend on the browser and hardware.
 
@@ -76,7 +84,7 @@ Portrait and landscape are supported; landscape offers the widest view. Menus sc
 - Lead a moving target, then watch where the splashes fall to correct bearing and range. Tracking reports a target's position without automatically aiming at it.
 - The gun pose, muzzle flashes and shell launch share one firing solution. Flight timing and gun elevations are compressed for arcade play.
 - Vertical mouse aiming compensates for perspective at longer ranges. The visible cursor updates every rendered frame.
-- Standalone Stage 1 ends at mission selection; a campaign victory continues to Stage 2.
+- Standalone Stage 1 ends at mission selection; a campaign victory switches to the German air assault in Stage 2.
 
 </details>
 
@@ -87,7 +95,7 @@ Portrait and landscape are supported; landscape offers the widest view. Menus sc
 - Soldiers occupy foxholes, peek and duck. Catch them exposed or use a rifle grenade to clear cover. Bullets pass through smoke; terrain and cover can protect soldiers.
 - Stop reinforcement jeeps before they unload, silence craft gunners, and damage ramps to delay the landing. Watch for grenade throws and mortar or MG crews.
 - G throws a rifle grenade toward your aim point, up to 115 m. V calls earned air support along the aimed line. Both actions also have buttons.
-- After each wave, choose bunker repair, an improved barrel or extra grenades. Hold through three waves; retry starts Stage 2 again.
+- After each wave, choose bunker repair, an improved barrel or extra grenades. Hold through three waves; retry starts Stage 3 again.
 - Enemy labels, health bars, setup timers and hit reports are intentionally absent from the battlefield.
 
 [Detailed combat rules and tuning](docs/stage-2-threats.md)
@@ -111,7 +119,7 @@ Open the local URL printed by the server. The game uses React, TypeScript, Three
 ```sh
 npm test
 npm run typecheck
-npm exec oxlint -- app lib/naval lib/pillbox lib/air
+npm exec oxlint -- app lib/campaign.ts lib/campaign.test.ts lib/naval lib/pillbox lib/air
 NEXT_PUBLIC_BASE_PATH=/BeachHead npm run build
 ```
 

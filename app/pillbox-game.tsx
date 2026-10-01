@@ -36,11 +36,9 @@ import {
 
 export default function PillboxGame({
   onReturn,
-  onContinue,
   campaign = false,
 }: {
   onReturn: () => void;
-  onContinue: () => void;
   campaign?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -381,7 +379,7 @@ export default function PillboxGame({
       className={`pillbox-game ${touch ? 'touch-layout' : ''} ${ready ? 'briefing-state' : ''}`}
       ref={root}
       tabIndex={-1}
-      aria-label="Stage 2 beach defense"
+      aria-label="Stage 3 beach defense"
     >
       <div
         ref={host}
@@ -426,7 +424,7 @@ export default function PillboxGame({
         <div className="pillbox-brand">
           <Shield size={20} />
           <strong>BEACH HEAD</strong>
-          <span>02 / HOLD THE BEACH</span>
+          <span>03 / HOLD THE BEACH</span>
         </div>
         <div className="pillbox-options">
           {!ready && (
@@ -474,16 +472,16 @@ export default function PillboxGame({
       )}
       {ready && !error && (
         <section className="pillbox-briefing">
-          <p className="pillbox-eyebrow">STAGE 02 / COASTAL DEFENSE</p>
+          <p className="pillbox-eyebrow">STAGE 03 / GERMAN COASTAL DEFENSE</p>
           <h1>
             HOLD THE
             <br />
             <em>BEACH.</em>
           </h1>
           <p>
-            Enemy landing craft are approaching the captured beach. Their ramps
-            will drop and squads will storm ashore. Man the pillbox and stop
-            them before they reach the defense line.
+            The Allied landing force has reached shore. Man the German pillbox
+            as the ramps drop and infantry storm the beach. Hold the defense
+            line through three waves in the campaign’s final stand.
           </p>
           <div className="pillbox-orders">
             <span>
@@ -585,7 +583,7 @@ export default function PillboxGame({
                   ? 'ALL STATIONS HOLDING'
                   : hud.status === 'won'
                     ? campaign
-                      ? 'BEACH SECURED'
+                      ? 'CAMPAIGN COMPLETE'
                       : 'MISSION COMPLETE'
                     : 'POSITION OVERRUN'}
             </p>
@@ -595,7 +593,7 @@ export default function PillboxGame({
                 : paused
                   ? 'Take a breath.'
                   : hud.status === 'won'
-                    ? 'The beach is ours.'
+                    ? 'The line holds.'
                     : 'The line was breached.'}
             </h2>
             <p>
@@ -604,8 +602,8 @@ export default function PillboxGame({
                   ? 'The assault is paused. Resume when you are ready.'
                   : hud.status === 'won'
                     ? campaign
-                      ? 'Counterattack defeated. Take to the skies and break the enemy landing force.'
-                      : 'Counterattack defeated. Your fleet holds the beach.'
+                      ? 'From the naval approach to the air attack and the final beach defense, the battle is over. The pillbox has held.'
+                      : 'The landing assault is defeated. Your pillbox holds the defense line.'
                     : 'Watch the closest soldiers, catch them between cover, and manage your barrel heat.')}
             </p>
             {!paused && !error && (
@@ -627,13 +625,7 @@ export default function PillboxGame({
             <button
               className="pillbox-primary"
               onClick={
-                error
-                  ? () => window.location.reload()
-                  : paused
-                    ? pause
-                    : hud.status === 'won' && campaign
-                      ? onContinue
-                      : start
+                error ? () => window.location.reload() : paused ? pause : start
               }
             >
               {paused ? <Play size={18} /> : <RotateCcw size={18} />}
@@ -641,9 +633,7 @@ export default function PillboxGame({
                 ? 'Reload game'
                 : paused
                   ? 'Resume defense'
-                  : hud.status === 'won' && campaign
-                    ? 'Stage 3 — Air assault'
-                    : 'Retry Stage 2'}
+                  : 'Retry Stage 3'}
             </button>
             <button className="pillbox-back" onClick={onReturn}>
               Return to main menu

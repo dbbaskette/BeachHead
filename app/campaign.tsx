@@ -1,41 +1,36 @@
 'use client';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useReducer } from 'react';
+import { campaignReducer, INITIAL_CAMPAIGN } from '@/lib/campaign';
 import NavalGame from './naval-game';
 import PillboxGame from './pillbox-game';
 const AirGame = lazy(() => import('./air-game'));
 
 export default function Campaign() {
-  const [stage, setStage] = useState<1 | 2 | 3>(1);
-  const [campaign, setCampaign] = useState(false);
-  const menu = () => {
-    setCampaign(false);
-    setStage(1);
-  };
-  return stage === 1 ? (
+  const [{ mission, campaign }, dispatch] = useReducer(
+    campaignReducer,
+    INITIAL_CAMPAIGN,
+  );
+  const menu = () => dispatch({ type: 'menu' });
+  const advance = () => dispatch({ type: 'advance' });
+  return mission === 'naval' ? (
     <NavalGame
       campaign={campaign}
-      onStart={setCampaign}
-      onContinue={() => setStage(2)}
-      onPractice={() => {
-        setCampaign(false);
-        setStage(2);
-      }}
-      onAir={() => {
-        setCampaign(false);
-        setStage(3);
-      }}
+      onStart={(campaign) =>
+        dispatch({ type: 'begin', mission: 'naval', campaign })
+      }
+      onContinue={advance}
+      onPractice={() =>
+        dispatch({ type: 'begin', mission: 'beach', campaign: false })
+      }
+      onAir={() => dispatch({ type: 'begin', mission: 'air', campaign: false })}
     />
-  ) : stage === 2 ? (
-    <PillboxGame
-      campaign={campaign}
-      onContinue={() => setStage(3)}
-      onReturn={menu}
-    />
-  ) : (
+  ) : mission === 'air' ? (
     <Suspense
       fallback={<div className="air-loading">Preparing air assault…</div>}
     >
-      <AirGame campaign={campaign} onReturn={menu} />
+      <AirGame campaign={campaign} onContinue={advance} onReturn={menu} />
     </Suspense>
+  ) : (
+    <PillboxGame campaign={campaign} onReturn={menu} />
   );
 }

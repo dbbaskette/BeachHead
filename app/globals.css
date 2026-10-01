@@ -1166,7 +1166,7 @@ kbd {
   }
 }
 
-/* Stage 2: the captured coastal pillbox. */
+/* Stage 3: the German coastal pillbox. */
 .stage-practice { display:flex; align-items:center; gap:9px; margin-top:14px; padding:9px 0; color:#d7bd8e; font-size:12px; cursor:pointer; background:none; border:0; }
 .stage-practice:hover { color:#fff0d3; }
 .pillbox-game { position:relative; width:100%; height:100dvh; min-height:540px; overflow:hidden; background:#282b26; color:#f1eadb; outline:none; font-family:Arial,Helvetica,sans-serif; }
@@ -1378,7 +1378,7 @@ kbd {
 .air-touch .air-header { height:54px; padding:env(safe-area-inset-top,0px) max(10px,env(safe-area-inset-right,0px)) 0 max(10px,env(safe-area-inset-left,0px)); }.air-touch .air-brand>span { display:none; }.air-touch .air-pass { font-size:10px; }.air-touch .air-pass small { display:none; }.air-touch .air-objective { top:56px; font-size:10px; max-width:90%; overflow:hidden; text-overflow:ellipsis; }.air-touch .air-bomb-button { position:absolute; z-index:7; bottom:calc(var(--station-bottom) + 133px); right:max(17px,env(safe-area-inset-right,0px)); min-width:80px; min-height:54px; padding:6px 10px; }.air-touch .air-bomb-button b { display:inline; margin-left:5px; }.air-touch .air-bomb-button svg { width:18px; }.air-touch .air-altitude { position:absolute; left:22px; bottom:calc(var(--station-bottom) + 124px); font-size:11px; color:#e5e9d6; pointer-events:none; }.air-touch .air-briefing { inset:65px 4% 10px; padding:20px; gap:22px; }.air-touch .air-briefing h1 { font-size:45px; }.air-touch .air-route { gap:12px; }.air-touch .air-briefing p { font-size:12px; }
 @media(max-width:650px) and (orientation:portrait) { .air-briefing { inset:75px 5% 15px; grid-template-columns:1fr; gap:25px; align-items:start; }.air-briefing h1 { font-size:45px; }.air-orders>svg { display:none; }.air-briefing .air-route { margin-top:18px; }.air-header { padding:0 10px; }.air-pass { display:none; }.air-instruments { gap:15px; padding:10px; width:95%; bottom:10px; }.air-instruments>div { min-width:0; flex:1; }.air-instruments>div:nth-child(2) { display:none; }.air-instruments .air-bomb-button { padding:8px; }.air-brand>span { font-size:11px; }.air-brand small { display:none; } }
 @media(max-height:550px) and (orientation:landscape) { .air-briefing,.air-touch .air-briefing { inset:62px 4% 10px; padding:18px 24px; gap:30px; }.air-briefing h1,.air-touch .air-briefing h1 { font-size:40px; margin-bottom:12px; }.air-briefing p { font-size:12px!important; }.air-route { margin-top:16px; }.air-orders>svg,.air-orders .air-identify,.air-credit { display:none; }.air-orders dl>div { padding:6px 0; font-size:11px; }.air-orders .air-tip { margin:8px 0; }.air-primary { margin-top:10px; min-height:44px; }.air-touch .air-bomb-button { bottom:calc(var(--station-bottom) + 98px); min-height:44px; }.air-touch .air-altitude { bottom:calc(var(--station-bottom) + 94px); }.air-instruments { padding:8px 16px; bottom:8px; gap:20px; }.air-header { height:54px; }.air-objective { top:55px; }.air-result { padding:18px 28px; }.air-result>svg { display:none; } }
-@media(max-width:800px) { .mission-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); } .air-tile { grid-column:1/-1; min-height:140px; } }
+@media(max-width:800px) { .mission-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); } .mission-tile:last-child { grid-column:1/-1; min-height:140px; } }
 
 /* Mobile stations: keep the sightline clear and every action within thumb reach. */
 .naval-game,.pillbox-game { min-height:0; height:100dvh; }
@@ -1433,11 +1433,11 @@ kbd {
 .touch-layout .mission-tile strong { font-size:20px; }
 .touch-layout .campaign-tile strong { font-size:27px; }
 .touch-layout .mission-tile-action { padding-top:12px; }
-.touch-layout .air-tile { grid-column:1/-1; min-height:92px; display:grid; grid-template-columns:1fr auto; column-gap:12px; }
-.touch-layout .air-tile .mission-stage { grid-column:1; }
-.touch-layout .air-tile>strong { grid-column:1; }
-.touch-layout .air-tile>span:not(.mission-stage):not(.mission-tile-action) { display:none; }
-.touch-layout .air-tile .mission-tile-action { grid-column:2; grid-row:1 / 3; align-self:center; padding:0; margin:0; }
+.touch-layout .mission-tile:last-child { grid-column:1/-1; min-height:92px; display:grid; grid-template-columns:1fr auto; column-gap:12px; }
+.touch-layout .mission-tile:last-child .mission-stage { grid-column:1; }
+.touch-layout .mission-tile:last-child>strong { grid-column:1; }
+.touch-layout .mission-tile:last-child>span:not(.mission-stage):not(.mission-tile-action) { display:none; }
+.touch-layout .mission-tile:last-child .mission-tile-action { grid-column:2; grid-row:1 / 3; align-self:center; padding:0; margin:0; }
 .touch-layout .pillbox-briefing { top:calc(var(--station-top) + 18px); left:max(20px,env(safe-area-inset-left,0px)); right:max(20px,env(safe-area-inset-right,0px)); width:auto; max-width:540px; max-height:calc(100% - var(--station-top) - var(--station-bottom) - 36px); overflow-y:auto; padding:22px; }
 .touch-layout .pillbox-briefing h1 { font-size:54px; margin:16px 0; }
 .touch-layout .pillbox-briefing .pillbox-hint { display:none; }
@@ -1452,7 +1452,7 @@ kbd {
   .touch-layout .main-menu h1 { font-size:46px; }
   .touch-layout .mission-tile { padding:12px; min-height:110px; gap:5px; }
   .touch-layout .campaign-tile { min-height:72px; }
-  .touch-layout .air-tile { min-height:62px; }
+  .touch-layout .mission-tile:last-child { min-height:62px; }
   .touch-layout .mission-tile-action { padding-top:5px; }
   .touch-layout .mission-tile>span:not(.mission-stage):not(.mission-tile-action):not(.mission-tile-copy) { display:none; }
   .touch-layout .campaign-tile strong { font-size:25px; }

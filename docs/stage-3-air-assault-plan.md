@@ -1,5 +1,7 @@
 # Stage 3 — Break the Landing
 
+> Historical design: air assault was originally Stage 3. The implemented campaign now runs naval battle → air assault (Stage 2) → beach defense (Stage 3), with an explicit Allied-to-German viewpoint change. The original design below is retained for context; combat carryover remains deferred.
+
 Status: proposed design, prepared 2026-09-30. This updates the earlier aircraft-stage sketch. Planning and GitHub issue creation are authorized; Stage 3 implementation has not started. The player selected guided attack passes with automatic forward flight, banking, altitude control, strafing and bombs.
 
 ## The experience

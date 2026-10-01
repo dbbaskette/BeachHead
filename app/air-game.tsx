@@ -46,9 +46,11 @@ function snapshot(b: AirBattle) {
 }
 export default function AirGame({
   onReturn,
+  onContinue,
   campaign = false,
 }: {
   onReturn: () => void;
+  onContinue: () => void;
   campaign?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null),
@@ -292,7 +294,7 @@ export default function AirGame({
       ref={root}
       tabIndex={-1}
       className={`air-game ${touch ? 'air-touch' : ''}`}
-      aria-label="Stage 3 air assault"
+      aria-label="Stage 2 air assault"
     >
       <div
         ref={host}
@@ -344,7 +346,7 @@ export default function AirGame({
         <div className="air-brand">
           <Plane size={25} />
           <span>
-            BEACH HEAD <small>03 / AIR ASSAULT</small>
+            BEACH HEAD <small>02 / AIR ASSAULT</small>
           </span>
         </div>
         {!ready && (
@@ -400,16 +402,17 @@ export default function AirGame({
       {ready && !error && (
         <section className="air-briefing" aria-label="Air assault briefing">
           <div>
-            <p className="air-eyebrow">STAGE 03 / FW 190–INSPIRED</p>
+            <p className="air-eyebrow">STAGE 02 / GERMAN AIR ASSAULT</p>
             <h1>
               BREAK THE
               <br />
               <em>LANDING.</em>
             </h1>
             <p>
-              Fly a German fighter-bomber against the Allied landing. Three
-              passes. Six bombs. Silence the shore guns, destroy the striped
-              command transport, and bring your aircraft home.
+              Switch to the German side. Fly an Fw 190–inspired fighter-bomber
+              against the approaching Allied landing. Three passes. Six bombs.
+              Silence the shore guns, destroy the striped command transport, and
+              bring your aircraft home.
             </p>
             <div className="air-route">
               <span>
@@ -619,9 +622,7 @@ export default function AirGame({
                 : paused
                   ? 'HOLDING POSITION'
                   : hud.status === 'won'
-                    ? campaign
-                      ? 'CAMPAIGN COMPLETE'
-                      : 'MISSION COMPLETE'
+                    ? 'MISSION COMPLETE'
                     : 'MISSION ENDED'}
             </p>
             <h2>
@@ -630,7 +631,7 @@ export default function AirGame({
                 : error
                   ? 'Stand by.'
                   : hud.status === 'won'
-                    ? 'The landing is broken.'
+                    ? 'The assault is disrupted.'
                     : 'Another pass awaits.'}
             </h2>
             <p>
@@ -639,6 +640,12 @@ export default function AirGame({
                   ? 'Flight is paused. Resume when you are ready.'
                   : hud.outcome)}
             </p>
+            {hud.status === 'won' && campaign && (
+              <p>
+                Surviving landing craft are reaching shore. Take command of the
+                German pillbox for the final stand.
+              </p>
+            )}
             {finished && (
               <div className="air-result-stats">
                 <span>
@@ -653,9 +660,32 @@ export default function AirGame({
               </div>
             )}
             {!error && (
-              <button className="air-primary" onClick={paused ? pause : start}>
-                {paused ? <Play /> : <RotateCcw />}
-                {paused ? 'Resume flight' : 'Retry Stage 3'}
+              <button
+                className="air-primary"
+                onClick={
+                  paused
+                    ? pause
+                    : hud.status === 'won' && campaign
+                      ? () => {
+                          resetInput();
+                          audio.current?.setPaused(true);
+                          onContinue();
+                        }
+                      : start
+                }
+              >
+                {paused ? (
+                  <Play />
+                ) : hud.status === 'won' && campaign ? (
+                  <ArrowUpRight />
+                ) : (
+                  <RotateCcw />
+                )}
+                {paused
+                  ? 'Resume flight'
+                  : hud.status === 'won' && campaign
+                    ? 'Stage 3 — Hold the beach'
+                    : 'Retry Stage 2'}
               </button>
             )}
             <button className="air-back" onClick={leave}>

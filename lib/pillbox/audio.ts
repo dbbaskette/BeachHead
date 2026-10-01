@@ -39,7 +39,7 @@ interface ActiveVoice {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-/** Short, voice-limited effects for the Stage 2 pillbox sequence. */
+/** Short, voice-limited effects for the Stage 3 pillbox sequence. */
 export class PillboxAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
