@@ -1,4 +1,6 @@
 'use client';
+import { StageFourPreview } from './stage-four-preview';
+import { assetUrl } from '@/lib/asset-url';
 import { TouchControls, useTouchLayout } from './touch-controls';
 import { TouchDrag, type TouchAxis } from '@/lib/touch-input';
 import { mouseAimDelta, mouseWheelRange } from '../lib/naval/mouse-aim';
@@ -72,6 +74,7 @@ export default function NavalGame({
     [sound, setSound] = useState(true),
     [steady, setSteady] = useState(false);
   const singleStage = !campaign;
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [selected, setSelected] = useState(0);
   const [resultsReady, setResultsReady] = useState(false);
   const reticleElement = useRef<HTMLDivElement>(null);
@@ -664,7 +667,7 @@ export default function NavalGame({
                 <strong>Play campaign</strong>
                 <span>
                   {loaded
-                    ? 'Sea. Sky. Beach. Fight through all three stages.'
+                    ? 'Sea. Sky. Beach. Play the three available stages.'
                     : 'Preparing the guns…'}
                 </span>
               </span>
@@ -713,9 +716,29 @@ export default function NavalGame({
                 Play Stage 3 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
+            <button
+              className="mission-tile bunker-tile"
+              aria-label="Preview Stage 4 — Beneath the guns, coming soon"
+              aria-haspopup="dialog"
+              onClick={() => setPreviewOpen(true)}
+              style={{
+                backgroundImage: `linear-gradient(90deg, #181b1bf2, #181b1b99), url("${assetUrl('/images/stage-4-bunker-concept.jpg')}")`,
+              }}
+            >
+              <span className="mission-stage">Stage 4 · Coming soon</span>
+              <strong>Beneath the guns</strong>
+              <span>Enter the bunker · Discover the tunnels</span>
+              <span className="mission-tile-action">
+                View concept <ArrowUpRight size={18} aria-hidden="true" />
+              </span>
+            </button>
           </nav>
         </section>
       )}
+      <StageFourPreview
+        open={previewOpen && ready}
+        onClose={() => setPreviewOpen(false)}
+      />
       {(paused || (finished && (hud.status === 'lost' || resultsReady))) &&
         !error && (
           <div className="overlay">
