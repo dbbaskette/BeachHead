@@ -1,3 +1,4 @@
+import { emptyInput } from './simulation';
 import { thumbAxis, type TouchAxis } from '../touch-input';
 export type ControlRole = 'move' | 'turn' | 'look' | 'fire';
 type Contact = {
@@ -142,4 +143,52 @@ export function bindControlRelease(
       target.removeEventListener(type, reset);
     controls.clear();
   };
+}
+
+export const BUNKER_KEYS = new Set([
+  'KeyW',
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Space',
+  'KeyR',
+  'ShiftLeft',
+  'ShiftRight',
+]);
+/** Start arrow aiming gently, accelerate for a held turn, stop immediately on release.
+ * Shift gives a consistent fine rate; movement and firing stay independent. */
+export class BunkerKeyboard {
+  private horizontal = 0;
+  private vertical = 0;
+  private xAge = 0;
+  private yAge = 0;
+  read(keys: ReadonlySet<string>, dt: number) {
+    const held = (key: string) => keys.has(key);
+    const x = Number(held('ArrowRight')) - Number(held('ArrowLeft'));
+    const y = Number(held('ArrowUp')) - Number(held('ArrowDown'));
+    const elapsed = Math.max(0, Math.min(0.05, dt));
+    this.xAge = x && x === this.horizontal ? this.xAge + elapsed : 0;
+    this.yAge = y && y === this.vertical ? this.yAge + elapsed : 0;
+    this.horizontal = x;
+    this.vertical = y;
+    const fine = held('ShiftLeft') || held('ShiftRight');
+    const speed = (age: number) =>
+      fine ? 0.2 : 0.26 + Math.min(1, age / 0.3) * 0.74;
+    return {
+      ...emptyInput(),
+      forward: Number(held('KeyW')) - Number(held('KeyS')),
+      strafe: Number(held('KeyD')) - Number(held('KeyA')),
+      turn: x * speed(this.xAge),
+      aimPitch: y * speed(this.yAge),
+      fire: held('Space'),
+      reload: held('KeyR'),
+    };
+  }
+  clear() {
+    this.horizontal = this.vertical = this.xAge = this.yAge = 0;
+  }
 }

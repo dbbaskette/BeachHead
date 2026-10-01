@@ -32,6 +32,7 @@ export const solids: Box[] = [
 ];
 export type GuardMode = 'idle' | 'notice' | 'engage' | 'search';
 export type FallStyle = 'front' | 'back' | 'left' | 'right' | 'kneel';
+export type DeathAction = 'reel' | 'spin' | 'sprawl' | 'fold' | 'kneel';
 export type HitRegion = 'head' | 'torso' | 'leg';
 export type Guard = {
   id: number;
@@ -57,6 +58,11 @@ export type Guard = {
   lastX: number;
   lastZ: number;
   fallStyle: FallStyle;
+  deathAction: DeathAction;
+  deathTurn: number;
+  deathTravel: number;
+  hitSide: number;
+  hits: number;
   hitTime: number;
   hitRegion: HitRegion;
   hitDirection: { x: number; z: number };
@@ -93,6 +99,7 @@ export type Input = {
   forward: number;
   strafe: number;
   turn: number;
+  aimPitch: number;
   fire: boolean;
   reload: boolean;
 };
@@ -100,6 +107,7 @@ export const emptyInput = (): Input => ({
   forward: 0,
   strafe: 0,
   turn: 0,
+  aimPitch: 0,
   fire: false,
   reload: false,
 });
@@ -150,6 +158,11 @@ export function createBunker(): BunkerState {
       lastX: x,
       lastZ: z,
       fallStyle: 'back',
+      deathAction: 'reel',
+      deathTurn: 0,
+      deathTravel: 0,
+      hitSide: 0,
+      hits: 0,
       hitTime: 0,
       hitRegion: 'torso',
       hitDirection: { x: 0, z: -1 },
@@ -273,6 +286,14 @@ export function shootBunker(b: BunkerState) {
   }
   const [x, y, z] = origin.map((n, i) => n + direction[i] * distance);
   if (target) {
+    target.hits++;
+    target.hitSide = clamp(
+      ((x - target.x) * Math.cos(target.yaw) -
+        (z - target.z) * Math.sin(target.yaw)) /
+        0.32,
+      -1,
+      1,
+    );
     target.health -= y > 1.45 ? 75 : 34;
     target.alert = true;
     target.hitTime = 0.42;
@@ -290,7 +311,7 @@ export function shootBunker(b: BunkerState) {
     target.memory = 4.5;
     target.awareness = 1;
     target.mode = 'engage';
-    if (target.health <= 0) target.fallStyle = chooseFall(target);
+    if (target.health <= 0) prepareDeath(target, b.time);
   }
   // A nearby shot attracts attention to its origin, even before visual recognition.
   for (const g of b.guards) {
@@ -334,6 +355,11 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
     }
   }
   b.yaw -= clamp(input.turn, -1, 1) * 1.6 * dt;
+  b.pitch = clamp(
+    b.pitch + clamp(input.aimPitch, -1, 1) * 1.2 * dt,
+    -0.95,
+    0.95,
+  );
   const magnitude = Math.max(1, Math.hypot(input.forward, input.strafe)),
     forward = input.forward / magnitude,
     strafe = input.strafe / magnitude;
@@ -354,7 +380,11 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
     if (g.health <= 0) {
       g.down = Math.min(
         1,
-        g.down + dt / (g.fallStyle === 'kneel' ? 1.65 : 1.35),
+        g.down +
+          dt /
+            { reel: 1.55, spin: 1.65, sprawl: 1.2, fold: 1.45, kneel: 1.85 }[
+              g.deathAction
+            ],
       );
       continue;
     }
@@ -419,6 +449,52 @@ export function chooseFall(g: Guard): FallStyle {
       return style;
   }
   return 'kneel';
+}
+/** Choose choreography once at impact. Sweep its displacement and final body footprint
+ * so expressive motion cannot carry a corpse through the room's solid walls. */
+export function prepareDeath(g: Guard, time: number) {
+  const actions: DeathAction[] = ['reel', 'spin', 'sprawl', 'fold'];
+  g.deathAction =
+    g.hitRegion === 'leg'
+      ? 'kneel'
+      : actions[(g.id + g.hits + Math.floor(time * 3)) % actions.length];
+  g.fallStyle = chooseFall(g);
+  if (g.fallStyle === 'kneel') g.deathAction = 'kneel';
+  const sign =
+    Math.abs(g.hitSide) > 0.15 ? Math.sign(g.hitSide) : g.id % 2 ? -1 : 1;
+  const requestedTurn =
+    g.deathAction === 'spin'
+      ? sign * 1.35
+      : g.deathAction === 'fold'
+        ? sign * 0.32
+        : sign * 0.12;
+  const travel =
+    g.deathAction === 'reel'
+      ? 0.72
+      : g.deathAction === 'spin'
+        ? 0.42
+        : g.deathAction === 'sprawl'
+          ? 0.5
+          : 0.18;
+  const direction = fallVector(g);
+  g.deathTurn = 0;
+  g.deathTravel = 0;
+  for (const scale of [1, 0.65, 0.3, 0]) {
+    const fits = [0.25, 0.5, 0.75, 1].every((t) => {
+      const yaw = g.yaw + requestedTurn * scale * t;
+      const v = fallVector({ yaw, fallStyle: g.fallStyle });
+      const x = g.x + direction.x * travel * scale * t;
+      const z = g.z + direction.z * travel * scale * t;
+      return [-0.65, 0, 0.5, 0.95].every((d) =>
+        canStand(x + v.x * d, z + v.z * d, 0.36),
+      );
+    });
+    if (fits) {
+      g.deathTurn = requestedTurn * scale;
+      g.deathTravel = travel * scale;
+      break;
+    }
+  }
 }
 function updateGuard(g: Guard, b: BunkerState, dt: number) {
   g.startle = Math.max(0, g.startle - dt);

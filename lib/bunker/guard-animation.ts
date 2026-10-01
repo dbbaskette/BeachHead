@@ -1,6 +1,6 @@
 import * as T from 'three';
-import { guardReaction } from './reactions';
-import { canStand, type Guard } from './simulation';
+import { deathArmTarget, guardReaction } from './reactions';
+import { canStand, fallVector, type Guard } from './simulation';
 export type GuardActor = {
   root: T.Group;
   body: T.Group;
@@ -26,13 +26,10 @@ export type GuardActor = {
     restRotation?: T.Quaternion;
   };
   floorLift: number;
+  contactEmitted?: boolean;
 };
-function poseArms(
-  a: GuardActor,
-  ready: number,
-  dying: boolean,
-  release: number,
-) {
+function poseArms(a: GuardActor, g: Guard, release: number) {
+  const ready = g.readiness;
   a.root.updateMatrixWorld(true);
   for (let index = 0; index < a.arms.length; index++) {
     const bone = a.arms[index];
@@ -44,15 +41,14 @@ function poseArms(
       forearm ? 1.02 + ready * 0.23 : 0.94 + ready * 0.16,
       forearm ? -0.28 - ready * 0.12 : -0.08 - ready * 0.04,
     );
-    if (dying)
-      held.lerp(
-        new T.Vector3(
-          side * (forearm ? 0.42 : 0.36),
-          forearm ? 0.55 : 0.94,
-          forearm ? 0.06 : -0.015,
-        ),
-        release,
-      );
+    if (g.health <= 0)
+      held.lerp(new T.Vector3(...deathArmTarget(g, index)), release);
+    else if (g.hitTime > 0) {
+      const flinch = Math.sin(Math.PI * (1 - g.hitTime / 0.42));
+      held.x += g.hitSide * flinch * (forearm ? 0.13 : 0.06);
+      held.y -= flinch * (g.hitRegion === 'leg' ? 0.18 : 0.08);
+      held.z += flinch * (forearm ? 0.12 : 0.06);
+    }
     const target = a.body.localToWorld(held);
     const direction = target
       .sub(bone.getWorldPosition(new T.Vector3()))
@@ -76,8 +72,18 @@ export function animateGuard(
 ) {
   const reaction = guardReaction(g);
   a.root.rotation.order = 'YXZ';
-  a.root.position.set(g.x, reaction.height, g.z);
-  a.root.rotation.set(reaction.pitch, g.yaw, reaction.roll, 'YXZ');
+  const direction = fallVector(g);
+  a.root.position.set(
+    g.x + direction.x * reaction.travel,
+    reaction.height,
+    g.z + direction.z * reaction.travel,
+  );
+  a.root.rotation.set(
+    reaction.pitch,
+    g.yaw + reaction.yaw,
+    reaction.roll,
+    'YXZ',
+  );
   if (g.health > 0) {
     a.deathPose = undefined;
     // Reset every authored joint before mixer/IK to prevent accumulated twists.
@@ -88,7 +94,10 @@ export function animateGuard(
     a.walk.setEffectiveWeight(a.walkWeight);
     a.mixer.update(frame);
     for (const joint of a.joints) {
-      if (joint.name === 'Spine') joint.bone.rotateX(reaction.fold);
+      if (joint.name === 'Spine') {
+        joint.bone.rotateX(reaction.fold);
+        joint.bone.rotateY(reaction.twist);
+      }
       if (joint.name === 'Head') {
         joint.bone.rotateY(g.headYaw);
         joint.bone.rotateX(
@@ -112,27 +121,34 @@ export function animateGuard(
       0,
       0.08 * (1 - ready),
     );
-    poseArms(a, ready, false, 0);
+    poseArms(a, g, 0);
   } else {
     if (!a.deathPose)
       a.deathPose = a.joints.map((j) => j.bone.quaternion.clone());
-    const release = Math.min(1, reaction.fall * 1.8);
+    const release = reaction.armRelease;
     a.joints.forEach((joint, index) => {
       joint.bone.quaternion
         .copy(a.deathPose![index])
         .slerp(joint.rest, release);
       if (joint.name === 'LeftUpLeg') joint.bone.rotateX(reaction.leftHip);
       if (joint.name === 'RightUpLeg') joint.bone.rotateX(reaction.rightHip);
+      if (joint.name === 'LeftUpLeg') joint.bone.rotateZ(reaction.spread);
+      if (joint.name === 'RightUpLeg')
+        joint.bone.rotateZ(-reaction.spread * 0.75);
       if (joint.name === 'LeftLeg') joint.bone.rotateX(reaction.leftKnee);
       if (joint.name === 'RightLeg') joint.bone.rotateX(reaction.rightKnee);
-      if (joint.name === 'Spine') joint.bone.rotateX(reaction.fold);
+      if (joint.name === 'Spine') {
+        joint.bone.rotateX(reaction.fold);
+        joint.bone.rotateY(reaction.twist);
+      }
       if (joint.name === 'Head') {
         joint.bone.rotateZ(reaction.headTilt);
         joint.bone.rotateY(reaction.fall * (g.id % 2 ? 0.2 : -0.2));
       }
     });
-    poseArms(a, g.readiness, true, release);
-    // Bound the collapsed pose against the floor using actual skeleton contacts.
+    poseArms(a, g, release);
+    // Keep support grounded as knees buckle, then transfer contact to hips/shoulders.
+    // Correct in both directions: only lifting would leave bent legs hovering.
     a.root.updateMatrixWorld(true);
     let lowest = Infinity;
     for (const contact of a.floorPoints)
@@ -140,15 +156,15 @@ export function animateGuard(
         lowest,
         contact.bone.getWorldPosition(new T.Vector3()).y - contact.radius,
       );
-    a.floorLift = Number.isFinite(lowest) ? Math.max(0, 0.015 - lowest) : 0;
+    a.floorLift = Number.isFinite(lowest) ? 0.015 - lowest : 0;
     a.root.position.y += a.floorLift;
     a.root.updateMatrixWorld(true);
-    if (g.down > 0.12 && !a.dropped) {
+    if (g.down > (g.deathAction === 'fold' ? 0.19 : 0.06) && !a.dropped) {
       scene.attach(a.rifle);
       a.dropped = {
         velocity: new T.Vector3(
           g.hitDirection.x * 0.2 + Math.cos(g.yaw) * (g.id % 2 ? 0.6 : -0.6),
-          0.05,
+          g.deathAction === 'reel' ? 1.1 : 0.3,
           g.hitDirection.z * 0.2 - Math.sin(g.yaw) * (g.id % 2 ? 0.6 : -0.6),
         ),
         spin: new T.Vector3(1.4, g.id % 2 ? 0.8 : -0.8, 1.1),
@@ -199,6 +215,7 @@ export function animateGuard(
 /** Retry reclaims world-space dropped equipment and restores the original rig. */
 export function resetGuardActor(a: GuardActor) {
   a.deathPose = undefined;
+  a.contactEmitted = false;
   a.joints.forEach((j) => j.bone.quaternion.copy(j.rest));
   a.body.add(a.rifle);
   a.dropped = undefined;

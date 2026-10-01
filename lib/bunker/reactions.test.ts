@@ -53,6 +53,46 @@ void test('pelvis-centered collapses have distinct directional poses, settle, an
   }
   assert.ok(profiles.size >= 4);
   g.fallStyle = 'kneel';
+  g.deathAction = 'kneel';
   g.down = 0.25;
   assert.ok(guardReaction(g).knees > 0.2);
+});
+
+void test('choreographies have distinct gestures, progressive turning and stable asymmetric end poses', async () => {
+  const { deathArmTarget } = await import('./reactions');
+  const g = createBunker().guards[0];
+  g.health = 0;
+  g.fallStyle = 'back';
+  g.deathTurn = 1.35;
+  g.deathTravel = 0.7;
+  const gestures = new Set<string>(),
+    endings = new Set<string>();
+  for (const action of ['reel', 'spin', 'sprawl', 'fold', 'kneel'] as const) {
+    g.deathAction = action;
+    g.down = 0.23;
+    gestures.add(JSON.stringify([deathArmTarget(g, 1), deathArmTarget(g, 3)]));
+    g.down = 1;
+    endings.add(
+      JSON.stringify([
+        deathArmTarget(g, 1),
+        deathArmTarget(g, 3),
+        guardReaction(g).leftKnee,
+      ]),
+    );
+    const p = guardReaction(g);
+    assert.ok(Math.abs(p.yaw - 1.35) < 0.001);
+    assert.ok(Math.abs(p.travel - 0.7) < 0.001);
+    assert.notDeepEqual(
+      deathArmTarget(g, 1).slice(1),
+      deathArmTarget(g, 3).slice(1),
+    );
+  }
+  assert.equal(gestures.size, 5);
+  assert.equal(endings.size, 5);
+  g.deathAction = 'reel';
+  g.down = 0.23;
+  assert.ok(deathArmTarget(g, 1)[1] > 1.8, 'one hand flings above the head');
+  g.down = 0;
+  assert.equal(guardReaction(g).travel, 0);
+  assert.equal(guardReaction(g).fall, 0);
 });

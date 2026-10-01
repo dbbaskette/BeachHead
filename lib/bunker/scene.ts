@@ -8,7 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
-import { PELVIS_HEIGHT } from './reactions';
+import { guardReaction, PELVIS_HEIGHT } from './reactions';
 import {
   animateGuard,
   resetGuardActor,
@@ -25,6 +25,7 @@ type Particle = {
   life: number;
   duration: number;
   blood?: boolean;
+  dust?: boolean;
 };
 export class BunkerScene {
   private scene = new T.Scene();
@@ -39,6 +40,7 @@ export class BunkerScene {
   private muzzleLight = new T.PointLight('#ffc57a', 0, 4);
   private guards: GuardActor[] = [];
   private particles: Particle[] = [];
+  private dustTexture?: T.CanvasTexture;
   private stains: { mesh: T.Mesh; life: number }[] = [];
   private medkit = new T.Group();
   private exitLight = new T.MeshStandardMaterial({
@@ -755,14 +757,18 @@ export class BunkerScene {
         walkWeight: 0,
         floorLift: 0,
         floorPoints: [
-          ['Head', 0.13],
-          ['LeftFoot', 0.08],
-          ['RightFoot', 0.08],
-          ['LeftHand', 0.055],
-          ['RightHand', 0.055],
-          ['Spine', 0.14],
-          ['LeftLeg', 0.09],
-          ['RightLeg', 0.09],
+          ['Head', 0.15],
+          ['LeftFoot', 0.1],
+          ['RightFoot', 0.1],
+          ['LeftHand', 0.085],
+          ['RightHand', 0.085],
+          ['Spine', 0.18],
+          ['Spine2', 0.19],
+          ['Hips', 0.18],
+          ['LeftForeArm', 0.095],
+          ['RightForeArm', 0.095],
+          ['LeftLeg', 0.12],
+          ['RightLeg', 0.12],
           ['LeftArm', 0.075],
           ['RightArm', 0.075],
         ].flatMap(([name, radius]) => {
@@ -842,12 +848,60 @@ export class BunkerScene {
     this.scene.add(mesh);
     this.stains.push({ mesh, life: 18 });
   }
+  private impactDust(x: number, y: number, z: number, ground: boolean) {
+    if (!this.dustTexture) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 64;
+      const ctx = canvas.getContext('2d')!;
+      const gradient = ctx.createRadialGradient(32, 32, 1, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(190,178,153,0.28)');
+      gradient.addColorStop(0.35, 'rgba(159,147,124,0.15)');
+      gradient.addColorStop(1, 'rgba(130,119,103,0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+      this.dustTexture = new T.CanvasTexture(canvas);
+      this.resources.add(this.dustTexture);
+    }
+    for (let i = 0; i < (ground ? 7 : 3); i++) {
+      if (this.particles.length >= 160) break;
+      const mesh = new T.Mesh(
+        new T.PlaneGeometry(1, 1),
+        new T.MeshBasicMaterial({
+          color: '#756952',
+          map: this.dustTexture,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0.7,
+        }),
+      );
+      const angle = i * 2.4;
+      mesh.position.set(
+        x + Math.sin(angle) * 0.1,
+        y,
+        z + Math.cos(angle) * 0.1,
+      );
+      mesh.scale.setScalar(ground ? 0.28 : 0.12);
+      this.scene.add(mesh);
+      this.particles.push({
+        mesh,
+        velocity: new T.Vector3(
+          Math.sin(angle) * (ground ? 0.4 : 0.12),
+          ground ? 0.12 : 0.05,
+          Math.cos(angle) * 0.28,
+        ),
+        life: ground ? 0.85 : 0.35,
+        duration: ground ? 0.85 : 0.35,
+        dust: true,
+      });
+    }
+  }
   private effects(events: Effect[]) {
     for (const e of events) {
       if (!['stone', 'hit'].includes(e.kind)) continue;
       const blood = e.kind === 'hit',
-        count = blood ? 12 : 6,
+        count = blood ? (e.fatal ? 20 : 10) : 6,
         direction = e.direction ?? [0, 0, 1];
+      if (blood) this.impactDust(e.x, e.y, e.z, false);
       for (let i = 0; i < count; i++) {
         if (this.particles.length >= 160) {
           const old = this.particles.shift()!;
@@ -873,7 +927,7 @@ export class BunkerScene {
         mesh.position.set(e.x, e.y, e.z);
         mesh.scale.set(blood ? 0.6 : 1, blood ? 1.65 : 1, blood ? 0.6 : 1);
         this.scene.add(mesh);
-        const speed = 0.35 + (i % 4) * 0.23;
+        const speed = (e.fatal ? 0.5 : 0.3) + (i % 5) * 0.19;
         this.particles.push({
           mesh,
           velocity: new T.Vector3(
@@ -921,11 +975,24 @@ export class BunkerScene {
       const a = this.guards[i];
       if (!a) return;
       animateGuard(a, g, frame, this.scene, active);
+      if (
+        active &&
+        g.health <= 0 &&
+        !a.contactEmitted &&
+        guardReaction(g).settle > 0
+      ) {
+        a.contactEmitted = true;
+        this.impactDust(a.root.position.x, 0.09, a.root.position.z, true);
+      }
     });
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life -= frame;
-      p.velocity.y -= frame * 7.5;
+      if (!p.dust) p.velocity.y -= frame * 7.5;
+      else {
+        p.mesh.quaternion.copy(this.camera.quaternion);
+        p.mesh.scale.addScalar(frame * 0.6);
+      }
       p.mesh.position.addScaledVector(p.velocity, frame);
       (p.mesh.material as T.MeshBasicMaterial).opacity = p.life / p.duration;
       if (p.blood && p.mesh.position.y <= 0.022) {

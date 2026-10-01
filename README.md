@@ -65,7 +65,7 @@ Enter the coastal gun emplacement, clear the service tunnel and munitions room, 
 
 **Desktop:** WASD moves, mouse looks, click fires, R reloads, and Esc pauses. Arrow keys can also move and turn. If the browser cannot capture the pointer, drag the view to look. **Mobile:** the left pad walks, the right pad turns and aims, and the separate Fire button shoots. Walk and turn together, or drag the view to look. Tap the ammo counter to reload.
 
-Guards now recognize threats, turn and raise their weapons, react to nearby gunfire, and search the last place they saw you. Hits interrupt their aim; directional collapses and dropped rifles settle on the floor. [Behavior and animation details](docs/tunnel-guard-reactions.md).
+Guards now recognize threats, turn and raise their weapons, react to nearby gunfire, and search the last place they saw you. Hits interrupt their aim; five choreographed reactions include arms-up backward reels, twisting falls, wide sprawls, folded collapses and knee-first drops. Rifles fall separately, with clothing-impact puffs and brief floor dust. Keyboard-only play uses WASD to move, arrow keys to aim, Space to fire, Shift for fine aim and R to reload. [Behavior and animation details](docs/tunnel-guard-reactions.md).
 
 **The image above is concept artwork, not a screenshot of the prototype. The full Stage 5 mission is still in development.** [Artwork provenance and prompt](docs/stage-4-concept.md).
 

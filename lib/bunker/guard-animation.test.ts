@@ -84,14 +84,18 @@ function rig(source: T.Object3D, scene: T.Scene): GuardActor {
     walkWeight: 0,
     floorLift: 0,
     floorPoints: [
-      ['Head', 0.13],
-      ['LeftFoot', 0.08],
-      ['RightFoot', 0.08],
-      ['LeftHand', 0.055],
-      ['RightHand', 0.055],
-      ['Spine', 0.14],
-      ['LeftLeg', 0.09],
-      ['RightLeg', 0.09],
+      ['Head', 0.15],
+      ['LeftFoot', 0.1],
+      ['RightFoot', 0.1],
+      ['LeftHand', 0.085],
+      ['RightHand', 0.085],
+      ['Spine', 0.18],
+      ['Spine2', 0.19],
+      ['Hips', 0.18],
+      ['LeftForeArm', 0.095],
+      ['RightForeArm', 0.095],
+      ['LeftLeg', 0.12],
+      ['RightLeg', 0.12],
       ['LeftArm', 0.075],
       ['RightArm', 0.075],
     ].map(([name, radius]) => ({
@@ -102,58 +106,69 @@ function rig(source: T.Object3D, scene: T.Scene): GuardActor {
 }
 void test('actual skinned guard settles near the floor in every fall direction; rifle detaches and stops moving', async () => {
   const source = await sourceModel();
-  for (const style of ['front', 'back', 'left', 'right', 'kneel'] as const)
-    for (const yaw of [0, 1.4, 2.8]) {
-      const scene = new T.Scene(),
-        a = rig(source, scene),
-        g = createBunker().guards[0];
-      g.x = 0;
-      g.z = 8;
-      g.yaw = yaw;
-      g.readiness = 1;
-      animateGuard(a, g, 1 / 60, scene, true);
-      const beforeHeight = new T.Box3()
-        .setFromObject(a.model, true)
-        .getSize(new T.Vector3()).y;
-      g.health = 0;
-      g.fallStyle = style;
-      for (let i = 0; i < 130; i++) {
-        g.down = Math.min(1, i / 95);
+  for (const action of ['reel', 'spin', 'sprawl', 'fold', 'kneel'] as const)
+    for (const style of ['front', 'back', 'left', 'right', 'kneel'] as const)
+      for (const yaw of [0, 1.4, 2.8]) {
+        const scene = new T.Scene(),
+          a = rig(source, scene),
+          g = createBunker().guards[0];
+        g.x = 0;
+        g.z = 8;
+        g.yaw = yaw;
+        g.readiness = 1;
         animateGuard(a, g, 1 / 60, scene, true);
+        const beforeHeight = new T.Box3()
+          .setFromObject(a.model, true)
+          .getSize(new T.Vector3()).y;
+        g.health = 0;
+        g.fallStyle = style;
+        g.deathAction = action;
+        g.deathTurn = action === 'spin' ? 1.35 : 0.12;
+        g.deathTravel = 0.4;
+        for (let i = 0; i < 130; i++) {
+          g.down = Math.min(1, i / 95);
+          animateGuard(a, g, 1 / 60, scene, true);
+          if (i % 10 === 0) {
+            const movingBounds = new T.Box3().setFromObject(a.model, true);
+            assert.ok(
+              movingBounds.min.y > -0.06 && movingBounds.min.y < 0.16,
+              `${action} ${style} at progress ${g.down}: support height ${movingBounds.min.y}`,
+            );
+          }
+        }
+        a.root.updateMatrixWorld(true);
+        const bounds = new T.Box3().setFromObject(a.model, true),
+          size = bounds.getSize(new T.Vector3());
+        assert.ok(
+          bounds.min.y > -0.035,
+          `${action} ${style} at ${yaw} clips floor: ${bounds.min.y}`,
+        );
+        assert.ok(
+          bounds.min.y < 0.16,
+          `${action} ${style} at ${yaw} floats: ${bounds.min.y}`,
+        );
+        assert.ok(size.y < 0.85, `${action} ${style} must lie down: ${size.y}`);
+        assert.equal(a.rifle.parent, scene);
+        assert.equal(a.dropped?.settled, true);
+        const rifle = new T.Box3().setFromObject(a.rifle);
+        assert.ok(Math.abs(rifle.min.y - 0.018) < 0.005);
+        const position = a.rifle.position.clone(),
+          orientation = a.rifle.quaternion.clone();
+        animateGuard(a, g, 0, scene, false);
+        assert.deepEqual(a.rifle.position, position);
+        assert.ok(a.rifle.quaternion.equals(orientation));
+        resetGuardActor(a);
+        assert.equal(a.rifle.parent, a.body);
+        assert.equal(a.dropped, undefined);
+        const fresh = createBunker().guards[0];
+        animateGuard(a, fresh, 0, scene, false);
+        a.root.updateMatrixWorld(true);
+        const standing = new T.Box3()
+          .setFromObject(a.model, true)
+          .getSize(new T.Vector3());
+        assert.ok(
+          standing.y > 1.65 && standing.y < 1.95,
+          `retry ${style} ${yaw}: ${standing.y} before ${beforeHeight}`,
+        );
       }
-      a.root.updateMatrixWorld(true);
-      const bounds = new T.Box3().setFromObject(a.model, true),
-        size = bounds.getSize(new T.Vector3());
-      assert.ok(
-        bounds.min.y > -0.035,
-        `${style} at ${yaw} clips floor: ${bounds.min.y}`,
-      );
-      assert.ok(
-        bounds.min.y < 0.16,
-        `${style} at ${yaw} floats: ${bounds.min.y}`,
-      );
-      assert.ok(size.y < 0.85, `${style} must lie down: ${size.y}`);
-      assert.equal(a.rifle.parent, scene);
-      assert.equal(a.dropped?.settled, true);
-      const rifle = new T.Box3().setFromObject(a.rifle);
-      assert.ok(Math.abs(rifle.min.y - 0.018) < 0.005);
-      const position = a.rifle.position.clone(),
-        orientation = a.rifle.quaternion.clone();
-      animateGuard(a, g, 0, scene, false);
-      assert.deepEqual(a.rifle.position, position);
-      assert.ok(a.rifle.quaternion.equals(orientation));
-      resetGuardActor(a);
-      assert.equal(a.rifle.parent, a.body);
-      assert.equal(a.dropped, undefined);
-      const fresh = createBunker().guards[0];
-      animateGuard(a, fresh, 0, scene, false);
-      a.root.updateMatrixWorld(true);
-      const standing = new T.Box3()
-        .setFromObject(a.model, true)
-        .getSize(new T.Vector3());
-      assert.ok(
-        standing.y > 1.65 && standing.y < 1.95,
-        `retry ${style} ${yaw}: ${standing.y} before ${beforeHeight}`,
-      );
-    }
 });
