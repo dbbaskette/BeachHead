@@ -30,6 +30,7 @@ export const solids: Box[] = [
   { x: -3.8, y: 0.65, z: -15, w: 2.4, h: 1.3, d: 1.1, kind: 'crate' },
   { x: 4.4, y: 0.65, z: -19, w: 1.6, h: 1.3, d: 2, kind: 'crate' },
 ];
+export type HitRegion = 'head' | 'torso' | 'leg';
 export type Guard = {
   id: number;
   x: number;
@@ -43,9 +44,15 @@ export type Guard = {
   down: number;
   moving: boolean;
   alert: boolean;
+  hitTime: number;
+  hitRegion: HitRegion;
+  hitDirection: { x: number; z: number };
 };
 export type Effect = {
   kind: 'shot' | 'stone' | 'hit' | 'enemy' | 'hurt' | 'reload';
+  direction?: number[];
+  guardId?: number;
+  fatal?: boolean;
   x: number;
   y: number;
   z: number;
@@ -119,6 +126,9 @@ export function createBunker(): BunkerState {
       down: 0,
       moving: false,
       alert: false,
+      hitTime: 0,
+      hitRegion: 'torso',
+      hitDirection: { x: 0, z: -1 },
     })),
   };
 }
@@ -240,10 +250,28 @@ export function shootBunker(b: BunkerState) {
   if (target) {
     target.health -= y > 1.45 ? 75 : 34;
     target.alert = true;
+    target.hitTime = 0.32;
+    target.hitRegion = y > 1.45 ? 'head' : y < 0.75 ? 'leg' : 'torso';
+    const horizontal = Math.hypot(direction[0], direction[2]) || 1;
+    target.hitDirection = {
+      x: direction[0] / horizontal,
+      z: direction[2] / horizontal,
+    };
+    target.windup = 0;
+    target.flash = 0;
+    target.cooldown = Math.max(target.cooldown, 0.45);
   }
   b.effects.push(
     { kind: 'shot', x, y, z },
-    { kind: target ? 'hit' : 'stone', x, y, z },
+    {
+      kind: target ? 'hit' : 'stone',
+      x,
+      y,
+      z,
+      direction,
+      guardId: target?.id,
+      fatal: target ? target.health <= 0 : false,
+    },
   );
 }
 export function stepBunker(b: BunkerState, input: Input, delta: number) {
@@ -277,11 +305,13 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
   if (input.fire) shootBunker(b);
   for (const g of b.guards) {
     g.flash = Math.max(0, g.flash - dt);
+    g.hitTime = Math.max(0, g.hitTime - dt);
     g.moving = false;
     if (g.health <= 0) {
-      g.down = Math.min(1, g.down + dt * 1.8);
+      g.down = Math.min(1, g.down + dt * 0.95);
       continue;
     }
+    if (g.hitTime > 0) continue;
     const distance = Math.hypot(b.x - g.x, b.z - g.z),
       sees = distance < 19 && sightLine(g.x, g.z, b.x, b.z);
     if (!sees) {

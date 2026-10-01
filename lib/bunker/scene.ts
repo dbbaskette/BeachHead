@@ -8,6 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
+import { guardReaction } from './reactions';
 import { uniformMaterial, guardClips } from './uniform';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
@@ -23,12 +24,16 @@ type Actor = {
   head?: T.Object3D;
   flash: T.Mesh;
   arms: (T.Object3D | undefined)[];
+  rifle: T.Group;
+  joints: { bone: T.Object3D; rest: T.Quaternion; name: string }[];
+  deathPose?: T.Quaternion[];
 };
 type Particle = {
   mesh: T.Mesh;
   velocity: T.Vector3;
   life: number;
   duration: number;
+  blood?: boolean;
 };
 export class BunkerScene {
   private scene = new T.Scene();
@@ -43,6 +48,7 @@ export class BunkerScene {
   private muzzleLight = new T.PointLight('#ffc57a', 0, 4);
   private guards: Actor[] = [];
   private particles: Particle[] = [];
+  private stains: { mesh: T.Mesh; life: number }[] = [];
   private medkit = new T.Group();
   private exitLight = new T.MeshStandardMaterial({
     color: '#745b34',
@@ -714,21 +720,23 @@ export class BunkerScene {
           return result;
         },
       );
+      const rifle = new T.Group();
+      root.add(rifle);
       this.part(
-        root,
+        rifle,
         new T.BoxGeometry(0.085, 0.095, 0.48),
         this.wood,
         [0, 1.25, -0.25],
       );
       this.part(
-        root,
+        rifle,
         new T.CylinderGeometry(0.023, 0.023, 0.55, 12),
         this.dark,
         [0, 1.29, -0.59],
         [Math.PI / 2, 0, 0],
       );
       this.part(
-        root,
+        rifle,
         new T.BoxGeometry(0.045, 0.18, 0.075),
         this.metal,
         [0, 1.12, -0.23],
@@ -744,6 +752,22 @@ export class BunkerScene {
         head,
         flash,
         arms,
+        rifle,
+        joints: [
+          'Spine',
+          'Head',
+          'LeftUpLeg',
+          'RightUpLeg',
+          'LeftLeg',
+          'RightLeg',
+          'LeftArm',
+          'RightArm',
+          'LeftForeArm',
+          'RightForeArm',
+        ].flatMap((name) => {
+          const bone = model.getObjectByName(name);
+          return bone ? [{ bone, rest: bone.quaternion.clone(), name }] : [];
+        }),
       });
     }
     // Instances share the source meshes; dispose its unused skeleton separately.
@@ -758,31 +782,95 @@ export class BunkerScene {
       (p.mesh.material as T.Material).dispose();
     }
     this.particles = [];
-    this.guards.forEach((g) => g.mixer.setTime(0));
+    for (const stain of this.stains) {
+      stain.mesh.removeFromParent();
+      stain.mesh.geometry.dispose();
+      (stain.mesh.material as T.Material).dispose();
+    }
+    this.stains = [];
+    this.guards.forEach((g) => {
+      g.deathPose = undefined;
+      g.joints.forEach((j) => j.bone.quaternion.copy(j.rest));
+      g.rifle.position.set(0, 0, 0);
+      g.rifle.rotation.set(0, 0, 0);
+      g.mixer.setTime(0);
+    });
+  }
+  private stain(x: number, z: number, seed: number) {
+    if (this.stains.length >= 32) {
+      const old = this.stains.shift()!;
+      old.mesh.removeFromParent();
+      old.mesh.geometry.dispose();
+      (old.mesh.material as T.Material).dispose();
+    }
+    const shape = new T.Shape();
+    for (let i = 0; i <= 16; i++) {
+      const angle = (i / 16) * Math.PI * 2,
+        r = 0.035 + (1 + Math.sin(i * 19 + seed)) * 0.025;
+      const px = Math.cos(angle) * r,
+        pz = Math.sin(angle) * r;
+      if (i === 0) shape.moveTo(px, pz);
+      else shape.lineTo(px, pz);
+    }
+    const mesh = new T.Mesh(
+      new T.ShapeGeometry(shape),
+      new T.MeshStandardMaterial({
+        color: '#4e100b',
+        roughness: 0.7,
+        transparent: true,
+        opacity: 0.7,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      }),
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.016, z);
+    this.scene.add(mesh);
+    this.stains.push({ mesh, life: 18 });
   }
   private effects(events: Effect[]) {
     for (const e of events) {
       if (!['stone', 'hit'].includes(e.kind)) continue;
-      for (let i = 0; i < 6; i++) {
-        const mat = new T.MeshBasicMaterial({
-          color: e.kind === 'hit' ? '#762c20' : i % 2 ? '#d2ba8b' : '#f8d190',
+      const blood = e.kind === 'hit',
+        count = blood ? 12 : 6,
+        direction = e.direction ?? [0, 0, 1];
+      for (let i = 0; i < count; i++) {
+        if (this.particles.length >= 160) {
+          const old = this.particles.shift()!;
+          old.mesh.removeFromParent();
+          old.mesh.geometry.dispose();
+          (old.mesh.material as T.Material).dispose();
+        }
+        const mat = new T.MeshStandardMaterial({
+          color: blood
+            ? i % 3
+              ? '#792116'
+              : '#38251f'
+            : i % 2
+              ? '#9d9584'
+              : '#c1ac86',
+          roughness: 0.9,
           transparent: true,
         });
         const mesh = new T.Mesh(
-          new T.SphereGeometry(e.kind === 'hit' ? 0.022 : 0.015, 5, 4),
+          new T.SphereGeometry(blood ? 0.013 : 0.015, 5, 4),
           mat,
         );
         mesh.position.set(e.x, e.y, e.z);
+        mesh.scale.set(blood ? 0.6 : 1, blood ? 1.65 : 1, blood ? 0.6 : 1);
         this.scene.add(mesh);
+        const speed = 0.35 + (i % 4) * 0.23;
         this.particles.push({
           mesh,
           velocity: new T.Vector3(
-            Math.sin(i * 7.2) * 1.2,
-            0.5 + i * 0.15,
-            Math.cos(i * 4.1),
+            direction[0] * speed + Math.sin(i * 7.2) * 0.5,
+            0.15 + direction[1] * speed + Math.sin(i * 2.3) * 0.55,
+            direction[2] * speed + Math.cos(i * 4.1) * 0.5,
           ),
-          life: 0.45,
-          duration: 0.45,
+          life: blood ? 1.1 : 0.45,
+          duration: blood ? 1.1 : 0.45,
+          blood: blood && i % 3 !== 0,
         });
       }
     }
@@ -819,12 +907,18 @@ export class BunkerScene {
     b.guards.forEach((g, i) => {
       const a = this.guards[i];
       if (!a) return;
-      a.root.position.set(g.x, g.down * 0.13, g.z);
+      const reaction = guardReaction(g);
+      a.root.rotation.order = 'YXZ';
+      a.root.position.set(g.x, reaction.height, g.z);
       a.root.rotation.y =
         g.health > 0 ? Math.atan2(g.x - b.x, g.z - b.z) : a.root.rotation.y;
-      a.root.rotation.x = g.down * Math.PI * 0.48;
-      a.root.rotation.z = g.down * (i % 2 ? 0.15 : -0.15);
+      a.root.rotation.x = reaction.pitch;
+      a.root.rotation.z = reaction.roll;
       if (g.health > 0) {
+        a.deathPose = undefined;
+        // Restore non-animated joints before applying each frame's flinch.
+        for (const joint of a.joints)
+          if (joint.name === 'Head') joint.bone.quaternion.copy(joint.rest);
         a.idle.setEffectiveWeight(g.moving ? 0 : 1);
         a.walk.setEffectiveWeight(g.moving ? 1 : 0);
         a.mixer.update(frame);
@@ -855,19 +949,72 @@ export class BunkerScene {
           bone.updateMatrixWorld(true);
         }
       }
+      if (g.health <= 0) {
+        if (!a.deathPose)
+          a.deathPose = a.joints.map((j) => j.bone.quaternion.clone());
+        a.joints.forEach((joint, index) => {
+          joint.bone.quaternion.copy(a.deathPose![index]);
+          const leg = joint.name.endsWith('Leg'),
+            arm = joint.name.includes('Arm');
+          if (leg)
+            joint.bone.rotateX(
+              (joint.name.includes('Up') ? -1 : 1.6) * reaction.knees,
+            );
+          if (joint.name === 'Spine') joint.bone.rotateX(reaction.fold);
+          if (joint.name === 'Head')
+            joint.bone.rotateZ(reaction.fall * 0.18 * (g.id % 2 ? 1 : -1));
+          if (arm) {
+            joint.bone.rotateX(reaction.fall * 0.45);
+            joint.bone.rotateZ(
+              reaction.fall * (joint.name.startsWith('Left') ? -0.35 : 0.35),
+            );
+          }
+        });
+        // Rifle slips down from the hands during collapse, without explosive knockback.
+        a.rifle.position.y = -reaction.fall * 0.35;
+        a.rifle.rotation.z = reaction.fall * (g.id % 2 ? 0.45 : -0.45);
+      } else {
+        for (const joint of a.joints) {
+          if (joint.name === 'Spine') joint.bone.rotateX(reaction.fold);
+          if (joint.name.endsWith('Leg'))
+            joint.bone.rotateX(
+              reaction.knees * (joint.name.includes('Up') ? -1 : 1),
+            );
+          if (joint.name === 'Head' && g.hitRegion === 'head')
+            joint.bone.rotateX(reaction.pitch);
+        }
+        a.rifle.position.y = -Math.sin((g.hitTime / 0.32) * Math.PI) * 0.055;
+        a.rifle.rotation.z = 0;
+      }
       a.flash.visible = active && g.health > 0 && g.flash > 0;
     });
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life -= frame;
-      p.velocity.y -= frame * 4;
+      p.velocity.y -= frame * 7.5;
       p.mesh.position.addScaledVector(p.velocity, frame);
       (p.mesh.material as T.MeshBasicMaterial).opacity = p.life / p.duration;
+      if (p.blood && p.mesh.position.y <= 0.022) {
+        this.stain(p.mesh.position.x, p.mesh.position.z, i);
+        p.life = 0;
+      }
       if (p.life <= 0) {
         this.scene.remove(p.mesh);
         p.mesh.geometry.dispose();
         (p.mesh.material as T.Material).dispose();
         this.particles.splice(i, 1);
+      }
+    }
+    for (let i = this.stains.length - 1; i >= 0; i--) {
+      const s = this.stains[i];
+      s.life -= frame;
+      (s.mesh.material as T.MeshStandardMaterial).opacity =
+        0.7 * Math.min(1, s.life / 3);
+      if (s.life <= 0) {
+        s.mesh.removeFromParent();
+        s.mesh.geometry.dispose();
+        (s.mesh.material as T.Material).dispose();
+        this.stains.splice(i, 1);
       }
     }
     this.sea.position.y = -3 + Math.sin(b.time * 0.45) * 0.07;
