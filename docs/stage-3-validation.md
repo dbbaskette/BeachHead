@@ -27,3 +27,11 @@ The embedded viewport delivered approximately 30 fps. This does **not** establis
 ## Release checks
 
 All **98 tests passed**, along with TypeScript, authored-source lint (`app`, `lib/naval`, `lib/pillbox`, `lib/air`), whitespace checks and the `/BeachHead/` production export. The build retains the existing large-chunk advisory. The first sandboxed export could not open its temporary local listener; the approved export completed successfully. These local gates cover the implementation delivered with this report. The repository workflow badge records the subsequent Pages deployment. Audio assets decoded during browser play and lifecycle tests pass; a listening tool was unavailable, so no subjective sound-quality claim is made.
+
+## Coastal realism update — 2026-09-30
+
+- All **100 tests pass**, including new terrain/graphics resource ownership and atmosphere time/reset checks. TypeScript, scoped authored-source lint, whitespace checks and the GitHub Pages export pass. No simulation or control changes.
+- Embedded-browser gameplay checked the new terrain shader, surf, mist, canopy, hull fittings, steering and bomb release without WebGL/program errors. A removed Three.js shadow constant discovered during the initial check was replaced by the supported PCF mode.
+- A desktop combat sample recorded 1,101 frames at **33.3 ms median / 34.9 ms p95**, peak **565 draw calls** including reflections and shadows. This is a shorter sample, not a directly equivalent full-mission benchmark. Before batching static fittings, a comparable approach sample reached 947 calls; the final batching substantially reduces that overhead.
+- Landscape **844 × 390** and portrait **390 × 844** checks confirmed clear reticles, visible targets and separate flight/bomb controls. Landscape pad steering and bomb release worked. Three portrait exit/start/pause cycles each returned **one scene, one audio context, 34 rendered geometries, seven textures and zero transient voices** when paused. Desktop shadows and visible instruments use additional resources.
+- These remain desktop-host viewport checks, not physical-phone certification. The previous reference-hardware, full keyboard/campaign and audio-listening follow-ups remain open. The new build retains the existing large-chunk advisory.
