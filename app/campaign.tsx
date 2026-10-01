@@ -3,6 +3,7 @@ import { lazy, Suspense, useReducer } from 'react';
 import { campaignReducer, INITIAL_CAMPAIGN } from '@/lib/campaign';
 import NavalGame from './naval-game';
 import PillboxGame from './pillbox-game';
+const FlakGame = lazy(() => import('./flak-game'));
 const AirGame = lazy(() => import('./air-game'));
 const BunkerGame = lazy(() => import('./bunker-game'));
 
@@ -23,11 +24,20 @@ export default function Campaign() {
       onPractice={() =>
         dispatch({ type: 'begin', mission: 'beach', campaign: false })
       }
+      onFlak={() =>
+        dispatch({ type: 'begin', mission: 'flak', campaign: false })
+      }
       onAir={() => dispatch({ type: 'begin', mission: 'air', campaign: false })}
       onBunker={() =>
         dispatch({ type: 'begin', mission: 'bunker', campaign: false })
       }
     />
+  ) : mission === 'flak' ? (
+    <Suspense
+      fallback={<div className="air-loading">Preparing the battery…</div>}
+    >
+      <FlakGame campaign={campaign} onContinue={advance} onReturn={menu} />
+    </Suspense>
   ) : mission === 'air' ? (
     <Suspense
       fallback={<div className="air-loading">Preparing air assault…</div>}

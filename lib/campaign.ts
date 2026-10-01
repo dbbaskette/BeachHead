@@ -1,4 +1,4 @@
-export type Mission = 'naval' | 'air' | 'beach' | 'bunker';
+export type Mission = 'naval' | 'flak' | 'air' | 'beach' | 'bunker';
 export type CampaignState = { mission: Mission; campaign: boolean };
 export type CampaignAction =
   | { type: 'begin'; mission: Mission; campaign: boolean }
@@ -10,7 +10,8 @@ export const INITIAL_CAMPAIGN: CampaignState = {
   campaign: false,
 };
 const nextMission: Record<Mission, Mission | null> = {
-  naval: 'air',
+  naval: 'flak',
+  flak: 'air',
   air: 'beach',
   beach: null,
   bunker: null,
