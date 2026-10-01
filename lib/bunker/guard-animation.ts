@@ -1,6 +1,7 @@
 import * as T from 'three';
-import { deathArmTarget, guardReaction } from './reactions';
-import { canStand, fallVector, type Guard } from './simulation';
+import { guardReaction } from './reactions';
+import { canStand, solids, type Box, type Guard } from './simulation';
+import { GuardRagdoll, GuardHitSpring } from './ragdoll';
 export type GuardActor = {
   root: T.Group;
   body: T.Group;
@@ -14,9 +15,10 @@ export type GuardActor = {
   arms: (T.Object3D | undefined)[];
   rifle: T.Group;
   joints: { bone: T.Object3D; rest: T.Quaternion; name: string }[];
-  deathPose?: T.Quaternion[];
+  ragdoll?: GuardRagdoll;
+  hitSpring?: GuardHitSpring;
+  hitSeen?: number;
   walkWeight: number;
-  floorPoints: { bone: T.Object3D; radius: number }[];
   dropped?: {
     velocity: T.Vector3;
     spin: T.Vector3;
@@ -25,10 +27,9 @@ export type GuardActor = {
     settling: number;
     restRotation?: T.Quaternion;
   };
-  floorLift: number;
   contactEmitted?: boolean;
 };
-function poseArms(a: GuardActor, g: Guard, release: number) {
+function poseArms(a: GuardActor, g: Guard) {
   const ready = g.readiness;
   a.root.updateMatrixWorld(true);
   for (let index = 0; index < a.arms.length; index++) {
@@ -41,13 +42,11 @@ function poseArms(a: GuardActor, g: Guard, release: number) {
       forearm ? 1.02 + ready * 0.23 : 0.94 + ready * 0.16,
       forearm ? -0.28 - ready * 0.12 : -0.08 - ready * 0.04,
     );
-    if (g.health <= 0)
-      held.lerp(new T.Vector3(...deathArmTarget(g, index)), release);
-    else if (g.hitTime > 0) {
-      const flinch = Math.sin(Math.PI * (1 - g.hitTime / 0.42));
-      held.x += g.hitSide * flinch * (forearm ? 0.13 : 0.06);
-      held.y -= flinch * (g.hitRegion === 'leg' ? 0.18 : 0.08);
-      held.z += flinch * (forearm ? 0.12 : 0.06);
+    const kick = a.hitSpring?.angle;
+    if (kick) {
+      held.x += kick.y * (forearm ? 0.65 : 0.25);
+      held.y -= Math.abs(kick.x) * (forearm ? 0.3 : 0.12);
+      held.z += kick.x * (forearm ? 0.55 : 0.2);
     }
     const target = a.body.localToWorld(held);
     const direction = target
@@ -69,23 +68,23 @@ export function animateGuard(
   frame: number,
   scene: T.Scene,
   playing: boolean,
+  obstacles: Box[] = solids,
 ) {
-  const reaction = guardReaction(g);
-  a.root.rotation.order = 'YXZ';
-  const direction = fallVector(g);
-  a.root.position.set(
-    g.x + direction.x * reaction.travel,
-    reaction.height,
-    g.z + direction.z * reaction.travel,
-  );
-  a.root.rotation.set(
-    reaction.pitch,
-    g.yaw + reaction.yaw,
-    reaction.roll,
-    'YXZ',
-  );
   if (g.health > 0) {
-    a.deathPose = undefined;
+    const reaction = guardReaction(g);
+    a.hitSpring ??= new GuardHitSpring();
+    if (g.hits !== (a.hitSeen ?? 0)) a.hitSpring.kick(g);
+    a.hitSeen = g.hits;
+    a.hitSpring.update(frame);
+    const kick = a.hitSpring.angle;
+    a.root.rotation.order = 'YXZ';
+    a.root.position.set(g.x, reaction.height, g.z);
+    a.root.rotation.set(
+      reaction.pitch * 0.3,
+      g.yaw,
+      reaction.roll * 0.3,
+      'YXZ',
+    );
     // Reset every authored joint before mixer/IK to prevent accumulated twists.
     for (const joint of a.joints) joint.bone.quaternion.copy(joint.rest);
     a.walkWeight +=
@@ -95,10 +94,17 @@ export function animateGuard(
     a.mixer.update(frame);
     for (const joint of a.joints) {
       if (joint.name === 'Spine') {
-        joint.bone.rotateX(reaction.fold);
-        joint.bone.rotateY(reaction.twist);
+        joint.bone.rotateX(reaction.fold + kick.x * 0.55);
+        joint.bone.rotateY(reaction.twist + kick.y * 0.45);
+        joint.bone.rotateZ(kick.z * 0.4);
+      }
+      if (joint.name === 'Spine2') {
+        joint.bone.rotateX(kick.x * 0.55);
+        joint.bone.rotateZ(kick.z * 0.55);
       }
       if (joint.name === 'Head') {
+        joint.bone.rotateX(-kick.x * 0.65);
+        joint.bone.rotateZ(-kick.z * 0.45);
         joint.bone.rotateY(g.headYaw);
         joint.bone.rotateX(
           -g.startle * 0.12 + (g.hitRegion === 'head' ? reaction.pitch : 0),
@@ -121,50 +127,24 @@ export function animateGuard(
       0,
       0.08 * (1 - ready),
     );
-    poseArms(a, g, 0);
+    poseArms(a, g);
   } else {
-    if (!a.deathPose)
-      a.deathPose = a.joints.map((j) => j.bone.quaternion.clone());
-    const release = reaction.armRelease;
-    a.joints.forEach((joint, index) => {
-      joint.bone.quaternion
-        .copy(a.deathPose![index])
-        .slerp(joint.rest, release);
-      if (joint.name === 'LeftUpLeg') joint.bone.rotateX(reaction.leftHip);
-      if (joint.name === 'RightUpLeg') joint.bone.rotateX(reaction.rightHip);
-      if (joint.name === 'LeftUpLeg') joint.bone.rotateZ(reaction.spread);
-      if (joint.name === 'RightUpLeg')
-        joint.bone.rotateZ(-reaction.spread * 0.75);
-      if (joint.name === 'LeftLeg') joint.bone.rotateX(reaction.leftKnee);
-      if (joint.name === 'RightLeg') joint.bone.rotateX(reaction.rightKnee);
-      if (joint.name === 'Spine') {
-        joint.bone.rotateX(reaction.fold);
-        joint.bone.rotateY(reaction.twist);
-      }
-      if (joint.name === 'Head') {
-        joint.bone.rotateZ(reaction.headTilt);
-        joint.bone.rotateY(reaction.fall * (g.id % 2 ? 0.2 : -0.2));
-      }
-    });
-    poseArms(a, g, release);
-    // Keep support grounded as knees buckle, then transfer contact to hips/shoulders.
-    // Correct in both directions: only lifting would leave bent legs hovering.
-    a.root.updateMatrixWorld(true);
-    let lowest = Infinity;
-    for (const contact of a.floorPoints)
-      lowest = Math.min(
-        lowest,
-        contact.bone.getWorldPosition(new T.Vector3()).y - contact.radius,
-      );
-    a.floorLift = Number.isFinite(lowest) ? 0.015 - lowest : 0;
-    a.root.position.y += a.floorLift;
-    a.root.updateMatrixWorld(true);
-    if (g.down > (g.deathAction === 'fold' ? 0.19 : 0.06) && !a.dropped) {
+    if (!a.ragdoll) {
+      a.ragdoll = new GuardRagdoll(a.model, g);
+      a.hitSeen = g.hits;
+    } else if (g.hits !== a.hitSeen) {
+      a.ragdoll.impulse(g);
+      a.hitSeen = g.hits;
+    }
+    a.ragdoll.update(frame, obstacles);
+    a.ragdoll.applyPose();
+    g.bodyTargets = a.ragdoll.targets();
+    if (!a.dropped) {
       scene.attach(a.rifle);
       a.dropped = {
         velocity: new T.Vector3(
           g.hitDirection.x * 0.2 + Math.cos(g.yaw) * (g.id % 2 ? 0.6 : -0.6),
-          g.deathAction === 'reel' ? 1.1 : 0.3,
+          0.12,
           g.hitDirection.z * 0.2 - Math.sin(g.yaw) * (g.id % 2 ? 0.6 : -0.6),
         ),
         spin: new T.Vector3(1.4, g.id % 2 ? 0.8 : -0.8, 1.1),
@@ -190,7 +170,7 @@ export function animateGuard(
       drop.velocity.y -= 9.81 * frame;
       const old = a.rifle.position.clone();
       a.rifle.position.addScaledVector(drop.velocity, frame);
-      if (!canStand(a.rifle.position.x, a.rifle.position.z, 0.18)) {
+      if (!canStand(a.rifle.position.x, a.rifle.position.z, 0.18, obstacles)) {
         a.rifle.position.x = old.x;
         a.rifle.position.z = old.z;
         drop.velocity.x = drop.velocity.z = 0;
@@ -214,12 +194,14 @@ export function animateGuard(
 
 /** Retry reclaims world-space dropped equipment and restores the original rig. */
 export function resetGuardActor(a: GuardActor) {
-  a.deathPose = undefined;
+  a.ragdoll?.restore();
+  a.ragdoll = undefined;
+  a.hitSpring = undefined;
+  a.hitSeen = 0;
   a.contactEmitted = false;
   a.joints.forEach((j) => j.bone.quaternion.copy(j.rest));
   a.body.add(a.rifle);
   a.dropped = undefined;
-  a.floorLift = 0;
   a.walkWeight = 0;
   a.rifle.position.set(0, 1.25, -0.35);
   a.rifle.rotation.set(0, 0, 0);

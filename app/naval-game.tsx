@@ -742,7 +742,7 @@ export default function NavalGame({
             >
               <span className="mission-stage">Stage 5 · Playable sample</span>
               <strong>Beneath the guns</strong>
-              <span>Three spaces · Four guards · Find the tunnels</span>
+              <span>Five spaces · Six guards · Doors & grenades</span>
               <span className="mission-tile-action">
                 Play sample <ArrowUpRight size={18} aria-hidden="true" />
               </span>
