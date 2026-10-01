@@ -281,12 +281,19 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (!playing || e.button !== 0) return;
+          if (
+            e.pointerType === 'mouse' &&
+            document.pointerLockElement === surface.current
+          ) {
+            fire.current = true;
+            shootBunker(battle.current);
+            return;
+          }
           if (!gesture.current.begin(e.pointerId, e.clientX, e.clientY)) return;
           e.currentTarget.setPointerCapture(e.pointerId);
           if (e.pointerType === 'mouse') {
             fire.current = true;
             shootBunker(battle.current);
-            lock();
           }
         }}
         onPointerMove={(e) => {
@@ -299,8 +306,8 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             fire.current = false;
         }}
         onPointerCancel={(e) => {
-          if (gesture.current.end(e.pointerId) && e.pointerType === 'mouse')
-            fire.current = false;
+          gesture.current.end(e.pointerId);
+          if (e.pointerType === 'mouse') fire.current = false;
         }}
         onLostPointerCapture={(e) => {
           gesture.current.end(e.pointerId);
