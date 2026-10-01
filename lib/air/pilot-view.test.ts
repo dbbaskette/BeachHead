@@ -8,7 +8,7 @@ import { gunSolutions, predictImpact, projectilePoint } from './weapons';
 
 void test('cockpit stays around the pilot through heading, pitch and bank changes', () => {
   const f = createAircraft(),
-    camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.12, 14000),
+    camera = new THREE.PerspectiveCamera(64, 16 / 9, 0.12, 14000),
     model = new THREE.Object3D();
   let reference: THREE.Vector3 | undefined;
   for (const [heading, pitch, bank] of [
@@ -22,7 +22,7 @@ void test('cockpit stays around the pilot through heading, pitch and bank change
     model.updateMatrixWorld(true);
     placePilotCamera(camera, f, false);
     camera.updateMatrixWorld(true);
-    const windscreenCorner = new THREE.Vector3(0.98, 5.65, -0.9)
+    const windscreenCorner = new THREE.Vector3(1.3, 4.85, -0.2)
       .applyMatrix4(model.matrixWorld)
       .applyMatrix4(camera.matrixWorldInverse);
     if (reference) assert.ok(reference.distanceTo(windscreenCorner) < 1e-8);
@@ -40,7 +40,7 @@ void test('cockpit leaves the gun aiming line unobstructed across the flight env
   const art = new AirArt(),
     plane = makeAirframe(art),
     f = createAircraft(),
-    camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.12, 14000);
+    camera = new THREE.PerspectiveCamera(64, 16 / 9, 0.12, 14000);
   for (const altitude of [34, 85, 140])
     for (const pitch of [-0.16, 0, 0.16])
       for (const bank of [-0.5, 0, 0.5]) {
@@ -84,14 +84,14 @@ void test('pilot can see both shoulders of the engine cowling beyond the dashboa
   const art = new AirArt(),
     plane = makeAirframe(art),
     f = createAircraft(),
-    camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.12, 14000);
+    camera = new THREE.PerspectiveCamera(64, 16 / 9, 0.12, 14000);
   plane.root.position.copy(f.position);
   plane.root.updateMatrixWorld(true);
   placePilotCamera(camera, f, false);
   camera.updateMatrixWorld(true);
   for (const side of [-1, 1]) {
     // Sample the exposed upper engine housing, leaving tolerance for its seam.
-    const cowling = new THREE.Vector3(side * 0.8, 1.14, -3.8).applyMatrix4(
+    const cowling = new THREE.Vector3(side * 1.1, 1.15, -3.8).applyMatrix4(
       plane.root.matrixWorld,
     );
     const distance = camera.position.distanceTo(cowling);

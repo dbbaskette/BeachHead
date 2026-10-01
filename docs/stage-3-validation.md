@@ -53,3 +53,7 @@ All **104 tests**, TypeScript, scoped authored-source lint, whitespace checks an
 ## German aircraft and cowling revision — 2026-09-30
 
 All **104 tests**, TypeScript, scoped lint and the production Pages export pass. The cowling visibility samples follow the revised engine housing; all 27 gun-aim clearance poses and modeled weapon-hardpoint alignment checks pass. Browser checks verified the German/Allied mission briefing, broad engine cowling, closer sight, banking and firing. Mobile landscape bomb release changed inventory from six to five; portrait and landscape retained visible reticles and nose geometry. No console errors were reported. The README image was refreshed. These are desktop-host viewport checks, not physical-device performance measurements.
+
+## Proportion correction — 2026-09-30
+
+All **104 tests**, TypeScript, scoped lint, whitespace checks and the Pages production export pass. Camera/visibility fixtures now use the revised windshield, cowling shoulders and landscape lens; the gun sightline remains clear in all 27 tested flight poses. Browser checks show a substantially broader nose, integrated upper-cowl details and shorter side rails. Desktop banking, firing and bomb release worked; portrait (390 × 844) and landscape (844 × 390) framing retained visible forward scenery and controls. No console errors were reported. These remain desktop-host viewport checks, not physical-phone validation.

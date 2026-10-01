@@ -8,12 +8,12 @@ import { instrumentTexture, aircraftSkin } from './surfaces';
 /** Smooth elliptical sections give the cowling and tail a continuous silhouette. */
 function fuselageGeometry() {
   const sections = [
-    [-4.68, -0.1, 1.16, 1.16],
-    [-4.48, -0.1, 1.3, 1.22],
-    [-3.65, -0.1, 1.32, 1.25],
-    [-2.8, -0.15, 1.25, 1.25],
-    [-1.7, -0.25, 1.12, 1.16],
-    [0, -0.35, 0.93, 1.04],
+    [-4.68, -0.7, 1.85, 1.85],
+    [-4.48, -0.7, 2, 2],
+    [-3.65, -0.7, 2.05, 2.05],
+    [-2.8, -0.5, 1.85, 1.9],
+    [-1.7, -0.35, 1.65, 1.65],
+    [0, -0.35, 1.55, 1.04],
     [2, -0.26, 0.68, 0.79],
     [4, -0.14, 0.43, 0.54],
     [5.8, -0.02, 0.17, 0.29],
@@ -100,19 +100,19 @@ export function makeAirframe(a: AirArt) {
   // Short, broad radial-engine housing with a recessed cooling ring.
   const cooling = a.mesh(
     root,
-    a.geo(new THREE.RingGeometry(0.45, 1.15, 64)),
+    a.geo(new THREE.RingGeometry(0.58, 1.84, 64)),
     black,
-    [0, -0.1, -4.7],
+    [0, -0.7, -4.7],
     [1, 1, 1],
   );
   cooling.rotation.y = Math.PI;
   for (const z of [-4.65, -2.9]) {
     a.mesh(
       root,
-      a.geo(new THREE.TorusGeometry(1.18, 0.022, 6, 64)),
+      a.geo(new THREE.TorusGeometry(1.87, 0.022, 6, 64)),
       metal,
-      [0, -0.1, z],
-      [1.04, 1, 1],
+      [0, -0.7, z],
+      [1, 1, 1],
     );
   }
   for (const side of [-1, 1]) {
@@ -120,12 +120,12 @@ export function makeAirframe(a: AirArt) {
       const flap = a.block(
         root,
         paint,
-        [side * 1.24, -0.15, -3.15 + i * 0.13],
+        [side * 1.92, -0.3, -3.15 + i * 0.13],
         [0.045, 0.65, 0.095],
       );
       flap.rotation.z = side * 0.12;
     }
-    a.mesh(root, smooth, black, [side * 1.17, -0.47, -2.6], [0.09, 0.17, 0.38]);
+    a.mesh(root, smooth, black, [side * 1.78, -0.65, -2.6], [0.09, 0.17, 0.38]);
   }
   const wingPaint = a.mat('#ffffff', 0.68),
     skin = aircraftSkin();
@@ -173,18 +173,18 @@ export function makeAirframe(a: AirArt) {
     const wall = a.block(
       root,
       interior,
-      [side * 1.64, 1.75, 1.25],
-      [0.28, 1.8, 4.2],
+      [side * 1.64, 1.75, 2.0],
+      [0.28, 1.8, 2.7],
     );
     wall.rotation.z = side * 0.15;
-    a.block(root, trim, [side * 1.78, 2.64, 1.3], [0.23, 0.2, 4.25]);
-    a.block(root, metal, [side * 1.68, 2.66, 1.3], [0.028, 0.03, 4.1]);
+    a.block(root, trim, [side * 1.78, 2.64, 2.0], [0.23, 0.2, 2.8]);
+    a.block(root, metal, [side * 1.68, 2.66, 2.0], [0.028, 0.03, 2.75]);
     for (let n = 0; n < 8; n++)
       a.mesh(
         root,
         a.sphere,
         metal,
-        [side * 1.79, 2.75, -0.5 + n * 0.48],
+        [side * 1.79, 2.75, 0.7 + n * 0.34],
         [0.022, 0.016, 0.022],
       );
     // Side consoles, throttle quadrant, levers and wiring stay inside the tub.
@@ -259,13 +259,13 @@ export function makeAirframe(a: AirArt) {
     a.mesh(root, geometry, glazing, [0, 0, 0], [1, 1, 1]);
   }
   // Front armored pane and angled quarter windows connect to the canopy above the pilot.
-  const lower = 1.6,
-    upper = 5.65;
+  const lower = 1.95,
+    upper = 4.85;
   brace(
     [
       [-1.35, lower, -0.65],
-      [-0.98, upper, -0.9],
-      [0.98, upper, -0.9],
+      [-1.3, upper, -0.2],
+      [1.3, upper, -0.2],
       [1.35, lower, -0.65],
     ],
     0.055,
@@ -273,8 +273,8 @@ export function makeAirframe(a: AirArt) {
   windowPane([
     [-1.35, lower, -0.65],
     [1.35, lower, -0.65],
-    [0.98, upper, -0.9],
-    [-0.98, upper, -0.9],
+    [1.3, upper, -0.2],
+    [-1.3, upper, -0.2],
   ]);
   for (const side of [-1, 1]) {
     brace(
@@ -287,7 +287,7 @@ export function makeAirframe(a: AirArt) {
     );
     brace(
       [
-        [side * 0.98, upper, -0.9],
+        [side * 1.3, upper, -0.2],
         [side * 1.78, 5.42, 2.2],
         [side * 1.92, 2.65, 2.8],
       ],
@@ -297,16 +297,8 @@ export function makeAirframe(a: AirArt) {
       [side * 1.35, lower, -0.65],
       [side * 1.92, 2.65, 2.8],
       [side * 1.78, 5.42, 2.2],
-      [side * 0.98, upper, -0.9],
+      [side * 1.3, upper, -0.2],
     ]);
-    for (const z of [-0.45, 0.3, 1.1, 1.9])
-      a.mesh(
-        root,
-        a.sphere,
-        metal,
-        [side * (1.38 + (z + 0.45) * 0.17), 2.72, z],
-        [0.022, 0.02, 0.022],
-      );
   }
   brace(
     [
@@ -324,11 +316,11 @@ export function makeAirframe(a: AirArt) {
     hoodUV: number[] = [],
     hoodIndices: number[] = [];
   const hoodSections = [
-    [-4.65, 1.06, 1.16],
-    [-4.35, 1.14, 1.29],
-    [-2.8, 1.28, 1.25],
-    [-0.65, 1.55, 1.39],
-    [0.8, 1.7, 1.68],
+    [-4.65, 1.16, 1.85],
+    [-4.35, 1.31, 2.0],
+    [-2.8, 1.41, 1.85],
+    [-0.65, 1.95, 1.74],
+    [0.8, 2.2, 1.68],
   ];
   for (let row = 0; row < hoodSections.length; row++)
     for (let j = 0; j <= 24; j++) {
@@ -336,7 +328,13 @@ export function makeAirframe(a: AirArt) {
         angle = (j / 24) * Math.PI;
       hoodPositions.push(
         Math.cos(angle) * width,
-        top - (1 - Math.sin(angle)) * 0.48,
+        top -
+          (1 - Math.sin(angle)) * 1.3 +
+          0.065 *
+            Math.exp(
+              -(((Math.abs(Math.cos(angle) * width) - 0.55) / 0.24) ** 2) -
+                ((z + 0.65) / 1.0) ** 2,
+            ),
         z,
       );
       hoodUV.push(j / 24, row / 4);
@@ -363,7 +361,7 @@ export function makeAirframe(a: AirArt) {
       const angle = 0.2 + (i / 12) * (Math.PI - 0.4);
       return [
         Math.cos(angle) * width,
-        top - (1 - Math.sin(angle)) * 0.48 + 0.008,
+        top - (1 - Math.sin(angle)) * 1.3 + 0.008,
         z,
       ];
     });
@@ -374,22 +372,10 @@ export function makeAirframe(a: AirArt) {
         root,
         smooth,
         metal,
-        [x, top - 0.096 + 0.015, z + 0.08],
+        [x, top - 0.26 + 0.015, z + 0.08],
         [0.024, 0.01, 0.024],
       );
     }
-  }
-  // Paired breech fairings and shallow gun troughs identify the Fw 190-style upper cowl.
-  for (const side of [-1, 1]) {
-    const fairing = a.mesh(
-      root,
-      smooth,
-      antiGlare,
-      [side * 0.49, 1.46, -1.45],
-      [0.22, 0.09, 0.72],
-    );
-    fairing.rotation.x = 0.1;
-    a.mesh(root, smooth, seam, [side * 0.49, 1.32, -2.75], [0.1, 0.027, 0.42]);
   }
   // Broad, curved bulkhead with an opaque lower panel and padded glare shield.
   const panelShape = new THREE.Shape();
@@ -506,7 +492,7 @@ export function makeAirframe(a: AirArt) {
     [-0.15, 3.26, 0.6],
   ]);
   const prop = new THREE.Group();
-  prop.position.set(0, -0.1, -4.76);
+  prop.position.set(0, -0.7, -4.76);
   root.add(prop);
   const blur = a.mat('#41494a', 0.8);
   Object.assign(blur, {
@@ -517,7 +503,7 @@ export function makeAirframe(a: AirArt) {
   });
   a.mesh(
     prop,
-    a.geo(new THREE.RingGeometry(0.45, 2.05, 80)),
+    a.geo(new THREE.RingGeometry(0.58, 2.55, 80)),
     blur,
     [0, 0, 0],
     [1, 1, 1],
@@ -531,12 +517,12 @@ export function makeAirframe(a: AirArt) {
   });
   a.mesh(
     prop,
-    a.geo(new THREE.RingGeometry(1.98, 2.05, 80)),
+    a.geo(new THREE.RingGeometry(2.48, 2.55, 80)),
     tipBlur,
     [0, 0, -0.005],
     [1, 1, 1],
   );
-  a.mesh(root, smooth, black, [0, -0.1, -4.87], [0.48, 0.48, 0.52]);
+  a.mesh(root, smooth, black, [0, -0.7, -4.87], [0.6, 0.6, 0.64]);
   const gunNodes = GUNS.map((p, i) => {
     const n = new THREE.Object3D();
     n.name = `air-gun-${i}`;
