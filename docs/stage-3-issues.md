@@ -2,7 +2,7 @@
 
 [Planning epic: Break the Landing](https://github.com/dbbaskette/BeachHead/issues/3)
 
-The selected direction is guided attack passes with automatic forward flight, banking, altitude control, strafing and bombs. These are planned issues; no Stage 3 implementation has started.
+The selected direction is guided attack passes with automatic forward flight, banking, altitude control, strafing and bombs. Stage 3 is implemented. The issue board tracks integration and remaining real-device/audio playtest evidence; see [validation](stage-3-validation.md).
 
 - [Mission design](stage-3-air-assault-plan.md)
 - [Implementation sequence](superpowers/plans/2026-09-30-stage-3-air-assault.md)

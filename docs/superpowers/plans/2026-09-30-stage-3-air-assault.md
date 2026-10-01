@@ -1,6 +1,6 @@
 # Stage 3 — implementation plan
 
-Prepared 2026-09-30. Design contract: [Break the Landing](../../stage-3-air-assault-plan.md). Status: planned; no implementation has begun. Issue links are maintained in [the issue index](../../stage-3-issues.md).
+Prepared 2026-09-30. Design contract: [Break the Landing](../../stage-3-air-assault-plan.md). Status: implemented; release verification is recorded in [validation](../../stage-3-validation.md). Issue links are maintained in [the issue index](../../stage-3-issues.md).
 
 ## Existing code and integration points
 
@@ -167,8 +167,8 @@ Balance evidence: prove a benchmark win with at least two missed bombs, an unatt
 - [x] Existing integration points inspected.
 - [x] Proposed design and implementation sequence written.
 - [x] GitHub epic #3 and implementation issues #4–#12 linked in the issue index.
-- [ ] Implementation requested/approved.
-- [ ] M1 playable pass complete.
-- [ ] M2 complete mission complete.
-- [ ] M3 presentation/integration complete.
+- [x] Implementation requested/approved — user: “do level 3”. Guided attack passes confirmed earlier.
+- [x] M1 playable pass complete.
+- [x] M2 complete mission complete.
+- [x] M3 presentation/integration complete.
 - [ ] M4 verification and authorized release complete.

@@ -2,7 +2,13 @@ import { COASTAL_SUN } from './daylight';
 import { assetUrl } from '../asset-url';
 import * as THREE from 'three';
 import { Water } from 'three/addons/objects/Water.js';
-import type { Battle } from './simulation';
+export type OceanShip = {
+  x: number;
+  z: number;
+  heading: number;
+  length: number;
+  health: number;
+};
 
 export function makeOcean() {
   const normal = new THREE.TextureLoader().load(
@@ -69,7 +75,7 @@ export function makeOcean() {
   return {
     mesh,
     material,
-    update(time: number, battle: Battle) {
+    update(time: number, battle: { ships: readonly OceanShip[] }) {
       material.uniforms.time.value = time * 0.68;
       const wakes = material.uniforms.uWakes.value as THREE.Vector4[];
       battle.ships.forEach((s, i) =>

@@ -23,6 +23,8 @@ export function useTouchLayout() {
 export function TouchControls({
   onAim,
   onAimDrag,
+  aimLabel,
+  aimAriaLabel,
   onFire,
   fireLabel,
   fireDetail,
@@ -31,6 +33,8 @@ export function TouchControls({
 }: {
   onAim: (axis: TouchAxis) => void;
   onAimDrag?: (delta: TouchAxis) => void;
+  aimLabel?: string;
+  aimAriaLabel?: string;
   onFire: (held: boolean) => void;
   fireLabel: string;
   fireDetail: string;
@@ -80,7 +84,10 @@ export function TouchControls({
     <div className="touch-controls" aria-label="Touch combat controls">
       <button
         className="touch-aim"
-        aria-label={onAimDrag ? 'Swipe pad to aim' : 'Drag thumb pad to aim'}
+        aria-label={
+          aimAriaLabel ??
+          (onAimDrag ? 'Swipe pad to aim' : 'Drag thumb pad to aim')
+        }
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (aimId.current !== null || e.button !== 0) return;
@@ -107,7 +114,7 @@ export function TouchControls({
       >
         <Move size={46} aria-hidden="true" />
         <i style={{ transform: `translate(${stick.x}px, ${stick.y}px)` }} />
-        <span>{onAimDrag ? 'Swipe to aim' : 'Aim'}</span>
+        <span>{aimLabel ?? (onAimDrag ? 'Swipe to aim' : 'Aim')}</span>
       </button>
       <div className="touch-readouts">{children}</div>
       <button

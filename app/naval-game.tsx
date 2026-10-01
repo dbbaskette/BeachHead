@@ -46,9 +46,15 @@ const time = (n: number) =>
 export default function NavalGame({
   onContinue,
   onPractice,
+  onAir,
+  onStart,
+  campaign,
 }: {
   onContinue: () => void;
   onPractice: () => void;
+  onAir: () => void;
+  onStart: (campaign: boolean) => void;
+  campaign: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null),
     root = useRef<HTMLElement>(null);
@@ -65,7 +71,7 @@ export default function NavalGame({
     [error, setError] = useState(''),
     [sound, setSound] = useState(true),
     [steady, setSteady] = useState(false);
-  const [singleStage, setSingleStage] = useState(false);
+  const singleStage = !campaign;
   const [selected, setSelected] = useState(0);
   const [resultsReady, setResultsReady] = useState(false);
   const reticleElement = useRef<HTMLDivElement>(null);
@@ -632,7 +638,7 @@ export default function NavalGame({
             <h2>Battle Stations</h2>
             <p className="briefing-copy">
               Break the naval blockade. Defend the captured beach. Play the
-              campaign or jump into either playable battle.
+              campaign or jump into any of the three battles.
             </p>
             <div className="legacy-note">
               Inspired by the 1983 classic.
@@ -650,7 +656,7 @@ export default function NavalGame({
               aria-label="Play campaign"
               disabled={!loaded}
               onClick={() => {
-                setSingleStage(false);
+                onStart(true);
                 start();
               }}
             >
@@ -658,7 +664,7 @@ export default function NavalGame({
                 <strong>Play campaign</strong>
                 <span>
                   {loaded
-                    ? 'Start at sea. Fight through both stages.'
+                    ? 'Sea. Beach. Sky. Fight through all three stages.'
                     : 'Preparing the guns…'}
                 </span>
               </span>
@@ -669,7 +675,7 @@ export default function NavalGame({
               aria-label="Play Stage 1 — Naval battle"
               disabled={!loaded}
               onClick={() => {
-                setSingleStage(true);
+                onStart(false);
                 start();
               }}
             >
@@ -694,16 +700,19 @@ export default function NavalGame({
                 Play Stage 2 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
-            <div
+            <button
               className="mission-tile air-tile"
-              aria-label="Stage 3 — Air assault — Coming soon"
+              onClick={onAir}
+              aria-label="Play Stage 3 — Air assault"
             >
               <Plane className="mission-tile-art" aria-hidden="true" />
               <span className="mission-stage">Stage 3</span>
               <strong>Air assault</strong>
               <span>Break the landing</span>
-              <span className="mission-tile-action">Coming soon</span>
-            </div>
+              <span className="mission-tile-action">
+                Play Stage 3 <ArrowUpRight size={18} aria-hidden="true" />
+              </span>
+            </button>
           </nav>
         </section>
       )}
