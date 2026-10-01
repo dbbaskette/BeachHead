@@ -29,7 +29,7 @@ export function StageFourPreview({
       onKeyDown={(event) => event.stopPropagation()}
     >
       <header className="bunker-preview-header">
-        <span>Stage 4 · Coming soon</span>
+        <span>Stage 4 · Concept artwork</span>
         <button
           type="button"
           onClick={onClose}
@@ -60,10 +60,11 @@ export function StageFourPreview({
           close-quarters combat, hidden passages and underground exploration.
         </p>
         <p className="bunker-preview-note">
-          A look at the direction for Stage 4. This mission is not playable yet.
+          The visual direction for Stage 4. A short playable sample is now
+          available; the full mission is still in development.
         </p>
         <button type="button" className="bunker-preview-back" onClick={onClose}>
-          Back to missions
+          Close concept art
         </button>
       </div>
     </dialog>

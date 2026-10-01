@@ -1,4 +1,4 @@
-export type Mission = 'naval' | 'air' | 'beach';
+export type Mission = 'naval' | 'air' | 'beach' | 'bunker';
 export type CampaignState = { mission: Mission; campaign: boolean };
 export type CampaignAction =
   | { type: 'begin'; mission: Mission; campaign: boolean }
@@ -13,6 +13,7 @@ const nextMission: Record<Mission, Mission | null> = {
   naval: 'air',
   air: 'beach',
   beach: null,
+  bunker: null,
 };
 
 export function campaignReducer(
