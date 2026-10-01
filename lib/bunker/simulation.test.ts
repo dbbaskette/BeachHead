@@ -9,6 +9,8 @@ import {
   shootBunker,
   sightLine,
   stepBunker,
+  angleDifference,
+  chooseFall,
 } from './simulation';
 const active = () => {
   const b = createBunker();
@@ -71,13 +73,22 @@ void test('guards cannot see through a wall, telegraph shots, and allow movement
   g.z = 6;
   g.cooldown = 0;
   stepBunker(b, emptyInput(), 0.05);
-  assert.ok(g.windup > 0);
+  assert.equal(g.mode, 'notice');
+  assert.equal(
+    g.windup,
+    0,
+    'recognition and weapon raising happen before firing',
+  );
   assert.equal(b.health, 100);
+  for (let i = 0; i < 70 && g.windup === 0; i++)
+    stepBunker(b, emptyInput(), 0.05);
+  assert.ok(g.windup > 0);
   b.x = 2;
   for (let i = 0; i < 14; i++) stepBunker(b, emptyInput(), 0.05);
   assert.equal(b.health, 100);
   g.cooldown = 0;
-  stepBunker(b, emptyInput(), 0.05);
+  for (let i = 0; i < 70 && g.windup === 0; i++)
+    stepBunker(b, emptyInput(), 0.05);
   for (let i = 0; i < 14; i++) stepBunker(b, emptyInput(), 0.05);
   assert.equal(b.health, 92);
 });
@@ -200,4 +211,72 @@ void test('fatal head hits initiate a bounded collapse and dead guards cannot fi
       .length,
     0,
   );
+});
+
+void test('an unaware guard cannot see behind himself, but nearby gunfire makes him turn toward its origin', () => {
+  const b = active();
+  b.guards = b.guards.slice(0, 1);
+  const g = b.guards[0];
+  g.x = 0;
+  g.z = 5;
+  g.yaw = g.homeYaw = 0;
+  for (let i = 0; i < 20; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.equal(g.mode, 'idle');
+  assert.equal(g.awareness, 0);
+  assert.equal(b.health, 100);
+  b.yaw = Math.PI / 2;
+  shootBunker(b);
+  assert.equal(g.mode, 'search');
+  const yaw = g.yaw;
+  stepBunker(b, emptyInput(), 0.05);
+  assert.ok(Math.abs(angleDifference(g.yaw, yaw)) <= 0.106);
+  assert.ok(g.headYaw !== 0);
+  assert.equal(g.windup, 0);
+  for (let i = 0; i < 80; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.equal(g.mode, 'engage');
+  assert.ok(g.readiness > 0.9);
+});
+void test('lost sight cancels shooting and search follows the last known position, not the hidden player', () => {
+  const b = active();
+  b.guards = b.guards.slice(0, 1);
+  const g = b.guards[0];
+  g.x = 0;
+  g.z = 5;
+  g.yaw = Math.PI;
+  for (let i = 0; i < 30; i++) stepBunker(b, emptyInput(), 0.05);
+  const seen = { x: g.lastX, z: g.lastZ };
+  b.x = 4;
+  b.z = -4;
+  stepBunker(b, emptyInput(), 0.05);
+  assert.equal(g.mode, 'search');
+  assert.equal(g.windup, 0);
+  assert.deepEqual({ x: g.lastX, z: g.lastZ }, seen);
+  b.x = -4;
+  b.z = -17;
+  for (let i = 0; i < 110; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.equal(g.mode, 'idle');
+  assert.equal(g.windup, 0);
+  assert.ok(g.readiness < 0.4);
+});
+void test('fatal fall direction follows impact relative to facing and avoids a wall when there is room', () => {
+  const g = active().guards[0];
+  g.x = 0;
+  g.z = 8;
+  g.yaw = 0;
+  g.hitRegion = 'torso';
+  for (const [x, z, style] of [
+    [0, 1, 'back'],
+    [0, -1, 'front'],
+    [1, 0, 'right'],
+    [-1, 0, 'left'],
+  ] as const) {
+    g.hitDirection = { x, z };
+    assert.equal(chooseFall(g), style);
+  }
+  g.hitRegion = 'leg';
+  assert.equal(chooseFall(g), 'kneel');
+  g.x = 6.4;
+  g.hitRegion = 'torso';
+  g.hitDirection = { x: 1, z: 0 };
+  assert.notEqual(chooseFall(g), 'right');
 });

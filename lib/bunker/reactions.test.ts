@@ -30,3 +30,29 @@ void test('collapses settle horizontally at every facing, while wounds produce d
   assert.equal(guardReaction(g).knees, 0);
   assert.equal(guardReaction(g).pitch, 0);
 });
+
+void test('pelvis-centered collapses have distinct directional poses, settle, and remain frozen after death', () => {
+  const g = createBunker().guards[0];
+  g.health = 0;
+  g.down = 1;
+  const profiles = new Set<string>();
+  for (const style of ['front', 'back', 'left', 'right', 'kneel'] as const) {
+    g.fallStyle = style;
+    const p = guardReaction(g);
+    profiles.add([p.pitch, p.roll, p.leftKnee].join(','));
+    for (const yaw of [0, 1.5, 3]) {
+      const head = new Vector3(0, 0.9, 0).applyEuler(
+        new Euler(p.pitch, yaw, p.roll, 'YXZ'),
+      );
+      head.y += p.height;
+      assert.ok(head.y > 0.18 && head.y < 0.35);
+    }
+    const final = guardReaction(g);
+    g.hitTime = 0.2;
+    assert.deepEqual(guardReaction(g), final);
+  }
+  assert.ok(profiles.size >= 4);
+  g.fallStyle = 'kneel';
+  g.down = 0.25;
+  assert.ok(guardReaction(g).knees > 0.2);
+});

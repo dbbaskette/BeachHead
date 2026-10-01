@@ -30,6 +30,8 @@ export const solids: Box[] = [
   { x: -3.8, y: 0.65, z: -15, w: 2.4, h: 1.3, d: 1.1, kind: 'crate' },
   { x: 4.4, y: 0.65, z: -19, w: 1.6, h: 1.3, d: 2, kind: 'crate' },
 ];
+export type GuardMode = 'idle' | 'notice' | 'engage' | 'search';
+export type FallStyle = 'front' | 'back' | 'left' | 'right' | 'kneel';
 export type HitRegion = 'head' | 'torso' | 'leg';
 export type Guard = {
   id: number;
@@ -44,6 +46,17 @@ export type Guard = {
   down: number;
   moving: boolean;
   alert: boolean;
+  mode: GuardMode;
+  yaw: number;
+  headYaw: number;
+  homeYaw: number;
+  awareness: number;
+  readiness: number;
+  startle: number;
+  memory: number;
+  lastX: number;
+  lastZ: number;
+  fallStyle: FallStyle;
   hitTime: number;
   hitRegion: HitRegion;
   hitDirection: { x: number; z: number };
@@ -126,6 +139,17 @@ export function createBunker(): BunkerState {
       down: 0,
       moving: false,
       alert: false,
+      mode: 'idle',
+      yaw: [2.3, Math.PI, 2.7, 2.4][id],
+      homeYaw: [2.3, Math.PI, 2.7, 2.4][id],
+      headYaw: 0,
+      awareness: 0,
+      readiness: 0,
+      startle: 0,
+      memory: 0,
+      lastX: x,
+      lastZ: z,
+      fallStyle: 'back',
       hitTime: 0,
       hitRegion: 'torso',
       hitDirection: { x: 0, z: -1 },
@@ -194,6 +218,7 @@ export function rayBox(
 }
 export function sightLine(ax: number, az: number, bx: number, bz: number) {
   const d = Math.hypot(bx - ax, bz - az);
+  if (d < 1e-6) return true;
   return solids.every(
     (s) => rayBox([ax, 1.45, az], [(bx - ax) / d, 0, (bz - az) / d], s) > d,
   );
@@ -250,7 +275,7 @@ export function shootBunker(b: BunkerState) {
   if (target) {
     target.health -= y > 1.45 ? 75 : 34;
     target.alert = true;
-    target.hitTime = 0.32;
+    target.hitTime = 0.42;
     target.hitRegion = y > 1.45 ? 'head' : y < 0.75 ? 'leg' : 'torso';
     const horizontal = Math.hypot(direction[0], direction[2]) || 1;
     target.hitDirection = {
@@ -259,7 +284,26 @@ export function shootBunker(b: BunkerState) {
     };
     target.windup = 0;
     target.flash = 0;
-    target.cooldown = Math.max(target.cooldown, 0.45);
+    target.cooldown = Math.max(target.cooldown, 0.65);
+    target.lastX = b.x;
+    target.lastZ = b.z;
+    target.memory = 4.5;
+    target.awareness = 1;
+    target.mode = 'engage';
+    if (target.health <= 0) target.fallStyle = chooseFall(target);
+  }
+  // A nearby shot attracts attention to its origin, even before visual recognition.
+  for (const g of b.guards) {
+    if (g.health <= 0 || g === target || g.mode === 'engage') continue;
+    const distance = Math.hypot(g.x - b.x, g.z - b.z);
+    if (distance < (sightLine(g.x, g.z, b.x, b.z) ? 14 : 7)) {
+      g.mode = 'search';
+      g.lastX = b.x;
+      g.lastZ = b.z;
+      g.memory = 4;
+      g.awareness = Math.max(g.awareness, 0.45);
+      g.startle = 0.35;
+    }
   }
   b.effects.push(
     { kind: 'shot', x, y, z },
@@ -308,50 +352,13 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
     g.hitTime = Math.max(0, g.hitTime - dt);
     g.moving = false;
     if (g.health <= 0) {
-      g.down = Math.min(1, g.down + dt * 0.95);
-      continue;
-    }
-    if (g.hitTime > 0) continue;
-    const distance = Math.hypot(b.x - g.x, b.z - g.z),
-      sees = distance < 19 && sightLine(g.x, g.z, b.x, b.z);
-    if (!sees) {
-      g.windup = 0;
-      g.cooldown = Math.max(0.65, g.cooldown);
-      continue;
-    }
-    g.alert = true;
-    g.cooldown -= dt;
-    if (distance > 6.5 && g.windup === 0) {
-      const x = g.x,
-        z = g.z;
-      moveBody(
-        g,
-        ((b.x - g.x) / distance) * dt * 0.75,
-        ((b.z - g.z) / distance) * dt * 0.75,
+      g.down = Math.min(
+        1,
+        g.down + dt / (g.fallStyle === 'kneel' ? 1.65 : 1.35),
       );
-      g.moving = Math.hypot(g.x - x, g.z - z) > 0.001;
+      continue;
     }
-    if (g.windup > 0) {
-      g.windup -= dt;
-      if (g.windup <= 0) {
-        g.windup = 0;
-        g.cooldown = 1.7 + g.id * 0.17;
-        g.flash = 0.14;
-        b.effects.push({ kind: 'enemy', x: g.x, y: 1.35, z: g.z });
-        if (
-          Math.hypot(b.x - g.aimX, b.z - g.aimZ) < 1 &&
-          sightLine(g.x, g.z, b.x, b.z)
-        ) {
-          b.health = Math.max(0, b.health - 8);
-          b.hurt = 0.4;
-          b.effects.push({ kind: 'hurt', x: b.x, y: 1, z: b.z });
-        }
-      }
-    } else if (g.cooldown <= 0) {
-      g.windup = 0.65;
-      g.aimX = b.x;
-      g.aimZ = b.z;
-    }
+    updateGuard(g, b, dt);
   }
   if (b.medkit && Math.hypot(b.x + 4.8, b.z + 12) < 1.2 && b.health < 100) {
     b.health = Math.min(100, b.health + 35);
@@ -364,4 +371,162 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
     b.z < -22.1
   )
     b.status = 'won';
+}
+
+export const angleDifference = (target: number, current: number) =>
+  Math.atan2(Math.sin(target - current), Math.cos(target - current));
+const turnToward = (
+  current: number,
+  target: number,
+  rate: number,
+  dt: number,
+) => current + clamp(angleDifference(target, current), -rate * dt, rate * dt);
+export function fallVector(g: Pick<Guard, 'yaw' | 'fallStyle'>) {
+  const side = g.fallStyle === 'left' ? -1 : g.fallStyle === 'right' ? 1 : 0;
+  const front = g.fallStyle === 'back' ? -1 : 1;
+  return side
+    ? { x: Math.cos(g.yaw) * side, z: -Math.sin(g.yaw) * side }
+    : { x: -Math.sin(g.yaw) * front, z: -Math.cos(g.yaw) * front };
+}
+export function chooseFall(g: Guard): FallStyle {
+  const localX =
+    Math.cos(g.yaw) * g.hitDirection.x - Math.sin(g.yaw) * g.hitDirection.z;
+  const localZ =
+    Math.sin(g.yaw) * g.hitDirection.x + Math.cos(g.yaw) * g.hitDirection.z;
+  const preferred: FallStyle =
+    g.hitRegion === 'leg'
+      ? 'kneel'
+      : Math.abs(localX) > 0.6
+        ? localX > 0
+          ? 'right'
+          : 'left'
+        : localZ > 0
+          ? 'back'
+          : 'front';
+  for (const style of [
+    preferred,
+    localX > 0 ? 'right' : 'left',
+    localX > 0 ? 'left' : 'right',
+    'front',
+    'back',
+  ] as FallStyle[]) {
+    const v = fallVector({ ...g, fallStyle: style });
+    if (
+      [0.35, 0.7, 0.95, -0.55].every((d) =>
+        canStand(g.x + v.x * d, g.z + v.z * d, 0.22),
+      )
+    )
+      return style;
+  }
+  return 'kneel';
+}
+function updateGuard(g: Guard, b: BunkerState, dt: number) {
+  g.startle = Math.max(0, g.startle - dt);
+  const distance = Math.hypot(b.x - g.x, b.z - g.z);
+  const bearing = Math.atan2(g.x - b.x, g.z - b.z);
+  const visible = distance < 19 && sightLine(g.x, g.z, b.x, b.z);
+  const inView =
+    Math.abs(angleDifference(bearing, g.yaw + g.headYaw)) <
+    (distance < 4 ? 1.5 : 1.15);
+  const sees = visible && inView;
+  if (sees) {
+    g.lastX = b.x;
+    g.lastZ = b.z;
+    g.memory = 4.5;
+    const previous = g.awareness;
+    g.awareness = Math.min(1, g.awareness + dt / (0.38 + g.id * 0.055));
+    if (previous < 1 && g.awareness >= 1) {
+      g.startle = 0.48;
+      g.alert = true;
+      g.cooldown = Math.max(0.3, g.cooldown);
+    }
+    g.mode = g.awareness >= 1 ? 'engage' : 'notice';
+  } else {
+    g.windup = 0;
+    g.memory = Math.max(0, g.memory - dt);
+    g.mode = g.memory > 0 ? 'search' : 'idle';
+    g.awareness = Math.max(g.alert ? 0.25 : 0, g.awareness - dt * 0.25);
+  }
+  const tracking = g.mode !== 'idle';
+  const target = tracking
+    ? Math.atan2(g.x - g.lastX, g.z - g.lastZ)
+    : g.homeYaw;
+  // The head finds a threat first; shoulders and weapon follow at a bounded speed.
+  const headTarget = tracking
+    ? clamp(angleDifference(target, g.yaw), -0.55, 0.55)
+    : Math.sin(b.time * 0.75 + g.id) * 0.23;
+  g.headYaw = turnToward(g.headYaw, headTarget, 3.5, dt);
+  if (g.hitTime <= 0)
+    g.yaw = turnToward(g.yaw, target, g.mode === 'notice' ? 1.3 : 2.1, dt);
+  const desiredReady =
+    g.mode === 'engage'
+      ? 1
+      : g.mode === 'notice'
+        ? 0.4
+        : g.mode === 'search'
+          ? 0.65
+          : g.alert
+            ? 0.25
+            : 0;
+  g.readiness += clamp(desiredReady - g.readiness, -dt * 1.8, dt * 2.2);
+  if (g.hitTime > 0) return;
+  g.cooldown = Math.max(0, g.cooldown - dt);
+  const aligned = Math.abs(angleDifference(target, g.yaw)) < 0.22;
+  if (
+    g.mode !== 'engage' ||
+    !sees ||
+    !aligned ||
+    g.readiness < 0.9 ||
+    g.startle > 0.15
+  ) {
+    g.windup = 0;
+    if (
+      tracking &&
+      g.mode !== 'notice' &&
+      Math.abs(angleDifference(target, g.yaw)) < 0.65
+    ) {
+      const gap = Math.hypot(g.lastX - g.x, g.lastZ - g.z);
+      if (gap > (g.mode === 'search' ? 1 : 6.5)) {
+        const x = g.x,
+          z = g.z,
+          speed = g.mode === 'search' ? 0.48 : 0.7;
+        moveBody(
+          g,
+          ((g.lastX - g.x) / gap) * dt * speed,
+          ((g.lastZ - g.z) / gap) * dt * speed,
+        );
+        g.moving = Math.hypot(g.x - x, g.z - z) > 0.001;
+      }
+    }
+    return;
+  }
+  if (g.windup > 0) {
+    g.windup = Math.max(0, g.windup - dt);
+    if (g.windup === 0) {
+      g.cooldown = 1.7 + g.id * 0.17;
+      g.flash = 0.14;
+      b.effects.push({ kind: 'enemy', x: g.x, y: 1.35, z: g.z });
+      if (
+        Math.hypot(b.x - g.aimX, b.z - g.aimZ) < 1 &&
+        sightLine(g.x, g.z, b.x, b.z)
+      ) {
+        b.health = Math.max(0, b.health - 8);
+        b.hurt = 0.4;
+        b.effects.push({ kind: 'hurt', x: b.x, y: 1, z: b.z });
+      }
+    }
+  } else if (g.cooldown <= 0) {
+    g.windup = 0.65;
+    g.aimX = b.x;
+    g.aimZ = b.z;
+  } else if (distance > 6.5) {
+    const x = g.x,
+      z = g.z;
+    moveBody(
+      g,
+      ((b.x - g.x) / distance) * dt * 0.7,
+      ((b.z - g.z) / distance) * dt * 0.7,
+    );
+    g.moving = Math.hypot(g.x - x, g.z - z) > 0.001;
+  }
 }
