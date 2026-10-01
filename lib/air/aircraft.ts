@@ -267,7 +267,7 @@ export function makeAirframe(a: AirArt) {
     a.mesh(root, geometry, glazing, [0, 0, 0], [1, 1, 1]);
   }
   // Front armored pane and angled quarter windows connect to the canopy above the pilot.
-  const lower = 2.55,
+  const lower = 1.6,
     upper = 5.65;
   brace(
     [
@@ -327,16 +327,16 @@ export function makeAirframe(a: AirArt) {
     0.075,
     trim,
   );
-  // Rounded nose skin reaches all the way back to the windshield sill.
+  // Keep the upper cowling below the pilot’s sightline; a steep rear fairing hides the engine nose.
   const hoodPositions: number[] = [],
     hoodUV: number[] = [],
     hoodIndices: number[] = [];
   const hoodSections = [
     [-5.8, 0.52, 0.82],
     [-4.5, 0.79, 1.03],
-    [-2.8, 1.6, 1.16],
-    [-0.65, 2.53, 1.39],
-    [0.8, 2.7, 1.68],
+    [-2.8, 0.95, 1.16],
+    [-0.65, 1.42, 1.39],
+    [0.8, 1.7, 1.68],
   ];
   for (let row = 0; row < hoodSections.length; row++)
     for (let j = 0; j <= 24; j++) {
@@ -361,15 +361,38 @@ export function makeAirframe(a: AirArt) {
   hoodGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(hoodUV, 2));
   hoodGeometry.setIndex(hoodIndices);
   hoodGeometry.computeVertexNormals();
-  const antiGlare = a.mat('#3c452e', 0.91);
+  const antiGlare = a.mat('#828568', 0.78);
   antiGlare.map = a.paint;
   a.mesh(root, hoodGeometry, antiGlare, [0, 0, 0], [1, 1, 1]);
+  // Fine transverse seams and paired fasteners give the visible cowling scale and depth.
+  const seam = a.mat('#515842', 0.82);
+  for (const [z, top, width] of hoodSections.slice(1, 4)) {
+    const points = Array.from({ length: 13 }, (_, i) => {
+      const angle = 0.2 + (i / 12) * (Math.PI - 0.4);
+      return [
+        Math.cos(angle) * width,
+        top - (1 - Math.sin(angle)) * 0.48 + 0.008,
+        z,
+      ];
+    });
+    brace(points, 0.009, seam);
+    for (const side of [-1, 1]) {
+      const x = side * width * 0.6;
+      a.mesh(
+        root,
+        smooth,
+        metal,
+        [x, top - 0.096 + 0.015, z + 0.08],
+        [0.024, 0.01, 0.024],
+      );
+    }
+  }
   // Broad, curved bulkhead with an opaque lower panel and padded glare shield.
   const panelShape = new THREE.Shape();
   panelShape.moveTo(-1.7, -1.05);
   panelShape.lineTo(-1.7, 0.32);
-  panelShape.quadraticCurveTo(-1.5, 0.9, 0, 0.9);
-  panelShape.quadraticCurveTo(1.5, 0.9, 1.7, 0.32);
+  panelShape.quadraticCurveTo(-1.5, 0.65, 0, 0.65);
+  panelShape.quadraticCurveTo(1.5, 0.65, 1.7, 0.32);
   panelShape.lineTo(1.7, -1.05);
   panelShape.closePath();
   const panel = a.mesh(
@@ -392,11 +415,11 @@ export function makeAirframe(a: AirArt) {
   brace(
     [
       [-1.73, 2.3, 1.2],
-      [-1.45, 2.7, 1.2],
-      [-0.75, 2.86, 1.2],
-      [0, 2.89, 1.2],
-      [0.75, 2.86, 1.2],
-      [1.45, 2.7, 1.2],
+      [-1.45, 2.5, 1.2],
+      [-0.75, 2.6, 1.2],
+      [0, 2.64, 1.2],
+      [0.75, 2.6, 1.2],
+      [1.45, 2.5, 1.2],
       [1.73, 2.3, 1.2],
     ],
     0.085,
@@ -458,6 +481,14 @@ export function makeAirframe(a: AirArt) {
   );
   a.mesh(altitudeNeedle, a.sphere, metal, [0, 0, 0.004], [0.015, 0.015, 0.004]);
   // Reflector sight has a glass plate, metal clips, projector lens and supporting arm.
+  brace(
+    [
+      [0, 2.45, 1.05],
+      [0, 2.58, 0.1],
+    ],
+    0.065,
+    trim,
+  );
   a.block(root, trim, [0, 2.67, 0.1], [0.26, 0.19, 0.35]);
   a.mesh(root, a.cylinder, black, [0, 2.83, 0.04], [0.105, 0.045, 0.105]);
   const lens = a.mat('#95b5a5', 0.16);
@@ -477,7 +508,7 @@ export function makeAirframe(a: AirArt) {
   Object.assign(blur, {
     side: THREE.DoubleSide,
     transparent: true,
-    opacity: 0.07,
+    opacity: 0.12,
     depthWrite: false,
   });
   a.mesh(
@@ -491,7 +522,7 @@ export function makeAirframe(a: AirArt) {
   Object.assign(tipBlur, {
     side: THREE.DoubleSide,
     transparent: true,
-    opacity: 0.055,
+    opacity: 0.1,
     depthWrite: false,
   });
   a.mesh(

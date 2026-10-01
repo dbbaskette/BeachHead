@@ -79,3 +79,42 @@ void test('cockpit leaves the gun aiming line unobstructed across the flight env
       }
   art.dispose();
 });
+
+void test('pilot can see both shoulders of the engine cowling beyond the dashboard', () => {
+  const art = new AirArt(),
+    plane = makeAirframe(art),
+    f = createAircraft(),
+    camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.12, 14000);
+  plane.root.position.copy(f.position);
+  plane.root.updateMatrixWorld(true);
+  placePilotCamera(camera, f, false);
+  camera.updateMatrixWorld(true);
+  for (const side of [-1, 1]) {
+    // Sample the exposed upper engine housing, leaving tolerance for its seam.
+    const cowling = new THREE.Vector3(side * 0.45, 0.94, -2.8).applyMatrix4(
+      plane.root.matrixWorld,
+    );
+    const distance = camera.position.distanceTo(cowling);
+    const ray = new THREE.Raycaster(
+      camera.position,
+      cowling.clone().sub(camera.position).normalize(),
+      0,
+      distance - 0.08,
+    );
+    const obstructions = ray.intersectObject(plane.root, true).filter((hit) => {
+      const mesh = hit.object as THREE.Mesh;
+      return !Array.isArray(mesh.material) && !mesh.material.transparent;
+    });
+    assert.equal(
+      obstructions.length,
+      0,
+      'dashboard and rear fairing must not hide the nose',
+    );
+    const projected = cowling.project(camera);
+    assert.ok(
+      Math.abs(projected.x) < 0.9 && Math.abs(projected.y) < 0.9,
+      'engine cowling remains inside the view',
+    );
+  }
+  art.dispose();
+});
