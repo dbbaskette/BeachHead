@@ -1278,7 +1278,7 @@ kbd {
 .briefing.main-menu { inset:100px 6% 55px; width:auto; max-width:1180px; margin:auto; display:grid; grid-template-columns:.7fr 1.3fr; align-items:center; gap:clamp(28px,5vw,80px); overflow:auto; }
 .main-menu .briefing-copy { max-width:340px; }
 .main-menu .legacy-note { margin-top:22px; }
-.mission-tiles { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.mission-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 .mission-tile { position:relative; isolation:isolate; display:flex; flex-direction:column; align-items:flex-start; gap:9px; min-width:0; padding:26px; text-align:left; border:1px solid #a5bec05c; border-radius:4px; color:#f0eee2; background:#142b35ed; cursor:pointer; transition:background-color .15s,border-color .15s; overflow:hidden; }
 .mission-tile:hover { background:#234453f5; border-color:#e9bd79; }
 .mission-tile:focus-visible { outline:3px solid #fff1d5; outline-offset:4px; }
@@ -1293,7 +1293,7 @@ kbd {
 .mission-tile-copy { display:flex; flex-direction:column; gap:9px; }
 .campaign-tile strong { font-size:clamp(26px,2.8vw,36px); }
 .campaign-tile .mission-tile-copy { color:#243c43!important; }
-.naval-tile,.beach-tile,.air-tile { min-height:208px; }
+.naval-tile,.beach-tile,.air-tile,.bunker-tile { min-height:170px; }
 .beach-tile { background:#283729ed; border-color:#b1b79369; }
 .beach-tile:hover { background:#3c4c35f5; }
 .briefing-state .preview-instruments,.briefing-state .controls-strip,.briefing-state .compass { display:none; }
@@ -1308,7 +1308,7 @@ kbd {
   .main-menu .briefing-copy { max-width:440px; font-size:14px; }
   .mission-tile { padding:20px; }
   .campaign-tile { min-height:110px; }
-  .naval-tile,.beach-tile,.air-tile { min-height:180px; }
+  .naval-tile,.beach-tile,.air-tile,.bunker-tile { min-height:160px; }
 }
 @media(max-width:420px) {
   .mission-tiles { gap:10px; }
@@ -1323,7 +1323,7 @@ kbd {
   .main-menu h2 { display:block; margin-left:0; }
   .mission-tile { padding:17px; }
   .campaign-tile { min-height:100px; }
-  .naval-tile,.beach-tile,.air-tile { min-height:165px; }
+  .naval-tile,.beach-tile,.air-tile,.bunker-tile { min-height:140px; }
 }
 @media(prefers-reduced-motion:reduce) { .mission-tile { transition:none; } }
 
@@ -1378,7 +1378,7 @@ kbd {
 .air-touch .air-header { height:54px; padding:env(safe-area-inset-top,0px) max(10px,env(safe-area-inset-right,0px)) 0 max(10px,env(safe-area-inset-left,0px)); }.air-touch .air-brand>span { display:none; }.air-touch .air-pass { font-size:10px; }.air-touch .air-pass small { display:none; }.air-touch .air-objective { top:56px; font-size:10px; max-width:90%; overflow:hidden; text-overflow:ellipsis; }.air-touch .air-bomb-button { position:absolute; z-index:7; bottom:calc(var(--station-bottom) + 133px); right:max(17px,env(safe-area-inset-right,0px)); min-width:80px; min-height:54px; padding:6px 10px; }.air-touch .air-bomb-button b { display:inline; margin-left:5px; }.air-touch .air-bomb-button svg { width:18px; }.air-touch .air-altitude { position:absolute; left:22px; bottom:calc(var(--station-bottom) + 124px); font-size:11px; color:#e5e9d6; pointer-events:none; }.air-touch .air-briefing { inset:65px 4% 10px; padding:20px; gap:22px; }.air-touch .air-briefing h1 { font-size:45px; }.air-touch .air-route { gap:12px; }.air-touch .air-briefing p { font-size:12px; }
 @media(max-width:650px) and (orientation:portrait) { .air-briefing { inset:75px 5% 15px; grid-template-columns:1fr; gap:25px; align-items:start; }.air-briefing h1 { font-size:45px; }.air-orders>svg { display:none; }.air-briefing .air-route { margin-top:18px; }.air-header { padding:0 10px; }.air-pass { display:none; }.air-instruments { gap:15px; padding:10px; width:95%; bottom:10px; }.air-instruments>div { min-width:0; flex:1; }.air-instruments>div:nth-child(2) { display:none; }.air-instruments .air-bomb-button { padding:8px; }.air-brand>span { font-size:11px; }.air-brand small { display:none; } }
 @media(max-height:550px) and (orientation:landscape) { .air-briefing,.air-touch .air-briefing { inset:62px 4% 10px; padding:18px 24px; gap:30px; }.air-briefing h1,.air-touch .air-briefing h1 { font-size:40px; margin-bottom:12px; }.air-briefing p { font-size:12px!important; }.air-route { margin-top:16px; }.air-orders>svg,.air-orders .air-identify,.air-credit { display:none; }.air-orders dl>div { padding:6px 0; font-size:11px; }.air-orders .air-tip { margin:8px 0; }.air-primary { margin-top:10px; min-height:44px; }.air-touch .air-bomb-button { bottom:calc(var(--station-bottom) + 98px); min-height:44px; }.air-touch .air-altitude { bottom:calc(var(--station-bottom) + 94px); }.air-instruments { padding:8px 16px; bottom:8px; gap:20px; }.air-header { height:54px; }.air-objective { top:55px; }.air-result { padding:18px 28px; }.air-result>svg { display:none; } }
-@media(max-width:800px) { .mission-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); } .mission-tile:last-child { grid-column:1/-1; min-height:140px; } }
+@media(max-width:800px) { .mission-tiles { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
 /* Mobile stations: keep the sightline clear and every action within thumb reach. */
 .naval-game,.pillbox-game { min-height:0; height:100dvh; }
@@ -1433,11 +1433,6 @@ kbd {
 .touch-layout .mission-tile strong { font-size:20px; }
 .touch-layout .campaign-tile strong { font-size:27px; }
 .touch-layout .mission-tile-action { padding-top:12px; }
-.touch-layout .mission-tile:last-child { grid-column:1/-1; min-height:92px; display:grid; grid-template-columns:1fr auto; column-gap:12px; }
-.touch-layout .mission-tile:last-child .mission-stage { grid-column:1; }
-.touch-layout .mission-tile:last-child>strong { grid-column:1; }
-.touch-layout .mission-tile:last-child>span:not(.mission-stage):not(.mission-tile-action) { display:none; }
-.touch-layout .mission-tile:last-child .mission-tile-action { grid-column:2; grid-row:1 / 3; align-self:center; padding:0; margin:0; }
 .touch-layout .pillbox-briefing { top:calc(var(--station-top) + 18px); left:max(20px,env(safe-area-inset-left,0px)); right:max(20px,env(safe-area-inset-right,0px)); width:auto; max-width:540px; max-height:calc(100% - var(--station-top) - var(--station-bottom) - 36px); overflow-y:auto; padding:22px; }
 .touch-layout .pillbox-briefing h1 { font-size:54px; margin:16px 0; }
 .touch-layout .pillbox-briefing .pillbox-hint { display:none; }
@@ -1450,9 +1445,8 @@ kbd {
   .touch-layout .touch-menu-hint { grid-column:1; grid-row:2; }
   .touch-layout .mission-tiles { grid-column:2; grid-row:1 / 3; }
   .touch-layout .main-menu h1 { font-size:46px; }
-  .touch-layout .mission-tile { padding:12px; min-height:110px; gap:5px; }
+  .touch-layout .mission-tile { padding:12px; min-height:100px; gap:5px; }
   .touch-layout .campaign-tile { min-height:72px; }
-  .touch-layout .mission-tile:last-child { min-height:62px; }
   .touch-layout .mission-tile-action { padding-top:5px; }
   .touch-layout .mission-tile>span:not(.mission-stage):not(.mission-tile-action):not(.mission-tile-copy) { display:none; }
   .touch-layout .campaign-tile strong { font-size:25px; }
@@ -1510,3 +1504,22 @@ kbd {
   .air-instruments>div:nth-child(3) { grid-column:4; }
   .air-instruments>.air-bomb-button { grid-column:5; pointer-events:auto; }
 }
+
+/* Upcoming mission: a clearly labeled concept, separate from playable stages. */
+.bunker-tile { background-size:cover; background-position:center; border-color:#b59b6f80; }
+.bunker-tile:hover { border-color:#f2d5a6; }
+.bunker-preview { margin:auto; padding:0; width:min(1000px,94vw); max-height:94dvh; overflow:auto; border:1px solid #a68a60; border-radius:6px; color:#eee7d8; background:#171f23; box-shadow:0 24px 100px #000b; font-family:Arial,sans-serif; }
+.bunker-preview::backdrop { background:#061015dd; backdrop-filter:blur(6px); }
+.bunker-preview-header { position:sticky; top:0; z-index:1; background:#171f23; display:flex; justify-content:space-between; align-items:center; gap:16px; padding:8px 14px 8px 24px; color:#e9bd79; font-size:12px; letter-spacing:1.5px; text-transform:uppercase; }
+.bunker-preview button { cursor:pointer; }
+.bunker-preview button:focus-visible { outline:3px solid #f2d5a6; outline-offset:3px; }
+.bunker-preview-header button { display:grid; place-items:center; min-width:44px; min-height:44px; border:1px solid #a68a6055; border-radius:4px; }
+.bunker-preview figure { margin:0; }
+.bunker-preview img { display:block; width:100%; height:auto; max-height:48dvh; object-fit:contain; background:#0d1316; }
+.bunker-preview figcaption { padding:9px 24px; color:#c0b8a9; background:#11191c; font-size:11px; }
+.bunker-preview-copy { padding:20px 24px 24px; }
+.bunker-preview h2 { margin:0 0 12px; font-size:clamp(26px,4vw,38px); line-height:1.1; }
+.bunker-preview p { max-width:760px; margin:0 0 12px; font-size:14px; line-height:1.6; color:#d0d1c9; }
+.bunker-preview .bunker-preview-note { font-size:12px; color:#baa986; }
+.bunker-preview-back { min-height:44px; padding:10px 18px; margin-top:6px; border:1px solid #e9bd79; border-radius:4px; background:#e9bd79; color:#182d36; font-weight:600; }
+@media(max-width:500px) { .bunker-preview-header { padding-left:16px; font-size:10px; }.bunker-preview-copy { padding:18px 16px; }.bunker-preview figcaption { padding:9px 16px; } }
