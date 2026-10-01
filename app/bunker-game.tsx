@@ -320,7 +320,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       ref={root}
       tabIndex={-1}
       className={`bunker-game ${touch ? 'bunker-touch' : ''}`}
-      aria-label="Stage 4 — Beneath the guns"
+      aria-label="Stage 5 — Beneath the guns"
     >
       <div
         ref={host}
@@ -337,7 +337,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       <header className="bunker-header">
         <div>
           <span>BEACH HEAD</span>
-          <small>04 / BENEATH THE GUNS · SAMPLE</small>
+          <small>05 / BENEATH THE GUNS · SAMPLE</small>
         </div>
         <nav aria-label="Bunker options">
           <button
@@ -458,7 +458,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 : 'Bunker mission status'
             }
           >
-            <p className="bunker-eyebrow">STAGE 4 · PLAYABLE SAMPLE</p>
+            <p className="bunker-eyebrow">STAGE 5 · PLAYABLE SAMPLE</p>
             <h1>
               {error
                 ? 'Unable to enter'

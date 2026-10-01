@@ -294,7 +294,7 @@ export default function AirGame({
       ref={root}
       tabIndex={-1}
       className={`air-game ${touch ? 'air-touch' : ''}`}
-      aria-label="Stage 2 air assault"
+      aria-label="Stage 3 air assault"
     >
       <div
         ref={host}
@@ -346,7 +346,7 @@ export default function AirGame({
         <div className="air-brand">
           <Plane size={25} />
           <span>
-            BEACH HEAD <small>02 / AIR ASSAULT</small>
+            BEACH HEAD <small>03 / AIR ASSAULT</small>
           </span>
         </div>
         {!ready && (
@@ -402,7 +402,7 @@ export default function AirGame({
       {ready && !error && (
         <section className="air-briefing" aria-label="Air assault briefing">
           <div>
-            <p className="air-eyebrow">STAGE 02 / GERMAN AIR ASSAULT</p>
+            <p className="air-eyebrow">STAGE 03 / GERMAN AIR ASSAULT</p>
             <h1>
               BREAK THE
               <br />
@@ -684,8 +684,8 @@ export default function AirGame({
                 {paused
                   ? 'Resume flight'
                   : hud.status === 'won' && campaign
-                    ? 'Stage 3 — Hold the beach'
-                    : 'Retry Stage 2'}
+                    ? 'Stage 4 — Hold the beach'
+                    : 'Retry Stage 3'}
               </button>
             )}
             <button className="air-back" onClick={leave}>

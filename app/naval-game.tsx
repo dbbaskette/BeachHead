@@ -48,6 +48,7 @@ export default function NavalGame({
   onContinue,
   onPractice,
   onAir,
+  onFlak,
   onBunker,
   onStart,
   campaign,
@@ -55,6 +56,7 @@ export default function NavalGame({
   onContinue: () => void;
   onPractice: () => void;
   onAir: () => void;
+  onFlak: () => void;
   onBunker: () => void;
   onStart: (campaign: boolean) => void;
   campaign: boolean;
@@ -641,7 +643,8 @@ export default function NavalGame({
             <h2>Battle Stations</h2>
             <p className="briefing-copy">
               Lead the Allied fleet toward shore, then switch sides to defend
-              against the landing from a German aircraft and pillbox.
+              against the landing from a German antiaircraft battery, aircraft,
+              and pillbox.
             </p>
             <div className="legacy-note">
               Inspired by the 1983 classic.
@@ -667,7 +670,7 @@ export default function NavalGame({
                 <strong>Play campaign</strong>
                 <span>
                   {loaded
-                    ? 'Sea. Sky. Beach. Play the three available stages.'
+                    ? 'Sea. Flak. Air. Beach. Play the four full stages.'
                     : 'Preparing the guns…'}
                 </span>
               </span>
@@ -691,40 +694,53 @@ export default function NavalGame({
               </span>
             </button>
             <button
-              className="mission-tile air-tile"
-              onClick={onAir}
-              aria-label="Play Stage 2 — Air assault"
+              className="mission-tile flak-tile"
+              onClick={onFlak}
+              aria-label="Play Stage 2 — Hold the skies"
             >
-              <Plane className="mission-tile-art" aria-hidden="true" />
+              <Crosshair className="mission-tile-art" aria-hidden="true" />
               <span className="mission-stage">Stage 2</span>
-              <strong>Air assault</strong>
-              <span>German aircraft · Strike the landing</span>
+              <strong>Hold the skies</strong>
+              <span>German flak battery · Stop the airborne assault</span>
               <span className="mission-tile-action">
                 Play Stage 2 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
             <button
-              className="mission-tile beach-tile"
-              aria-label="Play Stage 3 — Hold the beach"
-              onClick={onPractice}
+              className="mission-tile air-tile"
+              onClick={onAir}
+              aria-label="Play Stage 3 — Air assault"
             >
-              <Shield className="mission-tile-art" aria-hidden="true" />
+              <Plane className="mission-tile-art" aria-hidden="true" />
               <span className="mission-stage">Stage 3</span>
-              <strong>Hold the beach</strong>
-              <span>German pillbox · Final stand</span>
+              <strong>Air assault</strong>
+              <span>German aircraft · Strike the landing</span>
               <span className="mission-tile-action">
                 Play Stage 3 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
             <button
+              className="mission-tile beach-tile"
+              aria-label="Play Stage 4 — Hold the beach"
+              onClick={onPractice}
+            >
+              <Shield className="mission-tile-art" aria-hidden="true" />
+              <span className="mission-stage">Stage 4</span>
+              <strong>Hold the beach</strong>
+              <span>German pillbox · Final stand</span>
+              <span className="mission-tile-action">
+                Play Stage 4 <ArrowUpRight size={18} aria-hidden="true" />
+              </span>
+            </button>
+            <button
               className="mission-tile bunker-tile"
-              aria-label="Play Stage 4 sample — Beneath the guns"
+              aria-label="Play Stage 5 sample — Beneath the guns"
               onClick={onBunker}
               style={{
                 backgroundImage: `linear-gradient(90deg, #181b1bf2, #181b1b99), url("${assetUrl('/images/stage-4-bunker-concept.jpg')}")`,
               }}
             >
-              <span className="mission-stage">Stage 4 · Playable sample</span>
+              <span className="mission-stage">Stage 5 · Playable sample</span>
               <strong>Beneath the guns</strong>
               <span>Three spaces · Four guards · Find the tunnels</span>
               <span className="mission-tile-action">
@@ -807,7 +823,7 @@ export default function NavalGame({
                   : hud.status === 'won'
                     ? singleStage
                       ? 'Choose another mission'
-                      : 'Stage 2 — Air assault'
+                      : 'Stage 2 — Hold the skies'
                     : 'Sail again'}
               </Button>
               <Button variant="ghost" onClick={returnToMenu}>

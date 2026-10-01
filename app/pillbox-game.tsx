@@ -379,7 +379,7 @@ export default function PillboxGame({
       className={`pillbox-game ${touch ? 'touch-layout' : ''} ${ready ? 'briefing-state' : ''}`}
       ref={root}
       tabIndex={-1}
-      aria-label="Stage 3 beach defense"
+      aria-label="Stage 4 beach defense"
     >
       <div
         ref={host}
@@ -424,7 +424,7 @@ export default function PillboxGame({
         <div className="pillbox-brand">
           <Shield size={20} />
           <strong>BEACH HEAD</strong>
-          <span>03 / HOLD THE BEACH</span>
+          <span>04 / HOLD THE BEACH</span>
         </div>
         <div className="pillbox-options">
           {!ready && (
@@ -472,7 +472,7 @@ export default function PillboxGame({
       )}
       {ready && !error && (
         <section className="pillbox-briefing">
-          <p className="pillbox-eyebrow">STAGE 03 / GERMAN COASTAL DEFENSE</p>
+          <p className="pillbox-eyebrow">STAGE 04 / GERMAN COASTAL DEFENSE</p>
           <h1>
             HOLD THE
             <br />
@@ -633,7 +633,7 @@ export default function PillboxGame({
                 ? 'Reload game'
                 : paused
                   ? 'Resume defense'
-                  : 'Retry Stage 3'}
+                  : 'Retry Stage 4'}
             </button>
             <button className="pillbox-back" onClick={onReturn}>
               Return to main menu
