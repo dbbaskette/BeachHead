@@ -36,3 +36,7 @@ The cockpit has an angular windshield, connected canopy rails and sidewalls, a s
 The cockpit is now a continuous tub with an opaque, curved instrument bulkhead, padded coaming, side consoles, throttle levers and front/quarter glazing joined to the surrounding canopy. The raised rails and disconnected dashboard are replaced. A wider desktop lens and aft pilot position reveal the cockpit sides and portions of the wing roots; the foreground shell and flight instruments remain present in portrait mode.
 
 `pilot-view.ts` mounts the normal camera to the aircraft attitude, so the enclosure stays fixed around the pilot and the outside horizon banks. Reduced camera motion retains the level-view option. The central attitude indicator follows pitch/bank, alongside the live altitude needle. Gun and bomb simulation, physical hardpoints, mission balance and controls are unchanged. This remains a visibility-tuned arcade cockpit, not a dimensionally accurate historical reconstruction.
+
+## Forward cowling visibility
+
+The rear hood and dashboard brow are lower, exposing the engine cowling beyond the windshield. Lighter olive paint, fine transverse seams, paired fasteners and a more visible translucent propeller disc distinguish the external nose from the dark cockpit. The reflector sight now has an explicit support from the panel. Camera mounting and weapon alignment are unchanged.
