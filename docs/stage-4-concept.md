@@ -1,6 +1,6 @@
 # Stage 4 — Beneath the guns
 
-Coming soon: a first-person mission entering a coastal gun emplacement and exploring the tunnels underneath. The menu preview is concept artwork, not gameplay footage. The playable campaign remains naval battle → air assault → beach defense.
+A small standalone playable sample now enters the coastal gun emplacement, passes through a service tunnel and clears a munitions room with four guards. The full underground mission is still in development. The concept artwork remains available from the sample briefing and is not gameplay footage. The campaign remains naval battle → air assault → beach defense.
 
 Asset: `public/images/stage-4-bunker-concept.jpg`. Original artwork generated with the built-in OpenAI image-generation tool, then converted to JPEG for the web. No assets from Wolfenstein or Doom are included.
 

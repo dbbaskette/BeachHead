@@ -4,6 +4,7 @@ import { campaignReducer, INITIAL_CAMPAIGN } from '@/lib/campaign';
 import NavalGame from './naval-game';
 import PillboxGame from './pillbox-game';
 const AirGame = lazy(() => import('./air-game'));
+const BunkerGame = lazy(() => import('./bunker-game'));
 
 export default function Campaign() {
   const [{ mission, campaign }, dispatch] = useReducer(
@@ -23,12 +24,21 @@ export default function Campaign() {
         dispatch({ type: 'begin', mission: 'beach', campaign: false })
       }
       onAir={() => dispatch({ type: 'begin', mission: 'air', campaign: false })}
+      onBunker={() =>
+        dispatch({ type: 'begin', mission: 'bunker', campaign: false })
+      }
     />
   ) : mission === 'air' ? (
     <Suspense
       fallback={<div className="air-loading">Preparing air assault…</div>}
     >
       <AirGame campaign={campaign} onContinue={advance} onReturn={menu} />
+    </Suspense>
+  ) : mission === 'bunker' ? (
+    <Suspense
+      fallback={<div className="air-loading">Preparing the bunker…</div>}
+    >
+      <BunkerGame onReturn={menu} />
     </Suspense>
   ) : (
     <PillboxGame campaign={campaign} onReturn={menu} />

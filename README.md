@@ -14,7 +14,7 @@
 
 A 3D browser game inspired by **Beach-Head** and **Beach-Head II**. Lead the Allied fleet through a naval blockade, switch to a German fighter-bomber attacking the landing, then hold the German pillbox as troops reach shore. Textured battlefields, physically consistent weapon origins, smoke, persistent wrecks and spatial weapon effects bring the classic idea into a modern browser.
 
-**Three stages are playable, with a Stage 4 concept preview in the menu.** Choose **Play campaign** for the complete sea–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
+**Three full stages are playable, plus a short Stage 4 bunker sample.** Choose **Play campaign** for the complete sea–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
 
 ## The campaign
 
@@ -45,13 +45,15 @@ The campaign tells one fictional landing from opposing viewpoints: Allied naval 
 
 Actual gameplay captures. All stages keep floating enemy labels, health bars and hit reports out of the battlefield. Read damage from impacts, smoke and wreckage; weapon instruments stay at the edges.
 
-## Coming soon — Stage 4: Beneath the guns
+## Playable sample — Stage 4: Beneath the guns
 
 ![Stage 4 concept artwork: a first-person view inside a coastal gun emplacement with tunnels below.](public/images/stage-4-bunker-concept.jpg)
 
-Enter the coastal gun emplacement and discover the tunnels beneath it. The planned direction is a first-person corridor shooter with close-quarters combat, hidden passages and underground exploration. Select **Stage 4 · Coming soon** on the main menu to see the sample screen.
+Enter the coastal gun emplacement, clear the service tunnel and munitions room, and reach the tunnel door. The small first-person sample includes four guards, cover, reloading, a medical kit, desktop mouse/keyboard controls and mobile move/fire/aim pads. Select **Stage 4 · Playable sample** on the main menu. The three-stage campaign remains separate.
 
-**Concept artwork, not gameplay footage. Stage 4 is not playable yet.** [Artwork provenance and prompt](docs/stage-4-concept.md).
+**Desktop:** WASD moves, mouse looks, click fires, R reloads, and Esc pauses. Arrow keys can also move and turn. If the browser cannot capture the pointer, drag the view to look. **Mobile:** the left pad moves; drag the view to look, or hold and drag Fire to aim while shooting. Tap the ammo counter to reload.
+
+**The image above is concept artwork, not a screenshot of the prototype. The full Stage 4 mission is still in development.** [Artwork provenance and prompt](docs/stage-4-concept.md).
 
 ## Air assault — Stage 2
 
@@ -127,7 +129,7 @@ Open the local URL printed by the server. The game uses React, TypeScript, Three
 ```sh
 npm test
 npm run typecheck
-npm exec oxlint -- app lib/campaign.ts lib/campaign.test.ts lib/naval lib/pillbox lib/air
+npm exec oxlint -- app lib/campaign.ts lib/campaign.test.ts lib/naval lib/pillbox lib/air lib/bunker
 NEXT_PUBLIC_BASE_PATH=/BeachHead npm run build
 ```
 

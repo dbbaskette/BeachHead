@@ -1523,3 +1523,44 @@ kbd {
 .bunker-preview .bunker-preview-note { font-size:12px; color:#baa986; }
 .bunker-preview-back { min-height:44px; padding:10px 18px; margin-top:6px; border:1px solid #e9bd79; border-radius:4px; background:#e9bd79; color:#182d36; font-weight:600; }
 @media(max-width:500px) { .bunker-preview-header { padding-left:16px; font-size:10px; }.bunker-preview-copy { padding:18px 16px; }.bunker-preview figcaption { padding:9px 16px; } }
+
+/* Stage 4: a compact first-person bunker sample. */
+.bunker-game { position:relative; height:100dvh; min-height:0; overflow:hidden; background:#182126; color:#eee9d9; outline:none; font-family:Arial,sans-serif; }
+.bunker-canvas,.bunker-look { position:absolute; inset:0; }
+.bunker-canvas canvas { display:block; }
+.bunker-look { touch-action:none; z-index:1; }
+.bunker-look.active { cursor:crosshair; }
+.bunker-header { position:absolute; z-index:5; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; gap:16px; padding:18px 28px; background:linear-gradient(#0a121bc9,transparent); pointer-events:none; }
+.bunker-header>div>span { font-weight:800; letter-spacing:2px; font-size:18px; }
+.bunker-header small { display:block; font-size:9px; letter-spacing:1.5px; margin-top:6px; color:#d6c4a2; }
+.bunker-header nav { display:flex; gap:7px; pointer-events:auto; }
+.bunker-game button { cursor:pointer; touch-action:none; }
+.bunker-game button:focus-visible { outline:3px solid #ecd09a; outline-offset:3px; }
+.bunker-header button { display:grid; place-items:center; min-width:44px; height:44px; background:#152028ad; border:1px solid #d2c5a23b; border-radius:4px; }
+.bunker-header button svg { width:20px; }
+.bunker-crosshair { position:absolute; pointer-events:none; left:50%; top:50%; z-index:3; width:14px; height:14px; transform:translate(-50%,-50%); filter:drop-shadow(0 1px 2px #000); opacity:.8; }
+.bunker-crosshair i { position:absolute; top:6px; left:0; height:2px; width:14px; background:#ede6c5; }.bunker-crosshair i+i { transform:rotate(90deg); }
+.bunker-damage { position:absolute; inset:0; z-index:2; pointer-events:none; transition:box-shadow .15s; }.bunker-damage.hit { box-shadow:inset 0 0 100px #af33149c; }
+.bunker-objective { position:absolute; z-index:3; top:88px; left:50%; transform:translateX(-50%); color:#efe3c6; font-size:12px; text-align:center; text-shadow:0 2px 4px #000; pointer-events:none; }
+.bunker-hud { position:absolute; bottom:22px; left:28px; right:28px; z-index:4; display:flex; gap:20px; justify-content:space-between; align-items:end; pointer-events:none; text-shadow:0 1px 4px #000; }
+.bunker-hud small { display:block; font-size:9px; letter-spacing:1.5px; color:#d0c8b4; }.bunker-hud strong { font-size:32px; line-height:1.2; font-weight:500; }.bunker-hud strong span { font-size:15px; color:#c3bcaa; }
+.bunker-location { text-align:center; font-size:12px; }.bunker-location small { margin-top:8px; font-size:10px; letter-spacing:0; }
+.bunker-reload { pointer-events:auto; text-align:right; padding:8px 12px; background:#122025a8; border:1px solid #cabb9140; border-radius:4px; min-height:54px; }
+.bunker-overlay { position:absolute; inset:0; z-index:10; display:grid; place-items:center; padding:80px 20px 20px; background:linear-gradient(90deg,#0a151ade,#11212955); overflow:auto; }
+.bunker-panel { width:min(560px,100%); margin:auto; padding:32px; border:1px solid #cbb68854; border-radius:5px; background:#172429ed; box-shadow:0 20px 80px #0006; }
+.bunker-panel h1 { font-size:clamp(34px,5vw,54px); line-height:1.02; letter-spacing:-1.5px; margin:14px 0 22px; }
+.bunker-panel p { font-size:14px; line-height:1.65; color:#cad0c9; margin:0 0 18px; }
+.bunker-panel .bunker-eyebrow { font-size:10px; color:#e2c48f; letter-spacing:2px; }
+.bunker-mission-facts { display:flex; gap:12px; margin:22px 0; }.bunker-mission-facts span { padding:8px 12px; border:1px solid #d7c8a33b; font-size:11px; color:#e9d6ae; }
+.bunker-panel .bunker-control-help { font-size:12px; padding-top:16px; border-top:1px solid #cfcbb42a; }.bunker-panel .bunker-tip { font-size:12px; color:#bcbda8; }
+.bunker-primary { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; min-height:50px; border-radius:3px; background:#e9bd79; color:#172c33; font-size:15px; font-weight:700; }.bunker-primary:disabled { opacity:.5; cursor:wait; }.bunker-primary svg { width:18px; }
+.bunker-panel-links { display:flex; justify-content:space-between; gap:15px; margin-top:20px; }.bunker-panel-links button { min-height:44px; font-size:12px; color:#ced2c5; text-decoration:underline; text-underline-offset:4px; }
+.bunker-touch-controls { position:absolute; z-index:5; bottom:max(18px,env(safe-area-inset-bottom)); left:max(18px,env(safe-area-inset-left)); right:max(18px,env(safe-area-inset-right)); display:flex; justify-content:space-between; pointer-events:none; user-select:none; -webkit-user-select:none; }
+.bunker-move,.bunker-fire { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; width:100px; height:100px; border-radius:50%; border:1px solid #d0cfb785; background:#20363888; color:#e4dfc8; pointer-events:auto; gap:4px; }
+.bunker-move svg { width:28px; opacity:.6; }.bunker-move i { position:absolute; inset:30px; border-radius:50%; background:#e3c58d33; border:1px solid #e3c58d88; }.bunker-move span { position:absolute; bottom:10px; font-size:11px; }
+.bunker-fire { background:#7f633bbd; border:2px solid #e3bf7b; }.bunker-fire svg { width:23px; }.bunker-fire b { font-size:16px; }.bunker-fire span { font-size:9px; }
+.bunker-touch .bunker-header { padding:10px max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left)); }.bunker-touch .bunker-header>div>span { font-size:14px; }.bunker-touch .bunker-header small { font-size:8px; letter-spacing:.5px; }
+.bunker-touch .bunker-objective { top:72px; font-size:11px; width:80%; }
+.bunker-touch .bunker-hud { left:20px; right:20px; bottom:135px; }.bunker-touch .bunker-location { display:none; }.bunker-touch .bunker-hud strong { font-size:23px; }
+.bunker-touch .bunker-overlay { padding:75px 16px 16px; }.bunker-touch .bunker-panel { padding:22px; }.bunker-touch .bunker-panel h1 { font-size:38px; }
+@media(max-height:500px) { .bunker-overlay,.bunker-touch .bunker-overlay { padding:60px 16px 12px; }.bunker-panel { padding:22px; }.bunker-panel h1 { font-size:34px; margin:10px 0 12px; }.bunker-panel p { margin-bottom:12px; }.bunker-mission-facts { margin:12px 0; }.bunker-touch .bunker-header small { display:none; }.bunker-touch .bunker-objective { top:56px; }.bunker-touch .bunker-hud { left:132px; right:132px; bottom:16px; }.bunker-touch .bunker-hud strong { font-size:23px; }.bunker-touch .bunker-reload { padding:6px 10px; }.bunker-touch-controls { bottom:12px; }.bunker-move,.bunker-fire { width:88px; height:88px; } }
