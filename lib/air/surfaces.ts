@@ -99,16 +99,17 @@ export function instrumentTexture() {
     c.font = '16px monospace';
     c.fillText(
       name === 'ALT'
-        ? '×100'
+        ? '×100 M'
         : name === 'RPM'
           ? '×1000'
           : name === 'OIL'
             ? 'PSI'
-            : 'MPH',
+            : '×100 KT',
       x,
       y + 38,
     );
-    const angle = (value % 9) * 0.23 - 2.1;
+    const maximum = name === 'RPM' ? 7000 : name === 'OIL' ? 70 : 700;
+    const angle = (0.68 + (value / maximum) * 1.65) * Math.PI;
     c.strokeStyle = '#e1ddbc';
     c.lineWidth = 3;
     c.beginPath();
@@ -117,7 +118,7 @@ export function instrumentTexture() {
       x + Math.cos(angle) * (radius - 22),
       y + Math.sin(angle) * (radius - 22),
     );
-    c.stroke();
+    if (name !== 'ALT') c.stroke();
     c.fillStyle = '#808b7d';
     c.beginPath();
     c.arc(x, y, 5, 0, Math.PI * 2);
@@ -206,4 +207,94 @@ export function coastalMaterial(map: THREE.Texture, normal: THREE.Texture) {
   };
   material.customProgramCacheKey = () => 'air-coast-v2';
   return material;
+}
+
+/** Painted wing skin: subdued seams, rivets, access panels and period-style markings. */
+export function aircraftSkin() {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const c = canvas.getContext('2d')!;
+  c.fillStyle = '#70765a';
+  c.fillRect(0, 0, 1024, 512);
+  const shade = c.createLinearGradient(0, 0, 0, 512);
+  shade.addColorStop(0, '#93977b');
+  shade.addColorStop(0.2, '#747a5d');
+  shade.addColorStop(1, '#505742');
+  c.fillStyle = shade;
+  c.fillRect(0, 0, 1024, 512);
+  let seed = 8201;
+  for (let i = 0; i < 9000; i++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const x = seed % 1024;
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const y = seed % 512;
+    c.fillStyle = i % 3 ? '#181d1510' : '#d3d0ad25';
+    c.fillRect(x, y, 1 + (i % 3), 1);
+  }
+  for (let i = 0; i < 5; i++) {
+    c.fillStyle = i % 2 ? '#242b26' : '#cecdb7';
+    c.fillRect(565 + i * 35, 0, 35, 512);
+  }
+  c.strokeStyle = '#242d2666';
+  c.lineWidth = 1.5;
+  for (const x of [180, 335, 490, 780, 922]) {
+    c.beginPath();
+    c.moveTo(x, 0);
+    c.lineTo(x, 512);
+    c.stroke();
+    for (let y = 8; y < 512; y += 15) {
+      c.fillStyle = '#c0c0a255';
+      c.fillRect(x + 4, y, 1.5, 1.5);
+    }
+  }
+  for (const y of [65, 160, 405]) {
+    c.beginPath();
+    c.moveTo(0, y);
+    c.lineTo(1024, y);
+    c.stroke();
+  }
+  for (const x of [255, 420]) {
+    c.strokeRect(x, 210, 65, 88);
+    for (const y of [216, 290]) {
+      c.fillStyle = '#c0c0a2';
+      c.fillRect(x + 5, y, 2, 2);
+      c.fillRect(x + 57, y, 2, 2);
+    }
+  }
+  // Five-point star and bars, rendered in the wing's physical aspect ratio.
+  c.save();
+  c.translate(847, 254);
+  c.scale(1, 2.3);
+  c.fillStyle = '#273b4b';
+  c.fillRect(-70, -19, 140, 38);
+  c.beginPath();
+  c.arc(0, 0, 43, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = '#dedfc9';
+  c.fillRect(-66, -12, 132, 24);
+  c.fillStyle = '#273b4b';
+  c.beginPath();
+  c.arc(0, 0, 39, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = '#dedfc9';
+  c.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const angle = -Math.PI / 2 + (i * Math.PI) / 5,
+      r = i % 2 ? 16 : 37;
+    if (i) c.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+    else c.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
+  }
+  c.closePath();
+  c.fill();
+  c.restore();
+  c.fillStyle = '#dbdbc28a';
+  c.font = '9px monospace';
+  c.fillText('NO STEP', 286, 430);
+  c.fillText('FUEL', 415, 193);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
 }

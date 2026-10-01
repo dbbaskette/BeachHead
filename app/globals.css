@@ -1502,3 +1502,11 @@ kbd {
   .touch-nav-status b { font-size:12px; }
   .pillbox-game.touch-layout .touch-readouts { max-width:190px; }
 }
+
+/* Leave the center clear so the modeled cockpit remains visible on desktop. */
+@media (min-width:901px) and (min-height:551px) {
+  .air-instruments { left:20px; right:20px; bottom:18px; transform:none; display:grid; grid-template-columns:135px 160px minmax(160px,1fr) 145px 145px; gap:14px; padding:0; background:none; border:0; pointer-events:none; }
+  .air-instruments>div { padding:12px; background:#132c38d9; border:1px solid #a5b9b238; border-radius:5px; min-width:0; align-self:end; }
+  .air-instruments>div:nth-child(3) { grid-column:4; }
+  .air-instruments>.air-bomb-button { grid-column:5; pointer-events:auto; }
+}

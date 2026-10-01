@@ -24,3 +24,9 @@ The air stage now uses world-scale, warped sand sampling and a gradual, noise-bl
 Original procedural paint and a locally generated instrument atlas add panel seams, rivets, worn finishes and smaller analog faces. Landing craft have rounded hull corners, interior ribs, benches, ramp treads, cabin glazing, gunwales and fenders. Static fittings are merged per material at the existing detail distance. A joined canopy frame and translucent propeller disc replace disconnected cockpit bars and discrete spinning blades. The instruments are decorative; the HUD remains the authoritative flight readout.
 
 Desktop directional shadows follow the aircraft with a bounded 1024px map; phone layouts omit the shadow pass. All new resources belong to the air scene and require no additional network assets. Shared Stage 1/2 rendering and all weapon, mission and terrain physics remain unchanged.
+
+## Aircraft refinement
+
+`lib/air/aircraft.ts` now builds the original WWII-inspired fighter-bomber from a smooth sectioned fuselage and mirrored, cambered airfoil wings with taper and dihedral. It adds cowling lips, cooling flaps, exhaust stacks, wing-root fairings, painted star-and-bar/invasion markings, navigation lights and bank-driven ailerons. These are visual refinements to the guided aircraft, not a historical replica or a new flight model.
+
+The cockpit has an angular windshield, connected canopy rails and sidewalls, a sloping anti-glare hood, side controls and a compact reflector sight. Desktop status panels leave the central instrument cluster visible. The altitude needle follows actual mission altitude; other dial faces remain decorative. Portrait retains the existing clear-panel behavior. Static airframe fittings are merged by material; guns and bomb-rack transforms retain their tested ballistic alignment.

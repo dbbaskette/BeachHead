@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { AirArt, makeAirframe, makeCoast, makeTargetModel } from './art';
 import { createTargets, shoreline, terrainHeight } from './targets';
 import { makeCoastalAtmosphere } from './coastal-atmosphere';
+import { wingGeometry } from './aircraft';
 
 void test('refined coastline stays on the ballistic terrain and owns all rendering resources', () => {
   const art = new AirArt();
@@ -72,4 +73,20 @@ void test('atmosphere is driven by mission time, without allocating during pause
   );
   atmosphere.dispose();
   art.dispose();
+});
+
+void test('mirrored airfoils have outward normals and tapered tips', () => {
+  for (const side of [-1, 1]) {
+    const geometry = wingGeometry(side),
+      position = geometry.attributes.position,
+      normal = geometry.attributes.normal;
+    for (let row = 0; row < 8; row++) {
+      assert.ok(normal.getY(row * 33 + 8) > 0.7, 'upper wing faces the sky');
+      assert.ok(normal.getY(row * 33 + 24) < -0.7, 'underside faces down');
+    }
+    const rootChord = position.getZ(16) - position.getZ(0),
+      tipChord = position.getZ(7 * 33 + 16) - position.getZ(7 * 33);
+    assert.ok(rootChord > tipChord * 1.5);
+    geometry.dispose();
+  }
 });
