@@ -8,26 +8,17 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
-import { guardReaction } from './reactions';
+import { PELVIS_HEIGHT } from './reactions';
+import {
+  animateGuard,
+  resetGuardActor,
+  type GuardActor,
+} from './guard-animation';
 import { uniformMaterial, guardClips } from './uniform';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
 import { rooms, solids, type BunkerState, type Effect } from './simulation';
 
-type Actor = {
-  root: T.Group;
-  model: T.Object3D;
-  mixer: T.AnimationMixer;
-  idle: T.AnimationAction;
-  walk: T.AnimationAction;
-  helmet?: T.Object3D;
-  head?: T.Object3D;
-  flash: T.Mesh;
-  arms: (T.Object3D | undefined)[];
-  rifle: T.Group;
-  joints: { bone: T.Object3D; rest: T.Quaternion; name: string }[];
-  deathPose?: T.Quaternion[];
-};
 type Particle = {
   mesh: T.Mesh;
   velocity: T.Vector3;
@@ -46,7 +37,7 @@ export class BunkerScene {
   private weapon = new T.Group();
   private muzzle: T.Mesh;
   private muzzleLight = new T.PointLight('#ffc57a', 0, 4);
-  private guards: Actor[] = [];
+  private guards: GuardActor[] = [];
   private particles: Particle[] = [];
   private stains: { mesh: T.Mesh; life: number }[] = [];
   private medkit = new T.Group();
@@ -682,11 +673,14 @@ export class BunkerScene {
     const [idleClip, walkClip] = guardClips(gltf.scene);
     for (let i = 0; i < 4; i++) {
       const root = new T.Group(),
-        model = clone(gltf.scene);
+        model = clone(gltf.scene),
+        body = new T.Group();
+      root.add(body);
+      body.position.y = -PELVIS_HEIGHT;
       model.scale.setScalar(scale);
       model.rotation.y = Math.PI;
       model.position.y = -bounds.min.y * scale;
-      root.add(model);
+      body.add(model);
       this.scene.add(root);
       let head: T.Object3D | undefined;
       model.traverse((o) => {
@@ -699,7 +693,7 @@ export class BunkerScene {
       });
       const helmet = model.getObjectByName('Helmet');
       const flash = this.part(
-        root,
+        body,
         new T.SphereGeometry(0.09, 8, 6),
         new T.MeshBasicMaterial({ color: '#ffd087' }),
         [0.2, 1.28, -0.65],
@@ -721,7 +715,7 @@ export class BunkerScene {
         },
       );
       const rifle = new T.Group();
-      root.add(rifle);
+      body.add(rifle);
       this.part(
         rifle,
         new T.BoxGeometry(0.085, 0.095, 0.48),
@@ -741,9 +735,14 @@ export class BunkerScene {
         this.metal,
         [0, 1.12, -0.23],
       );
-      flash.position.set(0, 1.29, -0.9);
+      for (const child of rifle.children)
+        child.position.sub(new T.Vector3(0, 1.25, -0.35));
+      rifle.position.set(0, 1.25, -0.35);
+      rifle.add(flash);
+      flash.position.set(0, 0.04, -0.55);
       this.guards.push({
         root,
+        body,
         model,
         mixer,
         idle,
@@ -753,8 +752,28 @@ export class BunkerScene {
         flash,
         arms,
         rifle,
+        walkWeight: 0,
+        floorLift: 0,
+        floorPoints: [
+          ['Head', 0.13],
+          ['LeftFoot', 0.08],
+          ['RightFoot', 0.08],
+          ['LeftHand', 0.055],
+          ['RightHand', 0.055],
+          ['Spine', 0.14],
+          ['LeftLeg', 0.09],
+          ['RightLeg', 0.09],
+          ['LeftArm', 0.075],
+          ['RightArm', 0.075],
+        ].flatMap(([name, radius]) => {
+          const bone = model.getObjectByName(name as string);
+          return bone ? [{ bone, radius: radius as number }] : [];
+        }),
         joints: [
           'Spine',
+          'Spine1',
+          'Spine2',
+          'Neck',
           'Head',
           'LeftUpLeg',
           'RightUpLeg',
@@ -788,13 +807,7 @@ export class BunkerScene {
       (stain.mesh.material as T.Material).dispose();
     }
     this.stains = [];
-    this.guards.forEach((g) => {
-      g.deathPose = undefined;
-      g.joints.forEach((j) => j.bone.quaternion.copy(j.rest));
-      g.rifle.position.set(0, 0, 0);
-      g.rifle.rotation.set(0, 0, 0);
-      g.mixer.setTime(0);
-    });
+    this.guards.forEach(resetGuardActor);
   }
   private stain(x: number, z: number, seed: number) {
     if (this.stains.length >= 32) {
@@ -907,86 +920,7 @@ export class BunkerScene {
     b.guards.forEach((g, i) => {
       const a = this.guards[i];
       if (!a) return;
-      const reaction = guardReaction(g);
-      a.root.rotation.order = 'YXZ';
-      a.root.position.set(g.x, reaction.height, g.z);
-      a.root.rotation.y =
-        g.health > 0 ? Math.atan2(g.x - b.x, g.z - b.z) : a.root.rotation.y;
-      a.root.rotation.x = reaction.pitch;
-      a.root.rotation.z = reaction.roll;
-      if (g.health > 0) {
-        a.deathPose = undefined;
-        // Restore non-animated joints before applying each frame's flinch.
-        for (const joint of a.joints)
-          if (joint.name === 'Head') joint.bone.quaternion.copy(joint.rest);
-        a.idle.setEffectiveWeight(g.moving ? 0 : 1);
-        a.walk.setEffectiveWeight(g.moving ? 1 : 0);
-        a.mixer.update(frame);
-        // Aim the animated arms at the rifle using each bone's local +Y axis.
-        a.root.updateMatrixWorld(true);
-        for (let arm = 0; arm < a.arms.length; arm++) {
-          const bone = a.arms[arm];
-          if (!bone?.parent) continue;
-          const side = arm < 2 ? -1 : 1;
-          const target = a.root.localToWorld(
-            new T.Vector3(
-              side * (arm % 2 ? 0.09 : 0.28),
-              arm % 2 ? 1.25 : 1.1,
-              arm % 2 ? -0.4 : -0.12,
-            ),
-          );
-          const direction = target
-            .sub(bone.getWorldPosition(new T.Vector3()))
-            .normalize();
-          const desired = new T.Quaternion().setFromUnitVectors(
-            new T.Vector3(0, 1, 0),
-            direction,
-          );
-          const parent = bone.parent
-            .getWorldQuaternion(new T.Quaternion())
-            .invert();
-          bone.quaternion.copy(parent.multiply(desired));
-          bone.updateMatrixWorld(true);
-        }
-      }
-      if (g.health <= 0) {
-        if (!a.deathPose)
-          a.deathPose = a.joints.map((j) => j.bone.quaternion.clone());
-        a.joints.forEach((joint, index) => {
-          joint.bone.quaternion.copy(a.deathPose![index]);
-          const leg = joint.name.endsWith('Leg'),
-            arm = joint.name.includes('Arm');
-          if (leg)
-            joint.bone.rotateX(
-              (joint.name.includes('Up') ? -1 : 1.6) * reaction.knees,
-            );
-          if (joint.name === 'Spine') joint.bone.rotateX(reaction.fold);
-          if (joint.name === 'Head')
-            joint.bone.rotateZ(reaction.fall * 0.18 * (g.id % 2 ? 1 : -1));
-          if (arm) {
-            joint.bone.rotateX(reaction.fall * 0.45);
-            joint.bone.rotateZ(
-              reaction.fall * (joint.name.startsWith('Left') ? -0.35 : 0.35),
-            );
-          }
-        });
-        // Rifle slips down from the hands during collapse, without explosive knockback.
-        a.rifle.position.y = -reaction.fall * 0.35;
-        a.rifle.rotation.z = reaction.fall * (g.id % 2 ? 0.45 : -0.45);
-      } else {
-        for (const joint of a.joints) {
-          if (joint.name === 'Spine') joint.bone.rotateX(reaction.fold);
-          if (joint.name.endsWith('Leg'))
-            joint.bone.rotateX(
-              reaction.knees * (joint.name.includes('Up') ? -1 : 1),
-            );
-          if (joint.name === 'Head' && g.hitRegion === 'head')
-            joint.bone.rotateX(reaction.pitch);
-        }
-        a.rifle.position.y = -Math.sin((g.hitTime / 0.32) * Math.PI) * 0.055;
-        a.rifle.rotation.z = 0;
-      }
-      a.flash.visible = active && g.health > 0 && g.flash > 0;
+      animateGuard(a, g, frame, this.scene, active);
     });
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
