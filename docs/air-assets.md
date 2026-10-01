@@ -16,3 +16,11 @@ Audio reuses `pillbox-machine-gun-fire.mp3`, the modified **Light Machine Gun** 
 - Projectiles, target health, scoring and mission clocks run at fixed 60 Hz. The renderer, reticles and effects cannot alter a hit. Bombs have a 12-second lifetime, and the final result waits for committed bombs.
 
 See [validation](stage-3-validation.md) for measured results and remaining platform checks.
+
+## Coastal realism pass
+
+The air stage now uses world-scale, warped sand sampling and a gradual, noise-blended transition through wet sand, dunes and scrub. Terrain vertices still use the simulation's height function. Clustered, multi-lobed tree canopies and crossed beach obstacles replace the cone trees and single posts. Two bounded atmosphere draws add shallow-water tint, broken surf lines and thin coastal mist, driven by mission time so they freeze with pause.
+
+Original procedural paint and a locally generated instrument atlas add panel seams, rivets, worn finishes and smaller analog faces. Landing craft have rounded hull corners, interior ribs, benches, ramp treads, cabin glazing, gunwales and fenders. Static fittings are merged per material at the existing detail distance. A joined canopy frame and translucent propeller disc replace disconnected cockpit bars and discrete spinning blades. The instruments are decorative; the HUD remains the authoritative flight readout.
+
+Desktop directional shadows follow the aircraft with a bounded 1024px map; phone layouts omit the shadow pass. All new resources belong to the air scene and require no additional network assets. Shared Stage 1/2 rendering and all weapon, mission and terrain physics remain unchanged.

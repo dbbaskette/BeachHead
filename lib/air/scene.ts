@@ -4,6 +4,7 @@ import { makeOcean, makeSky } from '../naval/ocean';
 import { COASTAL_SUN } from '../naval/daylight';
 import { ShellSplashVisuals } from '../naval/shell-splashes';
 import { AirEffects } from './effects';
+import { makeCoastalAtmosphere } from './coastal-atmosphere';
 import { hardpoint } from './flight';
 import {
   bombSolution,
@@ -22,6 +23,8 @@ export class AirScene {
   private art = new AirArt();
   private aircraft = makeAirframe(this.art);
   private coast = makeCoast(this.art);
+  private atmosphere = makeCoastalAtmosphere(this.art);
+  private sun = new THREE.DirectionalLight('#ffe5bd', 2.8);
   private ocean = makeOcean();
   private sky = makeSky();
   private environment: THREE.WebGLRenderTarget;
@@ -82,29 +85,42 @@ export class AirScene {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     this.renderer.shadowMap.enabled = !this.touch.matches;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('webglcontextlost', this.onLost);
     this.scene.add(
       this.sky,
       this.ocean.mesh,
       this.coast,
+      this.atmosphere.root,
       this.aircraft.root,
       this.trails,
       this.flakTrails,
       this.bombs,
     );
     this.scene.fog = new THREE.FogExp2('#b0c4c6', 0.00017);
-    this.scene.add(new THREE.HemisphereLight('#d4e4e4', '#5d6652', 1.3));
-    const sun = new THREE.DirectionalLight('#ffe5bd', 2.5);
-    sun.position.copy(COASTAL_SUN).multiplyScalar(500);
-    this.scene.add(sun);
+    this.scene.add(new THREE.HemisphereLight('#d4e4e4', '#5d6652', 0.85));
+    const sun = this.sun;
+    sun.castShadow = !this.touch.matches;
+    sun.shadow.mapSize.set(1024, 1024);
+    Object.assign(sun.shadow.camera, {
+      left: -350,
+      right: 350,
+      top: 350,
+      bottom: -350,
+      near: 1,
+      far: 1700,
+    });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -0.0002;
+    sun.shadow.normalBias = 0.65;
+    this.scene.add(sun, sun.target);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const skyScene = new THREE.Scene();
     skyScene.add(this.sky.clone());
     this.environment = pmrem.fromScene(skyScene, 0.12, 0.1, 14000);
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.32;
+    this.scene.environmentIntensity = 0.4;
     pmrem.dispose();
     this.trailGeometry.setAttribute(
       'position',
@@ -204,6 +220,16 @@ export class AirScene {
       })),
     });
     this.sky.material.uniforms.time.value = b.time;
+    this.atmosphere.update(b.time);
+    // Snap the moving shadow coverage to texels to avoid shimmering in flight.
+    const sx = Math.round(f.position.x / 1.37) * 1.37,
+      sz = Math.round(f.position.z / 1.37) * 1.37;
+    this.sun.target.position.set(sx, 0, sz);
+    this.sun.position
+      .copy(COASTAL_SUN)
+      .multiplyScalar(800)
+      .add(this.sun.target.position);
+    this.sun.target.updateMatrixWorld();
     const live = new Set(b.targets.filter((t) => t.active).map((t) => t.id));
     for (const [id, m] of this.targets)
       if (!live.has(id)) m.root.visible = false;
@@ -394,6 +420,8 @@ export class AirScene {
     this.environment.dispose();
     this.sky.geometry.dispose();
     this.sky.material.dispose();
+    this.atmosphere.dispose();
+    this.sun.shadow.dispose();
     this.art.dispose();
     this.trailGeometry.dispose();
     this.trails.material.dispose();

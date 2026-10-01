@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { assetUrl } from '../asset-url';
 import { GUNS, RACKS } from './flight';
 import { CONVERGENCE } from './weapons';
 import { shoreline, terrainHeight } from './targets';
 import type { AirTarget } from './types';
+import { coastalMaterial, instrumentTexture, paintTexture } from './surfaces';
 
 /** Every mesh shares scene-owned resources; retry only restores transforms. */
 export class AirArt {
@@ -13,6 +15,7 @@ export class AirArt {
   box = this.geo(new THREE.BoxGeometry(1, 1, 1));
   sphere = this.geo(new THREE.SphereGeometry(1, 12, 8));
   cylinder = this.geo(new THREE.CylinderGeometry(1, 1, 1, 12));
+  fender = this.geo(new THREE.TorusGeometry(0.65, 0.2, 6, 12));
   olive = this.mat('#555c3e', 0.72);
   steel = this.mat('#555e60', 0.57);
   dark = this.mat('#1f292b', 0.74);
@@ -22,6 +25,12 @@ export class AirArt {
   red = this.mat('#913c2a', 0.7);
   glass = this.mat('#99c5cc', 0.18);
   wood = this.mat('#74634a', 0.95);
+  paint = paintTexture();
+  constructor() {
+    this.textures.add(this.paint);
+    for (const material of [this.olive, this.steel, this.pale])
+      material.map = this.paint;
+  }
   geo<T extends THREE.BufferGeometry>(g: T) {
     this.geometries.add(g);
     return g;
@@ -77,15 +86,16 @@ export class AirArt {
 export function makeAirframe(a: AirArt) {
   const root = new THREE.Group();
   root.name = 'player-fighter-bomber';
+  const smooth = a.geo(new THREE.SphereGeometry(1, 36, 24));
   const fuselage = a.mesh(
     root,
-    a.sphere,
+    smooth,
     a.olive,
     [0, -0.55, -1],
     [1.15, 1.12, 5.8],
   );
   fuselage.castShadow = true;
-  a.mesh(root, a.sphere, a.steel, [0, -0.5, -5.5], [0.94, 0.94, 1.2]);
+  a.mesh(root, smooth, a.steel, [0, -0.5, -5.5], [0.94, 0.94, 1.2]);
   for (const side of [-1, 1]) {
     const wing = a.block(
       root,
@@ -111,13 +121,6 @@ export function makeAirframe(a: AirArt) {
       );
     a.block(root, a.olive, [side * 1.9, 0.02, 4.7], [3.3, 0.17, 1.5]);
     a.block(root, a.dark, [side * 0.91, 2.85, -0.45], [0.07, 0.07, 3.6]);
-    const strut = a.block(
-      root,
-      a.steel,
-      [side * 0.93, 3.62, -1.5],
-      [0.055, 1.45, 0.055],
-    );
-    strut.rotation.z = side * 0.23;
     a.block(root, a.steel, [side * 0.95, 0.5, -3], [0.16, 0.14, 2.9]);
     for (let i = 0; i < 8; i++)
       a.mesh(
@@ -128,38 +131,53 @@ export function makeAirframe(a: AirArt) {
         [0.027, 0.027, 0.027],
       );
   }
+  const canopyCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.91, 2.85, -1.5),
+    new THREE.Vector3(-1.05, 3.8, -1.6),
+    new THREE.Vector3(-0.68, 4.65, -1.8),
+    new THREE.Vector3(0, 4.87, -1.85),
+    new THREE.Vector3(0.68, 4.65, -1.8),
+    new THREE.Vector3(1.05, 3.8, -1.6),
+    new THREE.Vector3(0.91, 2.85, -1.5),
+  ]);
+  a.mesh(
+    root,
+    a.geo(new THREE.TubeGeometry(canopyCurve, 32, 0.028, 6, false)),
+    a.steel,
+    [0, 0, 0],
+    [1, 1, 1],
+  );
   const fin = a.block(root, a.olive, [0, 0.8, 4.7], [0.18, 2.2, 1.65]);
   fin.rotation.x = -0.2;
   const cockpit = new THREE.Group();
   root.add(cockpit);
-  const panel = a.block(cockpit, a.dark, [0, 2.74, -0.7], [1.92, 0.85, 0.25]);
-  panel.rotation.x = -0.18;
-  const dialGeo = a.geo(new THREE.CylinderGeometry(0.17, 0.17, 0.02, 20));
-  for (let i = 0; i < 5; i++) {
-    const dial = a.mesh(
+  const panel = a.block(cockpit, a.dark, [0, 2.48, -0.85], [1.88, 0.7, 0.19]);
+  const instruments = instrumentTexture();
+  if (instruments) {
+    a.textures.add(instruments);
+    const face = new THREE.MeshStandardMaterial({
+      map: instruments,
+      roughness: 0.66,
+      metalness: 0.12,
+    });
+    a.materials.add(face);
+    a.mesh(
       cockpit,
-      dialGeo,
-      a.pale,
-      [-0.68 + i * 0.34, 2.85, -0.54],
+      a.geo(new THREE.PlaneGeometry(1.8, 0.675)),
+      face,
+      [0, 2.48, -0.744],
       [1, 1, 1],
     );
-    dial.rotation.x = Math.PI / 2;
-    const face = a.mesh(
-      cockpit,
-      dialGeo,
-      a.rubber,
-      [-0.68 + i * 0.34, 2.85, -0.525],
-      [0.86, 0.86, 1],
-    );
-    face.rotation.x = Math.PI / 2;
-    const needle = a.block(
-      cockpit,
-      a.pale,
-      [-0.68 + i * 0.34, 2.9, -0.5],
-      [0.012, 0.11, 0.012],
-    );
-    needle.rotation.z = (i - 2) * 0.4;
   }
+  // Padded coaming shields instruments without covering the gunsight.
+  a.mesh(
+    cockpit,
+    a.cylinder,
+    a.rubber,
+    [0, 2.85, -0.78],
+    [0.06, 1.98, 0.06],
+  ).rotation.z = Math.PI / 2;
+  panel.name = 'instrument-panel';
   a.block(root, a.dark, [0, 1.12, -2.1], [0.24, 0.42, 0.24]);
   const sight = a.block(root, a.glass, [0, 1.5, -2.25], [0.44, 0.33, 0.015]);
   sight.material = a.glass.clone();
@@ -179,10 +197,16 @@ export function makeAirframe(a: AirArt) {
     depthWrite: false,
   });
   a.materials.add(propMaterial);
-  for (let i = 0; i < 3; i++) {
-    const blade = a.block(prop, propMaterial, [0, 0, 0], [0.23, 4.6, 0.08]);
-    blade.rotation.z = (i * Math.PI) / 3;
-  }
+  propMaterial.side = THREE.DoubleSide;
+  propMaterial.opacity = 0.075;
+  a.mesh(
+    prop,
+    a.geo(new THREE.RingGeometry(0.38, 2.3, 64)),
+    propMaterial,
+    [0, 0, 0],
+    [1, 1, 1],
+  );
+  a.mesh(root, smooth, a.steel, [0, -0.5, -6.6], [0.36, 0.36, 0.62]);
   const gunNodes = GUNS.map((p, i) => {
     const n = new THREE.Object3D();
     n.name = `air-gun-${i}`;
@@ -230,6 +254,7 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
         : '#687263',
     0.72,
   );
+  hull.map = a.paint;
   if (['craft', 'carrier', 'command'].includes(t.kind)) {
     const command = t.kind === 'command',
       length = command ? 124 : t.half.x * 2,
@@ -289,15 +314,76 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
         a.block(detail, a.dark, [0, 10, z - 5], [0.8, 0.8, 11]);
       }
     } else {
-      a.block(root, hull, [0, 2, 0], [width, 4, length]);
+      const hullShape = new THREE.Shape();
+      hullShape.moveTo(-width * 0.43, -length * 0.5);
+      hullShape.lineTo(width * 0.43, -length * 0.5);
+      hullShape.lineTo(width * 0.5, length * 0.34);
+      hullShape.quadraticCurveTo(
+        width * 0.5,
+        length * 0.5,
+        width * 0.3,
+        length * 0.5,
+      );
+      hullShape.lineTo(-width * 0.3, length * 0.5);
+      hullShape.quadraticCurveTo(
+        -width * 0.5,
+        length * 0.5,
+        -width * 0.5,
+        length * 0.34,
+      );
+      hullShape.closePath();
+      const hullGeo = a.geo(
+        new THREE.ExtrudeGeometry(hullShape, {
+          depth: 3,
+          bevelEnabled: true,
+          bevelSize: 0.45,
+          bevelThickness: 0.5,
+          bevelSegments: 2,
+          steps: 1,
+        }),
+      );
+      hullGeo.rotateX(Math.PI / 2);
+      a.mesh(root, hullGeo, hull, [0, 3.8, 0], [1, 1, 1]);
       a.block(root, a.dark, [0, 4.1, 0], [width * 0.84, 0.5, length * 0.84]);
-      for (const side of [-1, 1])
+      for (const side of [-1, 1]) {
         a.block(
           root,
           hull,
           [side * width * 0.46, 5, 0],
           [width * 0.055, 3, length * 0.95],
         );
+        a.block(
+          detail,
+          a.pale,
+          [side * width * 0.46, 6.55, 0],
+          [0.32, 0.24, length * 0.94],
+        );
+        a.block(
+          detail,
+          a.wood,
+          [side * width * 0.34, 4.65, -length * 0.08],
+          [width * 0.16, 0.3, length * 0.54],
+        );
+        for (let i = 0; i < 6; i++) {
+          const z = -length * 0.36 + i * length * 0.14;
+          a.block(
+            detail,
+            a.steel,
+            [side * width * 0.425, 5, z],
+            [0.18, 2.8, 0.24],
+          );
+          if (i % 2 === 0) {
+            const fender = a.mesh(
+              detail,
+              a.fender,
+              a.rubber,
+              [side * width * 0.52, 3.1, z],
+              [1, 1, 1],
+            );
+            fender.rotation.y = Math.PI / 2;
+          }
+        }
+      }
     }
     if (command) {
       a.block(
@@ -357,6 +443,21 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
       );
       ramp.name = 'ramp';
       ramp.rotation.x = -0.15;
+      for (let i = 0; i < 5; i++)
+        a.block(ramp, a.steel, [0, 0.53, -0.4 + i * 0.2], [0.95, 0.07, 0.025]);
+      a.block(
+        detail,
+        a.steel,
+        [0, 10.6, length * 0.28],
+        [width * 0.77, 0.4, length * 0.24],
+      );
+      for (const side of [-1, 1])
+        a.block(
+          detail,
+          a.dark,
+          [side * width * 0.355, 8.7, length * 0.28],
+          [0.12, 1.6, length * 0.13],
+        );
       for (let n = 0; n < 4; n++)
         a.block(
           detail,
@@ -396,7 +497,7 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
     a.mesh(root, a.cylinder, a.sand, [0, 0.7, 0], [7, 1.4, 7]);
     a.mesh(root, a.cylinder, hull, [0, 2, 0], [2, 3, 2]);
     const gun = a.block(root, a.dark, [0, 5, -2], [0.6, 0.6, 8]);
-    gun.rotation.x = -0.7;
+    gun.rotation.x = 0.7;
     a.block(root, hull, [0, 4, -1], [5, 4, 0.4]);
     for (let i = 0; i < 10; i++)
       a.mesh(
@@ -417,6 +518,29 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
     for (let i = 0; i < 3; i++)
       a.mesh(detail, a.cylinder, a.dark, [-11, 2, i * 4 - 4], [1.6, 4, 1.6]);
   }
+  // Ribs, rails, cargo and fenders share one draw per material at the detail LOD.
+  const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const child of detail.children.slice()) {
+    if (!(child instanceof THREE.Mesh) || Array.isArray(child.material))
+      continue;
+    child.updateMatrix();
+    const geometry = child.geometry.clone().applyMatrix4(child.matrix);
+    const group = batches.get(child.material) ?? [];
+    group.push(geometry);
+    batches.set(child.material, group);
+    detail.remove(child);
+  }
+  for (const [material, geometries] of batches) {
+    const merged = mergeGeometries(geometries);
+    if (merged) detail.add(new THREE.Mesh(a.geo(merged), material));
+    geometries.forEach((geometry) => geometry.dispose());
+  }
+  root.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.castShadow = true;
+      object.receiveShadow = true;
+    }
+  });
   return { root, detail, hull };
 }
 
@@ -426,85 +550,120 @@ export function makeCoast(a: AirArt) {
   const geo = a.geo(new THREE.PlaneGeometry(1700, 9000, 100, 300));
   geo.rotateX(-Math.PI / 2);
   geo.translate(750, 0, 0);
-  const pos = geo.attributes.position,
-    colors = [];
+  const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i),
-      z = pos.getZ(i),
-      land = x - shoreline(z);
-    pos.setY(i, land < 0 ? -1.3 : terrainHeight(x, z));
-    const c = new THREE.Color(
-      land < 28 ? '#c4bda3' : land > 170 ? '#c3cca4' : '#ffedc4',
+    const z = pos.getZ(i),
+      inland = -60 + 1640 * Math.pow((i % 101) / 100, 1.6),
+      x = shoreline(z) + inland;
+    pos.setXYZ(
+      i,
+      x,
+      inland < 0 ? Math.max(-3, inland * 0.06) : terrainHeight(x, z),
+      z,
     );
-    const shade = 0.92 + Math.sin(x * 0.15 + z * 0.053) * 0.04;
-    c.multiplyScalar(shade);
-    colors.push(c.r, c.g, c.b);
   }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.computeVertexNormals();
   const sand = a.texture('pillbox-sand-diffuse.jpg', true),
     normal = a.texture('pillbox-sand-normal.jpg');
-  sand.repeat.set(60, 300);
-  normal.repeat.copy(sand.repeat);
-  const mat = new THREE.MeshStandardMaterial({
-    map: sand,
-    normalMap: normal,
-    normalScale: new THREE.Vector2(0.5, 0.5),
-    vertexColors: true,
-    roughness: 0.98,
-  });
+  normal.repeat.set(70, 350);
+  const mat = coastalMaterial(sand, normal);
   a.materials.add(mat);
   const land = new THREE.Mesh(geo, mat);
   land.receiveShadow = true;
   root.add(land);
-  const rocks = new THREE.InstancedMesh(a.sphere, a.wood, 240),
-    grass = new THREE.InstancedMesh(a.box, a.olive, 600),
-    obstacles = new THREE.InstancedMesh(a.box, a.dark, 160);
+  let seed = 58173;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const stone = a.geo(new THREE.IcosahedronGeometry(1, 1));
+  const rocks = new THREE.InstancedMesh(stone, a.wood, 240),
+    grass = new THREE.InstancedMesh(stone, a.mat('#686b43', 1), 600),
+    obstacles = new THREE.InstancedMesh(a.box, a.dark, 480);
   const object = new THREE.Object3D();
   for (let i = 0; i < 600; i++) {
-    const z = -3600 + ((i * 127.83) % 7200),
-      x = 85 + ((i * 63.73) % 590),
+    const z = random() * 8400 - 4200,
+      x = shoreline(z) + 85 + random() * 620,
       y = terrainHeight(x, z);
-    object.position.set(x, y + 0.7, z);
-    object.scale.set(0.6 + (i % 4), 1.4, 0.5);
-    object.rotation.set(0, i * 2.3, 0.1);
+    object.position.set(x, y + 0.25, z);
+    object.scale.set(1 + random() * 3, 0.4 + random(), 1 + random() * 2);
+    object.rotation.set(0, random() * 6.28, 0.1);
     object.updateMatrix();
     grass.setMatrixAt(i, object.matrix);
     if (i < 240) {
-      object.scale.set(1.4 + (i % 5), 0.9 + (i % 3), 1.8 + (i % 6));
+      object.scale.set(
+        1 + random() * 3,
+        0.6 + random() * 1.8,
+        1 + random() * 4,
+      );
       object.updateMatrix();
       rocks.setMatrixAt(i, object.matrix);
     }
     if (i < 160) {
-      const zz = -2200 + i * 28;
-      object.position.set(shoreline(zz) + 45, 2, zz);
-      object.scale.set(0.7, 6, 0.7);
-      object.rotation.set(0.7, 0, i % 2 ? 0.7 : -0.7);
-      object.updateMatrix();
-      obstacles.setMatrixAt(i, object.matrix);
+      const zz = -2200 + (i % 80) * 55 + random() * 16,
+        xx = shoreline(zz) + 35 + Math.floor(i / 80) * 33 + random() * 8;
+      for (let beam = 0; beam < 3; beam++) {
+        object.position.set(xx, terrainHeight(xx, zz) + 1.7, zz);
+        object.scale.set(0.35, 5, 0.35);
+        object.rotation.set(
+          beam === 2 ? Math.PI / 2 : 0.72,
+          beam * 0.9,
+          beam === 0 ? 0.8 : -0.8,
+        );
+        object.updateMatrix();
+        obstacles.setMatrixAt(i * 3 + beam, object.matrix);
+      }
     }
   }
   root.add(rocks, grass, obstacles);
-  const trunks = new THREE.InstancedMesh(a.cylinder, a.wood, 240);
-  const crowns = new THREE.InstancedMesh(
-    a.geo(new THREE.ConeGeometry(1, 1, 7)),
-    a.olive,
-    240,
-  );
-  for (let i = 0; i < 240; i++) {
-    const x = 420 + ((i * 83.17) % 1020),
-      z = -4200 + ((i * 197.39) % 8400),
-      height = 12 + (i % 13);
-    object.position.set(x, terrainHeight(x, z) + height * 0.35, z);
-    object.rotation.set(0, i, 0);
-    object.scale.set(0.6, height * 0.7, 0.6);
+  const trunks = new THREE.InstancedMesh(a.cylinder, a.wood, 280);
+  const foliage = a.mat('#4a5735', 0.97);
+  const crowns = new THREE.InstancedMesh(stone, foliage, 1120);
+  for (let i = 0; i < 280; i++) {
+    const cluster = Math.floor(i / 14),
+      cx = 420 + (cluster % 4) * 240,
+      cz = -3900 + Math.floor(cluster / 4) * 1800;
+    const x = cx + (random() - 0.5) * 280,
+      z = cz + (random() - 0.5) * 1500,
+      height = 9 + random() * 16,
+      y = terrainHeight(x, z);
+    object.position.set(x, y + height * 0.36, z);
+    object.rotation.set(0, random() * 6.28, 0);
+    object.scale.set(
+      0.35 + height * 0.025,
+      height * 0.72,
+      0.35 + height * 0.025,
+    );
     object.updateMatrix();
     trunks.setMatrixAt(i, object.matrix);
-    object.position.y = terrainHeight(x, z) + height * 0.7;
-    object.scale.set(height * 0.3, height, height * 0.3);
-    object.updateMatrix();
-    crowns.setMatrixAt(i, object.matrix);
+    for (let lobe = 0; lobe < 4; lobe++) {
+      object.position.set(
+        x + (random() - 0.5) * height * 0.45,
+        y + height * (0.55 + random() * 0.3),
+        z + (random() - 0.5) * height * 0.45,
+      );
+      object.scale.set(
+        height * (0.2 + random() * 0.16),
+        height * (0.22 + random() * 0.2),
+        height * (0.2 + random() * 0.16),
+      );
+      object.rotation.set(random(), random() * 6.28, random());
+      object.updateMatrix();
+      crowns.setMatrixAt(i * 4 + lobe, object.matrix);
+      crowns.setColorAt(
+        i * 4 + lobe,
+        new THREE.Color().setHSL(
+          0.2 + random() * 0.045,
+          0.2 + random() * 0.15,
+          0.54 + random() * 0.18,
+        ),
+      );
+    }
   }
+  crowns.castShadow = true;
+  trunks.castShadow = true;
+  rocks.castShadow = true;
+  obstacles.castShadow = true;
   root.add(trunks, crowns);
   for (let i = 0; i < 6; i++) {
     const z = -2100 + i * 800,
