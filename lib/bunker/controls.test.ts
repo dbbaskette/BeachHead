@@ -105,3 +105,53 @@ void test('a valid stationary hold stays active without a timeout; touch cleanup
   assert.equal(c.firing, false);
   off();
 });
+
+void test('keyboard independently walks, aims vertically/horizontally and fires; release stops every axis', async () => {
+  const { BunkerKeyboard } = await import('./controls');
+  const keyboard = new BunkerKeyboard(),
+    keys = new Set(['KeyW', 'KeyD', 'ArrowUp', 'ArrowRight', 'Space']);
+  const b = createBunker();
+  b.status = 'playing';
+  b.guards = [];
+  const initial = { x: b.x, z: b.z };
+  const input = keyboard.read(keys, 0.05);
+  assert.equal(input.forward, 1);
+  assert.equal(input.strafe, 1);
+  stepBunker(b, input, 0.05);
+  assert.ok(b.x > initial.x && b.z < initial.z);
+  assert.ok(b.pitch > 0 && b.yaw < 0);
+  assert.equal(b.ammo, 31);
+  keys.clear();
+  const released = keyboard.read(keys, 0.05);
+  assert.deepEqual(released, emptyInput());
+  const stop = { x: b.x, z: b.z, yaw: b.yaw, pitch: b.pitch };
+  stepBunker(b, released, 0.05);
+  assert.deepEqual({ x: b.x, z: b.z, yaw: b.yaw, pitch: b.pitch }, stop);
+  const aimOnly = keyboard.read(new Set(['ArrowUp']), 0.05);
+  assert.equal(aimOnly.forward, 0, 'looking up must not walk forward');
+});
+void test('keyboard aim ramps gently, fine mode stays precise, reversals and reset discard momentum', async () => {
+  const { BunkerKeyboard } = await import('./controls');
+  const k = new BunkerKeyboard(),
+    keys = new Set(['ArrowRight', 'ArrowUp']);
+  const first = k.read(keys, 0.05);
+  for (let i = 0; i < 10; i++) k.read(keys, 0.05);
+  const fast = k.read(keys, 0.05);
+  assert.ok(fast.turn > first.turn * 3);
+  keys.add('ShiftLeft');
+  const fine = k.read(keys, 0.05);
+  assert.equal(fine.turn, 0.2);
+  assert.equal(fine.aimPitch, 0.2);
+  keys.delete('ShiftLeft');
+  keys.delete('ArrowRight');
+  keys.add('ArrowLeft');
+  assert.equal(k.read(keys, 0.05).turn, -first.turn);
+  k.clear();
+  assert.equal(k.read(new Set(['ArrowRight']), 0.05).turn, first.turn);
+  const b = createBunker();
+  b.status = 'playing';
+  b.guards = [];
+  for (let i = 0; i < 100; i++)
+    stepBunker(b, k.read(new Set(['ArrowUp']), 0.05), 0.05);
+  assert.equal(b.pitch, 0.95);
+});

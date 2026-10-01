@@ -11,6 +11,8 @@ import {
   stepBunker,
   angleDifference,
   chooseFall,
+  prepareDeath,
+  fallVector,
 } from './simulation';
 const active = () => {
   const b = createBunker();
@@ -203,7 +205,7 @@ void test('fatal head hits initiate a bounded collapse and dead guards cannot fi
   shootBunker(b);
   assert.equal(g.hitRegion, 'head');
   assert.equal(b.effects.find((e) => e.kind === 'hit')?.fatal, true);
-  for (let i = 0; i < 30; i++) stepBunker(b, emptyInput(), 0.05);
+  for (let i = 0; i < 40; i++) stepBunker(b, emptyInput(), 0.05);
   assert.equal(g.down, 1);
   assert.equal(g.flash, 0);
   assert.equal(
@@ -279,4 +281,42 @@ void test('fatal fall direction follows impact relative to facing and avoids a w
   g.hitRegion = 'torso';
   g.hitDirection = { x: 1, z: 0 };
   assert.notEqual(chooseFall(g), 'right');
+});
+
+void test('fatal choreography varies across impacts and movement respects available room', () => {
+  const g = active().guards[0];
+  g.x = 0;
+  g.z = 8;
+  g.yaw = 0;
+  g.hitDirection = { x: 0, z: 1 };
+  const actions = new Set<string>();
+  for (let t = 0; t < 4; t++) {
+    prepareDeath(g, t / 3);
+    actions.add(g.deathAction);
+    const direction = fallVector(g);
+    for (const p of [0.25, 0.5, 0.75, 1]) {
+      const v = fallVector({
+        yaw: g.yaw + g.deathTurn * p,
+        fallStyle: g.fallStyle,
+      });
+      for (const d of [-0.65, 0, 0.5, 0.95])
+        assert.ok(
+          canStand(
+            g.x + direction.x * g.deathTravel * p + v.x * d,
+            g.z + direction.z * g.deathTravel * p + v.z * d,
+            0.36,
+          ),
+        );
+    }
+  }
+  assert.equal(actions.size, 4);
+  g.hitRegion = 'leg';
+  prepareDeath(g, 0);
+  assert.equal(g.deathAction, 'kneel');
+  g.hitRegion = 'torso';
+  g.x = 6.4;
+  g.hitDirection = { x: 1, z: 0 };
+  prepareDeath(g, 0);
+  assert.notEqual(g.fallStyle, 'right');
+  assert.ok(g.deathTravel <= 0.72);
 });

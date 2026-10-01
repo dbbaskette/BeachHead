@@ -16,12 +16,13 @@ import { StageFourPreview } from './stage-four-preview';
 import { TOUCH_LAYOUT_QUERY } from '@/lib/touch-input';
 import {
   BunkerControls,
+  BunkerKeyboard,
+  BUNKER_KEYS,
   bindControlRelease,
   type ControlRole,
 } from '@/lib/bunker/controls';
 import {
   createBunker,
-  emptyInput,
   look,
   reloadBunker,
   shootBunker,
@@ -55,13 +56,13 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     audio = useRef<PillboxAudio | null>(null);
   const keys = useRef(new Set<string>()),
     controls = useRef(new BunkerControls()),
+    keyboard = useRef(new BunkerKeyboard()),
     locked = useRef(false);
   const [hud, setHud] = useState(() => snapshot(createBunker())),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
     [muted, setMuted] = useState(false),
-    [preview, setPreview] = useState(false),
-    [mouseLocked, setMouseLocked] = useState(false);
+    [preview, setPreview] = useState(false);
   const [stick, setStick] = useState({ x: 0, y: 0 });
   const [aimStick, setAimStick] = useState({ x: 0, y: 0 });
   const updateSticks = () => {
@@ -72,6 +73,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
   const publish = () => setHud(snapshot(battle.current));
   const clear = () => {
     keys.current.clear();
+    keyboard.current.clear();
     controls.current.clear();
     updateSticks();
   };
@@ -93,10 +95,9 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       const request = surface.current.requestPointerLock();
       void request?.catch(() => {
         locked.current = false;
-        setMouseLocked(false);
       });
     } catch {
-      setMouseLocked(false);
+      locked.current = false;
     }
   };
   const start = (retry = false) => {
@@ -128,6 +129,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     audio.current = new PillboxAudio();
     void audio.current.preload();
     const keydown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const element = e.target as HTMLElement;
       if (element.closest('dialog,input,textarea,select')) return;
       if (element.closest('button') && ['Space', 'Enter'].includes(e.code))
@@ -139,20 +141,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       }
       if (battle.current.status !== 'playing') return;
       if (e.code === 'Space' && !e.repeat) shootBunker(battle.current);
-      if (
-        [
-          'KeyW',
-          'KeyA',
-          'KeyS',
-          'KeyD',
-          'ArrowUp',
-          'ArrowDown',
-          'ArrowLeft',
-          'ArrowRight',
-          'Space',
-          'KeyR',
-        ].includes(e.code)
-      ) {
+      if (BUNKER_KEYS.has(e.code)) {
         e.preventDefault();
         keys.current.add(e.code);
       }
@@ -187,7 +176,6 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       const now = document.pointerLockElement === surface.current;
       const lost = locked.current && !now;
       locked.current = now;
-      setMouseLocked(now);
       if (lost) pause();
     };
     const visibility = () => {
@@ -204,19 +192,10 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       if (cancelled) return;
       const dt = Math.min(0.05, (stamp - (last || stamp)) / 1000);
       last = stamp;
-      const input = emptyInput(),
-        held = (code: string) => keys.current.has(code);
-      input.forward =
-        -controls.current.axis.y +
-        (held('KeyW') || held('ArrowUp') ? 1 : 0) -
-        (held('KeyS') || held('ArrowDown') ? 1 : 0);
-      input.strafe =
-        controls.current.axis.x +
-        (held('KeyD') ? 1 : 0) -
-        (held('KeyA') ? 1 : 0);
-      input.turn = (held('ArrowRight') ? 1 : 0) - (held('ArrowLeft') ? 1 : 0);
-      input.fire = controls.current.firing || held('Space');
-      input.reload = held('KeyR');
+      const input = keyboard.current.read(keys.current, dt);
+      input.forward -= controls.current.axis.y;
+      input.strafe += controls.current.axis.x;
+      input.fire ||= controls.current.firing;
       const before = battle.current.status;
       look(
         battle.current,
@@ -384,9 +363,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               <small>
                 {touch
                   ? 'Left stick: walk · Right stick: look'
-                  : mouseLocked
-                    ? 'WASD move · Click fire · R reload · Esc pause'
-                    : 'WASD move · Drag to look · Click fire · R reload'}
+                  : 'WASD move · Arrows aim · Space fire · Shift fine aim · R reload'}
               </small>
             </div>
             <button
@@ -490,7 +467,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 <p className="bunker-control-help">
                   {touch
                     ? 'Use the left stick to walk and the right stick to turn and aim at the same time. Hold Fire to shoot. You can also drag the view or Fire button to aim. Tap the ammo counter to reload.'
-                    : 'WASD to move · Mouse to look · Click to fire · R to reload. Arrow keys also move and turn. Esc pauses and releases the mouse.'}
+                    : 'Keyboard: WASD moves and strafes. Arrow keys aim in all directions. Hold Space to fire, Shift for fine aim, R to reload, Esc to pause. Mouse aiming and click-to-fire also work.'}
                 </p>
                 <p className="bunker-tip">
                   Use cover. Clear the guards to unlock the tunnel door. A
