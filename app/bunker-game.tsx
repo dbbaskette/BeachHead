@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Crosshair,
+  Bomb,
+  DoorOpen,
   Footprints,
   Home,
   Pause,
@@ -23,6 +25,9 @@ import {
 } from '@/lib/bunker/controls';
 import {
   createBunker,
+  throwGrenade,
+  openDoor,
+  nearbyDoor,
   look,
   reloadBunker,
   shootBunker,
@@ -37,6 +42,9 @@ const snapshot = (b: BunkerState) => ({
   health: b.health,
   ammo: b.ammo,
   reserve: b.reserve,
+  grenades: b.grenades,
+  grenadeReady: b.grenadeCooldown <= 0,
+  door: !!nearbyDoor(b),
   reloading: b.reload > 0,
   cleared: b.guards.every((g) => g.health <= 0),
   hurt: b.hurt > 0,
@@ -45,7 +53,11 @@ const snapshot = (b: BunkerState) => ({
       ? 'Gun emplacement'
       : b.z > -10
         ? 'Service tunnel'
-        : 'Munitions room',
+        : b.z > -24
+          ? 'Munitions room'
+          : b.z > -32
+            ? 'Radio room'
+            : 'Generator room',
 });
 export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
   const host = useRef<HTMLDivElement>(null),
@@ -141,6 +153,14 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       }
       if (battle.current.status !== 'playing') return;
       if (e.code === 'Space' && !e.repeat) shootBunker(battle.current);
+      if (['KeyG', 'KeyE'].includes(e.code)) {
+        e.preventDefault();
+        if (!e.repeat) {
+          if (e.code === 'KeyG') throwGrenade(battle.current);
+          else openDoor(battle.current);
+          publish();
+        }
+      }
       if (BUNKER_KEYS.has(e.code)) {
         e.preventDefault();
         keys.current.add(e.code);
@@ -210,6 +230,10 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             distance: e.kind === 'enemy' ? 0.65 : 0.05,
           });
         else if (e.kind === 'hurt') audio.current?.play('damage');
+        else if (e.kind === 'blast')
+          audio.current?.play('impact', { distance: 0.05 });
+        else if (e.kind === 'bounce' || e.kind === 'door')
+          audio.current?.play('impact', { distance: 0.8 });
         else if (e.kind === 'stone')
           audio.current?.play('impact', { distance: 0.9 });
       }
@@ -380,6 +404,37 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               </strong>
             </button>
           </div>
+          <div className="bunker-actions">
+            <button
+              className="bunker-grenade"
+              disabled={!hud.grenades || !hud.grenadeReady}
+              aria-label={`Throw grenade (${hud.grenades} remaining)`}
+              onClick={() => {
+                throwGrenade(battle.current);
+                publish();
+                root.current?.focus();
+              }}
+            >
+              <Bomb />
+              <span>
+                {touch ? 'Grenade' : 'G · Grenade'} <b>{hud.grenades}</b>
+              </span>
+            </button>
+            {hud.door && (
+              <button
+                className="bunker-door"
+                aria-label="Open nearby door"
+                onClick={() => {
+                  openDoor(battle.current);
+                  publish();
+                  root.current?.focus();
+                }}
+              >
+                <DoorOpen />
+                <span>{touch ? 'Open door' : 'E · Open door'}</span>
+              </button>
+            )}
+          </div>
           {touch && (
             <div
               className="bunker-touch-controls"
@@ -450,7 +505,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             <p>
               {error ||
                 (hud.status === 'ready'
-                  ? 'Step inside the coastal gun emplacement. Clear the service tunnel and munitions room, then reach the door to the tunnels below.'
+                  ? 'Step inside the coastal gun emplacement. Push through the munitions room, radio room and generator room. Open the steel doors and reach the tunnels below.'
                   : hud.status === 'paused'
                     ? 'Take a breath. The bunker will wait.'
                     : hud.status === 'won'
@@ -460,14 +515,14 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             {hud.status === 'ready' && (
               <>
                 <div className="bunker-mission-facts">
-                  <span>3 spaces</span>
-                  <span>4 guards</span>
-                  <span>1 tunnel exit</span>
+                  <span>5 spaces</span>
+                  <span>6 guards</span>
+                  <span>3 grenades</span>
                 </div>
                 <p className="bunker-control-help">
                   {touch
-                    ? 'Use the left stick to walk and the right stick to turn and aim at the same time. Hold Fire to shoot. You can also drag the view or Fire button to aim. Tap the ammo counter to reload.'
-                    : 'Keyboard: WASD moves and strafes. Arrow keys aim in all directions. Hold Space to fire, Shift for fine aim, R to reload, Esc to pause. Mouse aiming and click-to-fire also work.'}
+                    ? 'Use the left stick to walk and the right stick to turn and aim at the same time. Hold Fire to shoot. You can also drag the view or Fire button to aim. Tap the ammo counter to reload. Tap Grenade to throw, and Open door when near a steel door. Keep clear of your own blast.'
+                    : 'Keyboard: WASD moves and strafes. Arrow keys aim in all directions. Hold Space to fire, Shift for fine aim, R to reload, Esc to pause. G throws a grenade; E opens nearby doors. Mouse aiming and click-to-fire also work. Keep clear of your own blast.'}
                 </p>
                 <p className="bunker-tip">
                   Use cover. Clear the guards to unlock the tunnel door. A

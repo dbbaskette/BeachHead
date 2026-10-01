@@ -8,7 +8,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
-import { guardReaction, PELVIS_HEIGHT } from './reactions';
+import { PELVIS_HEIGHT } from './reactions';
 import {
   animateGuard,
   resetGuardActor,
@@ -17,7 +17,16 @@ import {
 import { uniformMaterial, guardClips } from './uniform';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
-import { rooms, solids, type BunkerState, type Effect } from './simulation';
+import { addExpansion } from './expansion';
+import {
+  rooms,
+  solids,
+  guardSpawns,
+  worldSolids,
+  rayBox,
+  type BunkerState,
+  type Effect,
+} from './simulation';
 
 type Particle = {
   mesh: T.Mesh;
@@ -40,6 +49,10 @@ export class BunkerScene {
   private muzzleLight = new T.PointLight('#ffc57a', 0, 4);
   private guards: GuardActor[] = [];
   private particles: Particle[] = [];
+  private doors: T.Group[] = [];
+  private grenades = new Map<number, T.Group>();
+  private blastLight = new T.PointLight('#ffba70', 0, 12, 2);
+  private blastAge = 0;
   private dustTexture?: T.CanvasTexture;
   private stains: { mesh: T.Mesh; life: number }[] = [];
   private medkit = new T.Group();
@@ -255,6 +268,13 @@ export class BunkerScene {
     floor.roughness = 0.78;
     floor.metalness = 0.18;
     this.gun();
+    this.doors = addExpansion(this.scene, this.metal, this.dark, this.brass);
+    this.scene.add(this.blastLight);
+    this.lamp(0, -27, 3.25);
+    this.lamp(-1, -36, 3.3);
+    this.lamp(1, -40, 3.3);
+    this.sign('FUNKRAUM', 0, 3.32, -23.7, 1.6);
+    this.sign('MASCHINENRAUM', 0, 3.32, -31.7, 2.1);
     addBunkerDetail(this.scene, concrete, this.metal, this.dark, this.brass);
     for (let i = 0; i < 7; i++) {
       const z = 4.2 + i * 0.34;
@@ -265,7 +285,7 @@ export class BunkerScene {
     }
     this.box(-5.8, 0.12, 5.2, 0.65, 0.18, 2.8, this.wood);
     // Small rubble, drainage gratings and ceiling beams break up broad surfaces.
-    for (const r of [rooms[0], rooms[2]]) {
+    for (const r of [rooms[0], rooms[2], rooms[3], rooms[4]]) {
       for (let z = r.z - r.d / 2 + 2; z < r.z + r.d / 2; z += 4)
         this.box(0, r.h - 0.18, z, r.w, 0.25, 0.32, concrete);
       for (let i = 0; i < 20; i++) {
@@ -283,7 +303,7 @@ export class BunkerScene {
         chip.rotation.set(i, i * 0.3, i * 0.8);
       }
     }
-    for (let z = 10; z > -23; z -= 3) {
+    for (let z = 10; z > -41; z -= 3) {
       this.box(-0.8, 0.009, z, 0.32, 0.012, 1.2, this.dark);
       for (let i = 0; i < 8; i++)
         this.box(
@@ -313,10 +333,10 @@ export class BunkerScene {
           'x',
         );
     }
-    this.box(0, 1.25, -23.7, 2.5, 2.5, 0.18, this.metal);
-    this.box(0, 1.35, -23.58, 1.7, 1.8, 0.08, this.dark);
-    this.box(0, 2.7, -23.4, 1.5, 0.17, 0.08, this.exitLight);
-    this.sign('TUNNELS', 0, 3.2, -23.35, 1.5);
+    this.box(0, 1.25, -41.7, 2.5, 2.5, 0.18, this.metal);
+    this.box(0, 1.35, -41.58, 1.7, 1.8, 0.08, this.dark);
+    this.box(0, 2.7, -41.4, 1.5, 0.17, 0.08, this.exitLight);
+    this.sign('TUNNELS', 0, 3.2, -41.35, 1.5);
     this.sign('MUNITIONS', 0, 2.75, -9.66, 1.7);
     this.sign('04  /  KASEMATTE', 2.8, 2.9, 2.28, 2.4);
     this.box(0, 0, 0, 0.01, 0.01, 0.01, this.dark); // shared origin marker stays under the floor
@@ -673,7 +693,7 @@ export class BunkerScene {
       }
     });
     const [idleClip, walkClip] = guardClips(gltf.scene);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < guardSpawns.length; i++) {
       const root = new T.Group(),
         model = clone(gltf.scene),
         body = new T.Group();
@@ -755,26 +775,6 @@ export class BunkerScene {
         arms,
         rifle,
         walkWeight: 0,
-        floorLift: 0,
-        floorPoints: [
-          ['Head', 0.15],
-          ['LeftFoot', 0.1],
-          ['RightFoot', 0.1],
-          ['LeftHand', 0.085],
-          ['RightHand', 0.085],
-          ['Spine', 0.18],
-          ['Spine2', 0.19],
-          ['Hips', 0.18],
-          ['LeftForeArm', 0.095],
-          ['RightForeArm', 0.095],
-          ['LeftLeg', 0.12],
-          ['RightLeg', 0.12],
-          ['LeftArm', 0.075],
-          ['RightArm', 0.075],
-        ].flatMap(([name, radius]) => {
-          const bone = model.getObjectByName(name as string);
-          return bone ? [{ bone, radius: radius as number }] : [];
-        }),
         joints: [
           'Spine',
           'Spine1',
@@ -801,6 +801,19 @@ export class BunkerScene {
     });
   }
   reset() {
+    for (const grenade of this.grenades.values()) {
+      grenade.traverse((o) => {
+        if (o instanceof T.Mesh) {
+          o.geometry.dispose();
+          (o.material as T.Material).dispose();
+        }
+      });
+      grenade.removeFromParent();
+    }
+    this.grenades.clear();
+    this.blastAge = 0;
+    this.blastLight.intensity = 0;
+    this.doors.forEach((d) => (d.position.x = 0));
     for (const p of this.particles) {
       p.mesh.removeFromParent();
       p.mesh.geometry.dispose();
@@ -815,7 +828,13 @@ export class BunkerScene {
     this.stains = [];
     this.guards.forEach(resetGuardActor);
   }
-  private stain(x: number, z: number, seed: number) {
+  private stain(
+    x: number,
+    z: number,
+    seed: number,
+    y = 0.016,
+    normal?: T.Vector3,
+  ) {
     if (this.stains.length >= 32) {
       const old = this.stains.shift()!;
       old.mesh.removeFromParent();
@@ -844,7 +863,11 @@ export class BunkerScene {
       }),
     );
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, 0.016, z);
+    mesh.position.set(x, y, z);
+    if (normal) {
+      mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), normal);
+      mesh.position.addScaledVector(normal, 0.012);
+    }
     this.scene.add(mesh);
     this.stains.push({ mesh, life: 18 });
   }
@@ -897,11 +920,29 @@ export class BunkerScene {
   }
   private effects(events: Effect[]) {
     for (const e of events) {
-      if (!['stone', 'hit'].includes(e.kind)) continue;
+      if (e.kind === 'blast') {
+        this.blastLight.position.set(e.x, e.y + 0.3, e.z);
+        this.blastAge = 0.24;
+        for (let j = 0; j < 4; j++)
+          this.impactDust(
+            e.x + Math.sin(j * 2.4) * 0.5,
+            e.y + 0.2,
+            e.z + Math.cos(j * 2.4) * 0.5,
+            true,
+          );
+        for (const p of this.particles.slice(-28))
+          if (p.dust) {
+            p.life = p.duration = 2.8;
+            p.velocity.multiplyScalar(2.2);
+            p.velocity.y = 0.3;
+            p.mesh.scale.setScalar(0.65);
+          }
+      }
+      if (!['stone', 'hit', 'blast'].includes(e.kind)) continue;
       const blood = e.kind === 'hit',
-        count = blood ? (e.fatal ? 20 : 10) : 6,
+        count = blood ? (e.fatal ? 32 : 18) : e.kind === 'blast' ? 28 : 6,
         direction = e.direction ?? [0, 0, 1];
-      if (blood) this.impactDust(e.x, e.y, e.z, false);
+      if (!blood) this.impactDust(e.x, e.y, e.z, false);
       for (let i = 0; i < count; i++) {
         if (this.particles.length >= 160) {
           const old = this.particles.shift()!;
@@ -927,13 +968,16 @@ export class BunkerScene {
         mesh.position.set(e.x, e.y, e.z);
         mesh.scale.set(blood ? 0.6 : 1, blood ? 1.65 : 1, blood ? 0.6 : 1);
         this.scene.add(mesh);
-        const speed = (e.fatal ? 0.5 : 0.3) + (i % 5) * 0.19;
+        const speed =
+          (e.kind === 'blast' ? 4 : e.fatal ? 2.1 : 1.1) + (i % 7) * 0.27;
         this.particles.push({
           mesh,
           velocity: new T.Vector3(
-            direction[0] * speed + Math.sin(i * 7.2) * 0.5,
+            (e.kind === 'blast' ? Math.sin(i * 2.4) : direction[0]) * speed +
+              Math.sin(i * 7.2) * 0.9,
             0.15 + direction[1] * speed + Math.sin(i * 2.3) * 0.55,
-            direction[2] * speed + Math.cos(i * 4.1) * 0.5,
+            (e.kind === 'blast' ? Math.cos(i * 2.4) : direction[2]) * speed +
+              Math.cos(i * 4.1) * 0.9,
           ),
           life: blood ? 1.1 : 0.45,
           duration: blood ? 1.1 : 0.45,
@@ -947,13 +991,64 @@ export class BunkerScene {
     const active = b.status === 'playing',
       frame = active ? dt : 0;
     this.effects(events);
+    const obstacles = worldSolids(b);
+    this.doors.forEach(
+      (door, i) => (door.position.x = b.doors[i].progress * 3),
+    );
+    this.blastAge = Math.max(0, this.blastAge - frame);
+    this.blastLight.intensity = 85 * Math.pow(this.blastAge / 0.24, 2);
+    for (const p of b.activeGrenades) {
+      let group = this.grenades.get(p.id);
+      if (!group) {
+        group = new T.Group();
+        const body = new T.Mesh(
+          new T.SphereGeometry(0.085, 12, 8),
+          new T.MeshStandardMaterial({
+            color: '#485043',
+            metalness: 0.65,
+            roughness: 0.55,
+          }),
+        );
+        body.scale.y = 1.25;
+        group.add(body);
+        const cap = new T.Mesh(
+          new T.CylinderGeometry(0.035, 0.035, 0.05, 8),
+          new T.MeshStandardMaterial({
+            color: '#696d60',
+            metalness: 0.8,
+            roughness: 0.4,
+          }),
+        );
+        cap.position.y = 0.115;
+        group.add(cap);
+        this.scene.add(group);
+        this.grenades.set(p.id, group);
+      }
+      group.position.set(p.x, p.y, p.z);
+      group.rotation.set(b.time * 7, p.id, b.time * 4);
+    }
+    for (const [id, group] of this.grenades)
+      if (!b.activeGrenades.some((p) => p.id === id)) {
+        group.traverse((o) => {
+          if (o instanceof T.Mesh) {
+            o.geometry.dispose();
+            (o.material as T.Material).dispose();
+          }
+        });
+        group.removeFromParent();
+        this.grenades.delete(id);
+      }
     this.camera.position.set(
       b.x,
       1.65 + (steady ? 0 : Math.sin(b.steps * 8) * 0.018),
       b.z,
     );
     this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.set(b.pitch, b.yaw, 0);
+    this.camera.rotation.set(
+      b.pitch + (steady ? 0 : Math.sin(b.time * 71) * b.blastShake * 0.024),
+      b.yaw,
+      steady ? 0 : Math.sin(b.time * 53) * b.blastShake * 0.018,
+    );
     this.weapon.position.set(
       0.25 * Math.min(1, this.camera.aspect) +
         (steady ? 0 : Math.sin(b.steps * 4) * 0.01),
@@ -974,15 +1069,21 @@ export class BunkerScene {
     b.guards.forEach((g, i) => {
       const a = this.guards[i];
       if (!a) return;
-      animateGuard(a, g, frame, this.scene, active);
+      animateGuard(a, g, frame, this.scene, active, obstacles);
+      if (active && a.ragdoll?.wallImpact) {
+        const p = a.ragdoll.wallImpact;
+        this.impactDust(p.x, p.y, p.z, true);
+        a.ragdoll.wallImpact = undefined;
+      }
       if (
         active &&
         g.health <= 0 &&
         !a.contactEmitted &&
-        guardReaction(g).settle > 0
+        a.ragdoll?.floorImpact
       ) {
         a.contactEmitted = true;
-        this.impactDust(a.root.position.x, 0.09, a.root.position.z, true);
+        const torso = a.ragdoll?.nodes.find((n) => n.name === 'Spine2');
+        this.impactDust(torso?.p.x ?? g.x, 0.09, torso?.p.z ?? g.z, true);
       }
     });
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -993,7 +1094,38 @@ export class BunkerScene {
         p.mesh.quaternion.copy(this.camera.quaternion);
         p.mesh.scale.addScalar(frame * 0.6);
       }
+      const previous = p.mesh.position.clone();
       p.mesh.position.addScaledVector(p.velocity, frame);
+      if (p.blood && frame > 0) {
+        const travel = p.mesh.position.clone().sub(previous),
+          distance = travel.length();
+        if (distance > 0) {
+          travel.divideScalar(distance);
+          for (const wall of obstacles) {
+            const hit = rayBox(previous.toArray(), travel.toArray(), wall);
+            if (hit > distance) continue;
+            const point = previous.clone().addScaledVector(travel, hit);
+            const faces = [
+              Math.abs(Math.abs(point.x - wall.x) - wall.w / 2),
+              Math.abs(Math.abs(point.y - wall.y) - wall.h / 2),
+              Math.abs(Math.abs(point.z - wall.z) - wall.d / 2),
+            ];
+            const axis = faces.indexOf(Math.min(...faces));
+            const normal = new T.Vector3(
+              axis === 0 ? Math.sign(point.x - wall.x) : 0,
+              axis === 1 ? Math.sign(point.y - wall.y) : 0,
+              axis === 2 ? Math.sign(point.z - wall.z) : 0,
+            );
+            this.stain(point.x, point.z, i, point.y, normal);
+            p.life = 0;
+            break;
+          }
+        }
+        p.mesh.quaternion.setFromUnitVectors(
+          new T.Vector3(0, 1, 0),
+          p.velocity.clone().normalize(),
+        );
+      }
       (p.mesh.material as T.MeshBasicMaterial).opacity = p.life / p.duration;
       if (p.blood && p.mesh.position.y <= 0.022) {
         this.stain(p.mesh.position.x, p.mesh.position.z, i);

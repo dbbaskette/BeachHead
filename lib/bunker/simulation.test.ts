@@ -10,9 +10,12 @@ import {
   sightLine,
   stepBunker,
   angleDifference,
-  chooseFall,
   prepareDeath,
-  fallVector,
+  openDoor,
+  nearbyDoor,
+  worldSolids,
+  throwGrenade,
+  explodeGrenade,
 } from './simulation';
 const active = () => {
   const b = createBunker();
@@ -103,13 +106,13 @@ void test('pause freezes timers and movement; exit only completes after clearing
   assert.deepEqual(b, previous);
   b.status = 'playing';
   b.x = 0;
-  b.z = -23;
+  b.z = -41;
   stepBunker(b, emptyInput(), 0.05);
   assert.equal(b.status, 'playing');
   b.guards.forEach((g) => (g.health = 0));
   stepBunker(b, emptyInput(), 0.05);
   assert.equal(b.status, 'won');
-  assert.equal(createBunker().guards.length, 4);
+  assert.equal(createBunker().guards.length, 6);
   assert.equal(createBunker().status, 'ready');
 });
 void test('medical kit is consumed once, health cannot exceed 100, and zero health loses', () => {
@@ -137,15 +140,19 @@ void test('sample can be completed through movement and gunfire without bypassin
     [0, -9],
     [0, -13],
     [0, -21],
-    [0, -23],
+    [0, -25],
+    [0, -30],
+    [0, -34],
+    [0, -41],
   ];
   let waypoint = 0;
-  for (let frame = 0; frame < 5000 && b.status === 'playing'; frame++) {
+  for (let frame = 0; frame < 7000 && b.status === 'playing'; frame++) {
+    openDoor(b);
     const target = b.guards.find(
       (g) =>
         g.health > 0 &&
         Math.hypot(g.x - b.x, g.z - b.z) < 18 &&
-        sightLine(b.x, b.z, g.x, g.z),
+        sightLine(b.x, b.z, g.x, g.z, worldSolids(b)),
     );
     const input = emptyInput();
     if (target) {
@@ -260,63 +267,116 @@ void test('lost sight cancels shooting and search follows the last known positio
   assert.equal(g.windup, 0);
   assert.ok(g.readiness < 0.4);
 });
-void test('fatal fall direction follows impact relative to facing and avoids a wall when there is room', () => {
+void test('initial reflex varies across impacts and leg hits favor loss of knee support', () => {
   const g = active().guards[0];
-  g.x = 0;
-  g.z = 8;
-  g.yaw = 0;
-  g.hitRegion = 'torso';
-  for (const [x, z, style] of [
-    [0, 1, 'back'],
-    [0, -1, 'front'],
-    [1, 0, 'right'],
-    [-1, 0, 'left'],
-  ] as const) {
-    g.hitDirection = { x, z };
-    assert.equal(chooseFall(g), style);
-  }
-  g.hitRegion = 'leg';
-  assert.equal(chooseFall(g), 'kneel');
-  g.x = 6.4;
-  g.hitRegion = 'torso';
-  g.hitDirection = { x: 1, z: 0 };
-  assert.notEqual(chooseFall(g), 'right');
-});
-
-void test('fatal choreography varies across impacts and movement respects available room', () => {
-  const g = active().guards[0];
-  g.x = 0;
-  g.z = 8;
-  g.yaw = 0;
-  g.hitDirection = { x: 0, z: 1 };
   const actions = new Set<string>();
   for (let t = 0; t < 4; t++) {
     prepareDeath(g, t / 3);
     actions.add(g.deathAction);
-    const direction = fallVector(g);
-    for (const p of [0.25, 0.5, 0.75, 1]) {
-      const v = fallVector({
-        yaw: g.yaw + g.deathTurn * p,
-        fallStyle: g.fallStyle,
-      });
-      for (const d of [-0.65, 0, 0.5, 0.95])
-        assert.ok(
-          canStand(
-            g.x + direction.x * g.deathTravel * p + v.x * d,
-            g.z + direction.z * g.deathTravel * p + v.z * d,
-            0.36,
-          ),
-        );
-    }
   }
   assert.equal(actions.size, 4);
   g.hitRegion = 'leg';
   prepareDeath(g, 0);
   assert.equal(g.deathAction, 'kneel');
-  g.hitRegion = 'torso';
-  g.x = 6.4;
-  g.hitDirection = { x: 1, z: 0 };
-  prepareDeath(g, 0);
-  assert.notEqual(g.fallStyle, 'right');
-  assert.ok(g.deathTravel <= 0.72);
+});
+void test('subsequent bullets hit the falling body at its physical position without restarting death', () => {
+  const b = active(),
+    g = b.guards[0];
+  g.health = 0;
+  g.down = 0.45;
+  g.deathAction = 'spin';
+  g.bodyTargets = [{ x: 0, y: 1.65, z: 6, r: 0.2, region: 'torso' }];
+  shootBunker(b);
+  assert.equal(g.hits, 1);
+  assert.equal(g.down, 0.45);
+  assert.equal(g.deathAction, 'spin');
+  const hit = b.effects.find((e) => e.kind === 'hit');
+  assert.ok(hit);
+  assert.equal(hit.guardId, g.id);
+  assert.ok(Math.abs(hit.z - 6.2) < 0.001);
+  // The obsolete upright location cannot intercept the next round.
+  g.bodyTargets = [{ x: 3, y: 0.2, z: 6, r: 0.2, region: 'torso' }];
+  b.cooldown = 0;
+  b.effects = [];
+  shootBunker(b);
+  assert.equal(g.hits, 1);
+});
+
+void test('steel doors block movement, bullets and sight until opened, and pause freezes them', () => {
+  const b = active();
+  b.x = 0;
+  b.z = -22;
+  const g = b.guards[4];
+  g.x = 0;
+  g.z = -26;
+  b.guards = [g];
+  assert.ok(nearbyDoor(b));
+  assert.equal(sightLine(0, -22, 0, -26, worldSolids(b)), false);
+  shootBunker(b);
+  assert.equal(g.health, 100);
+  moveBody(b, 0, -4, worldSolids(b));
+  assert.ok(b.z > -24);
+  openDoor(b);
+  b.status = 'paused';
+  stepBunker(b, emptyInput(), 0.05);
+  assert.equal(b.doors[0].progress, 0);
+  b.status = 'playing';
+  for (let i = 0; i < 30; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.equal(b.doors[0].progress, 1);
+  assert.equal(sightLine(0, -22, 0, -26, worldSolids(b)), true);
+  moveBody(b, 0, -4, worldSolids(b));
+  assert.ok(b.z < -24);
+  assert.equal(createBunker().doors[0].progress, 0);
+});
+void test('grenades are limited, bounce off closed doors, pause with the game and detonate once', () => {
+  const b = active();
+  b.guards = [];
+  b.x = 0;
+  b.z = -22;
+  throwGrenade(b);
+  throwGrenade(b);
+  assert.equal(b.grenades, 2);
+  assert.equal(b.activeGrenades.length, 1);
+  b.status = 'paused';
+  const before = structuredClone(b);
+  throwGrenade(b);
+  stepBunker(b, emptyInput(), 0.05);
+  assert.deepEqual(b, before);
+  b.status = 'playing';
+  let bounced = false;
+  for (let i = 0; i < 50; i++) {
+    stepBunker(b, emptyInput(), 0.05);
+    for (const p of b.activeGrenades)
+      assert.ok(p.z > -23.84, 'cannot pass through shut door');
+    bounced ||= b.effects.some((e) => e.kind === 'bounce');
+  }
+  assert.ok(bounced);
+  assert.equal(b.activeGrenades.length, 0);
+  assert.equal(b.effects.filter((e) => e.kind === 'blast').length, 1);
+  assert.ok(b.health < 100, 'nearby self blast damages player');
+  assert.equal(createBunker().grenades, 3);
+  assert.equal(createBunker().activeGrenades.length, 0);
+});
+void test('blast falloff and cover govern guard damage and physical impulse, including fallen bodies', () => {
+  const b = active();
+  b.x = 0;
+  b.z = -22;
+  const g = b.guards[4];
+  b.guards = [g];
+  g.x = 0;
+  g.z = -25;
+  explodeGrenade(b, { x: 0, y: 0.2, z: -23 });
+  assert.equal(g.health, 100, 'closed steel door shields guard');
+  b.doors[0].progress = 1;
+  explodeGrenade(b, { x: 0, y: 0.2, z: -24.5 });
+  assert.ok(g.health <= 0);
+  assert.ok(g.hitPower > 4);
+  assert.ok(g.hitLift > 1);
+  const hits = g.hits;
+  g.down = 0.7;
+  g.bodyTargets = [{ x: 0, y: 0.2, z: -25, r: 0.2, region: 'torso' }];
+  explodeGrenade(b, { x: 0, y: 0.2, z: -24.5 });
+  assert.equal(g.hits, hits + 1);
+  assert.equal(g.down, 0.7);
+  assert.ok(b.blastShake > 0);
 });

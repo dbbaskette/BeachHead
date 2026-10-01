@@ -11,6 +11,8 @@ export const rooms = [
   { x: 0, z: 9, w: 14, d: 14, h: 4.6 },
   { x: 0, z: -4, w: 4, d: 12, h: 3.4 },
   { x: 0, z: -17, w: 12, d: 14, h: 4 },
+  { x: 0, z: -28, w: 8, d: 8, h: 3.8 },
+  { x: 0, z: -37, w: 10, d: 10, h: 4 },
 ];
 export const solids: Box[] = [
   { x: 0, y: 2.3, z: 16, w: 14.5, h: 4.6, d: 0.5 },
@@ -24,14 +26,21 @@ export const solids: Box[] = [
   ...[-2, 2].map((x) => ({ x, y: 1.7, z: -4, w: 0.5, h: 3.4, d: 12 })),
   ...[-4, 4].map((x) => ({ x, y: 2, z: -10, w: 4, h: 4, d: 0.5 })),
   ...[-6, 6].map((x) => ({ x, y: 2, z: -17, w: 0.5, h: 4, d: 14 })),
-  { x: 0, y: 2, z: -24, w: 12.5, h: 4, d: 0.5 },
+  ...[-3.7, 3.7].map((x) => ({ x, y: 2, z: -24, w: 4.6, h: 4, d: 0.5 })),
+  ...[-2.7, 2.7].map((x) => ({ x, y: 2, z: -32, w: 2.6, h: 4, d: 0.5 })),
+  ...[-24, -32].map((z) => ({ x: 0, y: 3.45, z, w: 2.8, h: 1.1, d: 0.5 })),
+  ...[-4, 4].map((x) => ({ x, y: 1.9, z: -28, w: 0.5, h: 3.8, d: 8 })),
+  ...[-5, 5].map((x) => ({ x, y: 2, z: -37, w: 0.5, h: 4, d: 10 })),
+  ...[-4.5, 4.5].map((x) => ({ x, y: 2, z: -32, w: 1, h: 4, d: 0.5 })),
+  { x: 0, y: 2, z: -42, w: 10.5, h: 4, d: 0.5 },
+  { x: -2.8, y: 0.5, z: -28, w: 1.3, h: 1, d: 3, kind: 'crate' },
+  { x: 3, y: 0.9, z: -37, w: 2.2, h: 1.8, d: 3.8, kind: 'gun' },
   { x: -4.7, y: 0.75, z: 8.5, w: 3.7, h: 1.5, d: 3, kind: 'gun' },
   { x: 4.9, y: 0.6, z: 6, w: 1.4, h: 1.2, d: 2, kind: 'crate' },
   { x: -3.8, y: 0.65, z: -15, w: 2.4, h: 1.3, d: 1.1, kind: 'crate' },
   { x: 4.4, y: 0.65, z: -19, w: 1.6, h: 1.3, d: 2, kind: 'crate' },
 ];
 export type GuardMode = 'idle' | 'notice' | 'engage' | 'search';
-export type FallStyle = 'front' | 'back' | 'left' | 'right' | 'kneel';
 export type DeathAction = 'reel' | 'spin' | 'sprawl' | 'fold' | 'kneel';
 export type HitRegion = 'head' | 'torso' | 'leg';
 export type Guard = {
@@ -57,18 +66,34 @@ export type Guard = {
   memory: number;
   lastX: number;
   lastZ: number;
-  fallStyle: FallStyle;
   deathAction: DeathAction;
-  deathTurn: number;
-  deathTravel: number;
   hitSide: number;
+  hitPower: number;
+  hitLift: number;
+  hitPoint: { x: number; y: number; z: number };
+  bodyTargets?: {
+    x: number;
+    y: number;
+    z: number;
+    r: number;
+    region: HitRegion;
+  }[];
   hits: number;
   hitTime: number;
   hitRegion: HitRegion;
   hitDirection: { x: number; z: number };
 };
 export type Effect = {
-  kind: 'shot' | 'stone' | 'hit' | 'enemy' | 'hurt' | 'reload';
+  kind:
+    | 'shot'
+    | 'stone'
+    | 'hit'
+    | 'enemy'
+    | 'hurt'
+    | 'reload'
+    | 'blast'
+    | 'bounce'
+    | 'door';
   direction?: number[];
   guardId?: number;
   fatal?: boolean;
@@ -76,6 +101,51 @@ export type Effect = {
   y: number;
   z: number;
 };
+export const guardSpawns = [
+  [2.7, 3.8],
+  [0.7, -6.3],
+  [-2.7, -17],
+  [3.1, -21],
+  [2.3, -29],
+  [-2.5, -38],
+];
+export const doorLayouts = [
+  { z: -24, label: 'Radio room' },
+  { z: -32, label: 'Generator room' },
+];
+export type Door = { z: number; progress: number; opening: boolean };
+export type Grenade = {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  fuse: number;
+};
+export const doorBox = (door: Door): Box => ({
+  x: door.progress * 3,
+  y: 1.45,
+  z: door.z,
+  w: 2.8,
+  h: 2.9,
+  d: 0.18,
+});
+export const worldSolids = (b: BunkerState): Box[] => [
+  ...solids,
+  ...b.doors.map(doorBox),
+];
+export const nearbyDoor = (b: BunkerState) =>
+  b.doors.find((d) => !d.opening && Math.hypot(b.x, b.z - d.z) < 2.5);
+export function openDoor(b: BunkerState) {
+  if (b.status !== 'playing') return;
+  const door = nearbyDoor(b);
+  if (door) {
+    door.opening = true;
+    b.effects.push({ kind: 'door', x: 0, y: 1.4, z: door.z });
+  }
+}
 export type BunkerState = {
   status: 'ready' | 'playing' | 'paused' | 'won' | 'lost';
   x: number;
@@ -92,6 +162,12 @@ export type BunkerState = {
   hurt: number;
   steps: number;
   medkit: boolean;
+  doors: Door[];
+  grenades: number;
+  activeGrenades: Grenade[];
+  nextGrenadeId: number;
+  grenadeCooldown: number;
+  blastShake: number;
   guards: Guard[];
   effects: Effect[];
 };
@@ -128,13 +204,14 @@ export function createBunker(): BunkerState {
     hurt: 0,
     steps: 0,
     medkit: true,
+    doors: doorLayouts.map((d) => ({ z: d.z, progress: 0, opening: false })),
+    grenades: 3,
+    activeGrenades: [],
+    nextGrenadeId: 0,
+    grenadeCooldown: 0,
+    blastShake: 0,
     effects: [],
-    guards: [
-      [2.7, 3.8],
-      [0.7, -6.3],
-      [-2.7, -17],
-      [3.1, -21],
-    ].map(([x, z], id) => ({
+    guards: guardSpawns.map(([x, z], id) => ({
       id,
       x,
       z,
@@ -148,8 +225,8 @@ export function createBunker(): BunkerState {
       moving: false,
       alert: false,
       mode: 'idle',
-      yaw: [2.3, Math.PI, 2.7, 2.4][id],
-      homeYaw: [2.3, Math.PI, 2.7, 2.4][id],
+      yaw: [2.3, Math.PI, 2.7, 2.4, 0.4, -0.3][id],
+      homeYaw: [2.3, Math.PI, 2.7, 2.4, 0.4, -0.3][id],
       headYaw: 0,
       awareness: 0,
       readiness: 0,
@@ -157,11 +234,11 @@ export function createBunker(): BunkerState {
       memory: 0,
       lastX: x,
       lastZ: z,
-      fallStyle: 'back',
       deathAction: 'reel',
-      deathTurn: 0,
-      deathTravel: 0,
       hitSide: 0,
+      hitPower: 1,
+      hitLift: 0,
+      hitPoint: { x, y: 1.3, z },
       hits: 0,
       hitTime: 0,
       hitRegion: 'torso',
@@ -175,7 +252,12 @@ export function look(b: BunkerState, dx: number, dy: number) {
   b.yaw -= dx * 0.0025;
   b.pitch = clamp(b.pitch - dy * 0.0025, -0.95, 0.95);
 }
-export function canStand(x: number, z: number, radius = 0.3) {
+export function canStand(
+  x: number,
+  z: number,
+  radius = 0.3,
+  obstacles: Box[] = solids,
+) {
   if (
     !rooms.some(
       (r) =>
@@ -186,7 +268,7 @@ export function canStand(x: number, z: number, radius = 0.3) {
     )
   )
     return false;
-  return !solids.some(
+  return !obstacles.some(
     (s) =>
       s.y - s.h / 2 < 1.8 &&
       Math.abs(x - s.x) < s.w / 2 + radius &&
@@ -197,11 +279,14 @@ export function moveBody(
   body: { x: number; z: number },
   dx: number,
   dz: number,
+  obstacles: Box[] = solids,
 ) {
   const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.12));
   for (let i = 0; i < steps; i++) {
-    if (canStand(body.x + dx / steps, body.z)) body.x += dx / steps;
-    if (canStand(body.x, body.z + dz / steps)) body.z += dz / steps;
+    if (canStand(body.x + dx / steps, body.z, 0.3, obstacles))
+      body.x += dx / steps;
+    if (canStand(body.x, body.z + dz / steps, 0.3, obstacles))
+      body.z += dz / steps;
   }
 }
 /** Slab intersection shared by walls, cover, and guard hit volumes. */
@@ -229,10 +314,16 @@ export function rayBox(
   }
   return far < 0 ? Infinity : near;
 }
-export function sightLine(ax: number, az: number, bx: number, bz: number) {
+export function sightLine(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  obstacles: Box[] = solids,
+) {
   const d = Math.hypot(bx - ax, bz - az);
   if (d < 1e-6) return true;
-  return solids.every(
+  return obstacles.every(
     (s) => rayBox([ax, 1.45, az], [(bx - ax) / d, 0, (bz - az) / d], s) > d,
   );
 }
@@ -259,9 +350,10 @@ export function shootBunker(b: BunkerState) {
     ];
   let distance = Math.min(
       45,
-      ...solids.map((s) => rayBox(origin, direction, s)),
+      ...worldSolids(b).map((s) => rayBox(origin, direction, s)),
     ),
-    target: Guard | undefined;
+    target: Guard | undefined,
+    region: HitRegion | undefined;
   // Floor and ceiling also stop tracers and impacts.
   if (direction[1] < 0) distance = Math.min(distance, -1.65 / direction[1]);
   const room = rooms.find(
@@ -270,7 +362,24 @@ export function shootBunker(b: BunkerState) {
   if (direction[1] > 0)
     distance = Math.min(distance, ((room?.h ?? 4) - 1.65) / direction[1]);
   for (const guard of b.guards) {
-    if (guard.health <= 0) continue;
+    if (guard.health <= 0) {
+      for (const body of guard.bodyTargets ?? []) {
+        const ox = origin[0] - body.x,
+          oy = origin[1] - body.y,
+          oz = origin[2] - body.z;
+        const along = ox * direction[0] + oy * direction[1] + oz * direction[2];
+        const discriminant =
+          along * along - (ox * ox + oy * oy + oz * oz - body.r * body.r);
+        if (discriminant < 0) continue;
+        const hit = -along - Math.sqrt(discriminant);
+        if (hit >= 0 && hit < distance) {
+          distance = hit;
+          target = guard;
+          region = body.region;
+        }
+      }
+      continue;
+    }
     const hit = rayBox(origin, direction, {
       x: guard.x,
       y: 0.9,
@@ -282,10 +391,15 @@ export function shootBunker(b: BunkerState) {
     if (hit < distance) {
       distance = hit;
       target = guard;
+      region = undefined;
     }
   }
   const [x, y, z] = origin.map((n, i) => n + direction[i] * distance);
   if (target) {
+    const wasAlive = target.health > 0;
+    target.hitPoint = { x, y, z };
+    target.hitPower = 1;
+    target.hitLift = 0;
     target.hits++;
     target.hitSide = clamp(
       ((x - target.x) * Math.cos(target.yaw) -
@@ -297,7 +411,8 @@ export function shootBunker(b: BunkerState) {
     target.health -= y > 1.45 ? 75 : 34;
     target.alert = true;
     target.hitTime = 0.42;
-    target.hitRegion = y > 1.45 ? 'head' : y < 0.75 ? 'leg' : 'torso';
+    target.hitRegion =
+      region ?? (y > 1.45 ? 'head' : y < 0.75 ? 'leg' : 'torso');
     const horizontal = Math.hypot(direction[0], direction[2]) || 1;
     target.hitDirection = {
       x: direction[0] / horizontal,
@@ -311,13 +426,19 @@ export function shootBunker(b: BunkerState) {
     target.memory = 4.5;
     target.awareness = 1;
     target.mode = 'engage';
-    if (target.health <= 0) prepareDeath(target, b.time);
+    if (wasAlive && target.health <= 0) {
+      prepareDeath(target, b.time);
+      if (target.deathAction === 'reel') {
+        target.hitPower = 2.4;
+        target.hitLift = 0.4;
+      }
+    }
   }
   // A nearby shot attracts attention to its origin, even before visual recognition.
   for (const g of b.guards) {
     if (g.health <= 0 || g === target || g.mode === 'engage') continue;
     const distance = Math.hypot(g.x - b.x, g.z - b.z);
-    if (distance < (sightLine(g.x, g.z, b.x, b.z) ? 14 : 7)) {
+    if (distance < (sightLine(g.x, g.z, b.x, b.z, worldSolids(b)) ? 14 : 7)) {
       g.mode = 'search';
       g.lastX = b.x;
       g.lastZ = b.z;
@@ -343,6 +464,11 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
   if (b.status !== 'playing') return;
   const dt = clamp(delta, 0, 0.05);
   b.time += dt;
+  for (const d of b.doors)
+    if (d.opening) d.progress = Math.min(1, d.progress + dt * 0.85);
+  b.grenadeCooldown = Math.max(0, b.grenadeCooldown - dt);
+  b.blastShake = Math.max(0, b.blastShake - dt * 1.7);
+  stepGrenades(b, dt);
   b.cooldown = Math.max(0, b.cooldown - dt);
   b.recoil = Math.max(0, b.recoil - dt * 8);
   b.hurt = Math.max(0, b.hurt - dt);
@@ -369,6 +495,7 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
     b,
     (-Math.sin(b.yaw) * forward + Math.cos(b.yaw) * strafe) * 3.1 * dt,
     (-Math.cos(b.yaw) * forward - Math.sin(b.yaw) * strafe) * 3.1 * dt,
+    worldSolids(b),
   );
   b.steps += Math.hypot(b.x - oldX, b.z - oldZ);
   if (input.reload) reloadBunker(b);
@@ -398,7 +525,7 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
   else if (
     b.guards.every((g) => g.health <= 0) &&
     Math.abs(b.x) < 1.5 &&
-    b.z < -22.1
+    b.z < -40.1
   )
     b.status = 'won';
 }
@@ -411,96 +538,20 @@ const turnToward = (
   rate: number,
   dt: number,
 ) => current + clamp(angleDifference(target, current), -rate * dt, rate * dt);
-export function fallVector(g: Pick<Guard, 'yaw' | 'fallStyle'>) {
-  const side = g.fallStyle === 'left' ? -1 : g.fallStyle === 'right' ? 1 : 0;
-  const front = g.fallStyle === 'back' ? -1 : 1;
-  return side
-    ? { x: Math.cos(g.yaw) * side, z: -Math.sin(g.yaw) * side }
-    : { x: -Math.sin(g.yaw) * front, z: -Math.cos(g.yaw) * front };
-}
-export function chooseFall(g: Guard): FallStyle {
-  const localX =
-    Math.cos(g.yaw) * g.hitDirection.x - Math.sin(g.yaw) * g.hitDirection.z;
-  const localZ =
-    Math.sin(g.yaw) * g.hitDirection.x + Math.cos(g.yaw) * g.hitDirection.z;
-  const preferred: FallStyle =
-    g.hitRegion === 'leg'
-      ? 'kneel'
-      : Math.abs(localX) > 0.6
-        ? localX > 0
-          ? 'right'
-          : 'left'
-        : localZ > 0
-          ? 'back'
-          : 'front';
-  for (const style of [
-    preferred,
-    localX > 0 ? 'right' : 'left',
-    localX > 0 ? 'left' : 'right',
-    'front',
-    'back',
-  ] as FallStyle[]) {
-    const v = fallVector({ ...g, fallStyle: style });
-    if (
-      [0.35, 0.7, 0.95, -0.55].every((d) =>
-        canStand(g.x + v.x * d, g.z + v.z * d, 0.22),
-      )
-    )
-      return style;
-  }
-  return 'kneel';
-}
-/** Choose choreography once at impact. Sweep its displacement and final body footprint
- * so expressive motion cannot carry a corpse through the room's solid walls. */
+/** Choose only the initial reflex; physics determines the actual fall and landing. */
 export function prepareDeath(g: Guard, time: number) {
   const actions: DeathAction[] = ['reel', 'spin', 'sprawl', 'fold'];
   g.deathAction =
     g.hitRegion === 'leg'
       ? 'kneel'
       : actions[(g.id + g.hits + Math.floor(time * 3)) % actions.length];
-  g.fallStyle = chooseFall(g);
-  if (g.fallStyle === 'kneel') g.deathAction = 'kneel';
-  const sign =
-    Math.abs(g.hitSide) > 0.15 ? Math.sign(g.hitSide) : g.id % 2 ? -1 : 1;
-  const requestedTurn =
-    g.deathAction === 'spin'
-      ? sign * 1.35
-      : g.deathAction === 'fold'
-        ? sign * 0.32
-        : sign * 0.12;
-  const travel =
-    g.deathAction === 'reel'
-      ? 0.72
-      : g.deathAction === 'spin'
-        ? 0.42
-        : g.deathAction === 'sprawl'
-          ? 0.5
-          : 0.18;
-  const direction = fallVector(g);
-  g.deathTurn = 0;
-  g.deathTravel = 0;
-  for (const scale of [1, 0.65, 0.3, 0]) {
-    const fits = [0.25, 0.5, 0.75, 1].every((t) => {
-      const yaw = g.yaw + requestedTurn * scale * t;
-      const v = fallVector({ yaw, fallStyle: g.fallStyle });
-      const x = g.x + direction.x * travel * scale * t;
-      const z = g.z + direction.z * travel * scale * t;
-      return [-0.65, 0, 0.5, 0.95].every((d) =>
-        canStand(x + v.x * d, z + v.z * d, 0.36),
-      );
-    });
-    if (fits) {
-      g.deathTurn = requestedTurn * scale;
-      g.deathTravel = travel * scale;
-      break;
-    }
-  }
 }
 function updateGuard(g: Guard, b: BunkerState, dt: number) {
   g.startle = Math.max(0, g.startle - dt);
   const distance = Math.hypot(b.x - g.x, b.z - g.z);
   const bearing = Math.atan2(g.x - b.x, g.z - b.z);
-  const visible = distance < 19 && sightLine(g.x, g.z, b.x, b.z);
+  const visible =
+    distance < 19 && sightLine(g.x, g.z, b.x, b.z, worldSolids(b));
   const inView =
     Math.abs(angleDifference(bearing, g.yaw + g.headYaw)) <
     (distance < 4 ? 1.5 : 1.15);
@@ -570,6 +621,7 @@ function updateGuard(g: Guard, b: BunkerState, dt: number) {
           g,
           ((g.lastX - g.x) / gap) * dt * speed,
           ((g.lastZ - g.z) / gap) * dt * speed,
+          worldSolids(b),
         );
         g.moving = Math.hypot(g.x - x, g.z - z) > 0.001;
       }
@@ -584,7 +636,7 @@ function updateGuard(g: Guard, b: BunkerState, dt: number) {
       b.effects.push({ kind: 'enemy', x: g.x, y: 1.35, z: g.z });
       if (
         Math.hypot(b.x - g.aimX, b.z - g.aimZ) < 1 &&
-        sightLine(g.x, g.z, b.x, b.z)
+        sightLine(g.x, g.z, b.x, b.z, worldSolids(b))
       ) {
         b.health = Math.max(0, b.health - 8);
         b.hurt = 0.4;
@@ -602,7 +654,148 @@ function updateGuard(g: Guard, b: BunkerState, dt: number) {
       g,
       ((b.x - g.x) / distance) * dt * 0.7,
       ((b.z - g.z) / distance) * dt * 0.7,
+      worldSolids(b),
     );
     g.moving = Math.hypot(g.x - x, g.z - z) > 0.001;
+  }
+}
+
+/** One press releases one grenade; all motion and fuse time belong to the simulation. */
+export function throwGrenade(b: BunkerState) {
+  if (b.status !== 'playing' || b.grenades <= 0 || b.grenadeCooldown > 0)
+    return;
+  b.grenades--;
+  b.grenadeCooldown = 0.8;
+  b.activeGrenades.push({
+    id: b.nextGrenadeId++,
+    x: b.x,
+    y: 1.45,
+    z: b.z,
+    vx: -Math.sin(b.yaw) * Math.cos(b.pitch) * 8,
+    vy: 3.5 + Math.sin(b.pitch) * 7,
+    vz: -Math.cos(b.yaw) * Math.cos(b.pitch) * 8,
+    fuse: 2.3,
+  });
+}
+export function explodeGrenade(
+  b: BunkerState,
+  p: Pick<Grenade, 'x' | 'y' | 'z'>,
+) {
+  const obstacles = worldSolids(b);
+  const exposure = (x: number, y: number, z: number) => {
+    const dx = x - p.x,
+      dy = y - p.y,
+      dz = z - p.z,
+      distance = Math.hypot(dx, dy, dz);
+    if (distance >= 5.5) return 0;
+    const direction = [dx, dy, dz].map((n) => n / (distance || 1));
+    if (obstacles.some((s) => rayBox([p.x, p.y, p.z], direction, s) < distance))
+      return 0;
+    return 1 - distance / 5.5;
+  };
+  b.effects.push({ kind: 'blast', ...p });
+  for (const g of b.guards) {
+    const point =
+      g.health > 0
+        ? { x: g.x, y: 1.05, z: g.z }
+        : (g.bodyTargets?.find((t) => t.region === 'torso') ?? {
+            x: g.x,
+            y: 0.25,
+            z: g.z,
+          });
+    const strength = exposure(point.x, point.y, point.z);
+    if (!strength) continue;
+    const alive = g.health > 0,
+      length = Math.hypot(point.x - p.x, point.z - p.z) || 1;
+    g.health -= Math.round(strength * 180);
+    g.hitPoint = point;
+    g.hitRegion = 'torso';
+    g.hits++;
+    g.hitTime = 0.6;
+    g.hitDirection = {
+      x: (point.x - p.x) / length,
+      z: (point.z - p.z) / length,
+    };
+    g.hitPower = 2 + strength * 4;
+    g.hitLift = 0.8 + strength * 2;
+    g.windup = 0;
+    g.cooldown = Math.max(g.cooldown, 1);
+    g.alert = true;
+    g.lastX = b.x;
+    g.lastZ = b.z;
+    g.memory = 5;
+    g.mode = 'search';
+    if (alive && g.health <= 0) {
+      prepareDeath(g, b.time);
+      g.deathAction = 'sprawl';
+    }
+    b.effects.push({
+      kind: 'hit',
+      ...point,
+      guardId: g.id,
+      fatal: g.health <= 0,
+      direction: [g.hitDirection.x, 0.4, g.hitDirection.z],
+    });
+  }
+  const damage = Math.round(exposure(b.x, 1, b.z) * 125);
+  if (damage) {
+    b.health = Math.max(0, b.health - damage);
+    b.hurt = 0.7;
+  }
+  b.blastShake = Math.max(
+    b.blastShake,
+    Math.max(0, 1 - Math.hypot(b.x - p.x, b.z - p.z) / 16),
+  );
+}
+function stepGrenades(b: BunkerState, dt: number) {
+  const obstacles = worldSolids(b),
+    steps = Math.max(1, Math.ceil(dt / 0.008)),
+    h = dt / steps,
+    radius = 0.085;
+  for (let i = b.activeGrenades.length - 1; i >= 0; i--) {
+    const p = b.activeGrenades[i];
+    for (let k = 0; k < steps; k++) {
+      p.vy -= 9.81 * h;
+      for (const [axis, velocity] of [
+        ['x', 'vx'],
+        ['y', 'vy'],
+        ['z', 'vz'],
+      ] as const) {
+        const old = p[axis];
+        p[axis] += p[velocity] * h;
+        if (
+          obstacles.some(
+            (s) =>
+              Math.abs(p.x - s.x) < s.w / 2 + radius &&
+              Math.abs(p.y - s.y) < s.h / 2 + radius &&
+              Math.abs(p.z - s.z) < s.d / 2 + radius,
+          )
+        ) {
+          p[axis] = old;
+          p[velocity] *= -0.42;
+          if (Math.abs(p[velocity]) > 0.8)
+            b.effects.push({ kind: 'bounce', x: p.x, y: p.y, z: p.z });
+        }
+      }
+      const room = rooms.find(
+        (r) => Math.abs(p.x - r.x) <= r.w / 2 && Math.abs(p.z - r.z) <= r.d / 2,
+      );
+      if (p.y < radius) {
+        p.y = radius;
+        if (p.vy < -1)
+          b.effects.push({ kind: 'bounce', x: p.x, y: p.y, z: p.z });
+        p.vy = Math.abs(p.vy) * 0.32;
+        p.vx *= 0.83;
+        p.vz *= 0.83;
+      } else if (room && p.y > room.h - radius) {
+        p.y = room.h - radius;
+        p.vy = -Math.abs(p.vy) * 0.4;
+      }
+    }
+    p.fuse -= dt;
+    if (p.fuse <= 0) {
+      explodeGrenade(b, p);
+      b.activeGrenades.splice(i, 1);
+    }
   }
 }
