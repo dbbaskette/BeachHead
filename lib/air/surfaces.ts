@@ -43,9 +43,9 @@ export function instrumentTexture() {
   c.fillRect(0, 0, 1024, 384);
   const gauges = [
     ['ALT', 190, 136, 85],
-    ['AIR SPEED', 355, 136, 126],
+    ['AIR SPEED', 355, 136, 233],
     ['RPM', 730, 136, 2200],
-    ['OIL', 875, 136, 70],
+    ['OIL', 875, 136, 5],
   ] as const;
   for (const [name, x, y, value] of gauges) {
     const radius = name === 'OIL' ? 59 : name === 'RPM' ? 65 : 73;
@@ -92,7 +92,13 @@ export function instrumentTexture() {
     c.textAlign = 'center';
     c.font = 'bold 12px monospace';
     c.fillStyle = '#a4b8a4';
-    c.fillText(name, x, y - 20);
+    c.fillText(
+      ({ ALT: 'HÖHE', 'AIR SPEED': 'FAHRT', RPM: 'U/MIN', OIL: 'ÖL' } as const)[
+        name
+      ],
+      x,
+      y - 20,
+    );
     c.fillStyle = '#172121';
     c.fillRect(x - 28, y + 22, 56, 20);
     c.fillStyle = '#d4d8bb';
@@ -103,12 +109,12 @@ export function instrumentTexture() {
         : name === 'RPM'
           ? '×1000'
           : name === 'OIL'
-            ? 'PSI'
-            : '×100 KT',
+            ? 'ATÜ'
+            : '×100 KM/H',
       x,
       y + 38,
     );
-    const maximum = name === 'RPM' ? 7000 : name === 'OIL' ? 70 : 700;
+    const maximum = name === 'RPM' ? 7000 : name === 'OIL' ? 7 : 700;
     const angle = (0.68 + (value / maximum) * 1.65) * Math.PI;
     c.strokeStyle = '#e1ddbc';
     c.lineWidth = 3;
@@ -146,14 +152,14 @@ export function instrumentTexture() {
   c.fillStyle = '#b5b9a4';
   c.textAlign = 'center';
   c.font = '12px monospace';
-  c.fillText('ATTITUDE', 540, 242);
+  c.fillText('HORIZONT', 540, 242);
   c.textAlign = 'left';
   c.fillStyle = '#b5b9a4';
   c.font = '14px monospace';
-  c.fillText('FUEL   L     R', 75, 295);
-  c.fillText('MAGNETO', 352, 295);
-  c.fillText('BOMB RELEASE', 592, 295);
-  c.fillText('ARMED', 848, 295);
+  c.fillText('KRAFTSTOFF L / R', 75, 295);
+  c.fillText('ZÜNDUNG', 352, 295);
+  c.fillText('BOMBENABWURF', 592, 295);
+  c.fillText('SCHARF', 848, 295);
   for (let i = 0; i < 7; i++) {
     const x = 90 + i * 132;
     c.fillStyle = i === 6 ? '#925137' : '#374443';
@@ -239,12 +245,12 @@ export function aircraftSkin() {
   canvas.width = 1024;
   canvas.height = 512;
   const c = canvas.getContext('2d')!;
-  c.fillStyle = '#70765a';
+  c.fillStyle = '#727f7c';
   c.fillRect(0, 0, 1024, 512);
   const shade = c.createLinearGradient(0, 0, 0, 512);
-  shade.addColorStop(0, '#93977b');
-  shade.addColorStop(0.2, '#747a5d');
-  shade.addColorStop(1, '#505742');
+  shade.addColorStop(0, '#86958f');
+  shade.addColorStop(0.2, '#788782');
+  shade.addColorStop(1, '#4b5a58');
   c.fillStyle = shade;
   c.fillRect(0, 0, 1024, 512);
   let seed = 8201;
@@ -256,9 +262,35 @@ export function aircraftSkin() {
     c.fillStyle = i % 3 ? '#181d1510' : '#d3d0ad25';
     c.fillRect(x, y, 1 + (i % 3), 1);
   }
-  for (let i = 0; i < 5; i++) {
-    c.fillStyle = i % 2 ? '#242b26' : '#cecdb7';
-    c.fillRect(565 + i * 35, 0, 35, 512);
+  // Angular gray-green splinter camouflage, with no Allied invasion stripes.
+  c.fillStyle = '#4d5d57';
+  for (const points of [
+    [
+      [0, 0],
+      [470, 0],
+      [330, 190],
+      [70, 300],
+      [0, 225],
+    ],
+    [
+      [470, 80],
+      [720, 0],
+      [1024, 0],
+      [1024, 220],
+      [810, 330],
+    ],
+    [
+      [0, 460],
+      [370, 310],
+      [700, 390],
+      [860, 512],
+      [0, 512],
+    ],
+  ]) {
+    c.beginPath();
+    points.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+    c.closePath();
+    c.fill();
   }
   c.strokeStyle = '#242d2666';
   c.lineWidth = 1.5;
@@ -286,36 +318,21 @@ export function aircraftSkin() {
       c.fillRect(x + 57, y, 2, 2);
     }
   }
-  // Five-point star and bars, rendered in the wing's physical aspect ratio.
+  // Straight Balkenkreuz, corrected for the wing texture's physical aspect ratio.
   c.save();
-  c.translate(847, 254);
+  c.translate(770, 254);
   c.scale(1, 2.3);
-  c.fillStyle = '#273b4b';
-  c.fillRect(-70, -19, 140, 38);
-  c.beginPath();
-  c.arc(0, 0, 43, 0, Math.PI * 2);
-  c.fill();
-  c.fillStyle = '#dedfc9';
-  c.fillRect(-66, -12, 132, 24);
-  c.fillStyle = '#273b4b';
-  c.beginPath();
-  c.arc(0, 0, 39, 0, Math.PI * 2);
-  c.fill();
-  c.fillStyle = '#dedfc9';
-  c.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const angle = -Math.PI / 2 + (i * Math.PI) / 5,
-      r = i % 2 ? 16 : 37;
-    if (i) c.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
-    else c.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
-  }
-  c.closePath();
-  c.fill();
+  c.fillStyle = '#d4d8ce';
+  c.fillRect(-52, -21, 104, 42);
+  c.fillRect(-21, -52, 42, 104);
+  c.fillStyle = '#202928';
+  c.fillRect(-52, -13, 104, 26);
+  c.fillRect(-13, -52, 26, 104);
   c.restore();
   c.fillStyle = '#dbdbc28a';
   c.font = '9px monospace';
-  c.fillText('NO STEP', 286, 430);
-  c.fillText('FUEL', 415, 193);
+  c.fillText('NICHT BETRETEN', 286, 430);
+  c.fillText('KRAFTSTOFF', 415, 193);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;

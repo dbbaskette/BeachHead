@@ -400,16 +400,16 @@ export default function AirGame({
       {ready && !error && (
         <section className="air-briefing" aria-label="Air assault briefing">
           <div>
-            <p className="air-eyebrow">STAGE 03 / FIGHTER–BOMBER</p>
+            <p className="air-eyebrow">STAGE 03 / FW 190–INSPIRED</p>
             <h1>
               BREAK THE
               <br />
               <em>LANDING.</em>
             </h1>
             <p>
-              Three passes. Six bombs. One command transport. Strike the landing
-              force, silence the shore guns, then destroy the striped transport
-              and bring your aircraft home.
+              Fly a German fighter-bomber against the Allied landing. Three
+              passes. Six bombs. Silence the shore guns, destroy the striped
+              command transport, and bring your aircraft home.
             </p>
             <div className="air-route">
               <span>
