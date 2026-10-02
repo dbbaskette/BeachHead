@@ -21,6 +21,7 @@ import { assetUrl } from '../asset-url';
 import { addExpansion } from './expansion';
 import { addBunkerArchitecture } from './architecture';
 import { addMissionProps } from './mission-props';
+import { BunkerEquipment } from './equipment';
 import {
   rooms,
   solids,
@@ -82,7 +83,7 @@ export class BunkerScene {
     metalness: 0.72,
   });
   private wood = new T.MeshStandardMaterial({
-    color: '#594531',
+    color: '#b9a184',
     roughness: 0.92,
   });
   private brass = new T.MeshStandardMaterial({
@@ -150,52 +151,36 @@ export class BunkerScene {
     this.dark.metalness = 0.5;
     this.dark.roughness = 0.43;
     const timber = new T.TextureLoader().load(
-      assetUrl('/textures/deck-color.jpg'),
+      assetUrl('/textures/bunker-timber.jpg'),
     );
     timber.colorSpace = T.SRGBColorSpace;
     timber.wrapS = timber.wrapT = T.RepeatWrapping;
     timber.repeat.set(1.5, 1.5);
     this.resources.add(timber);
     this.wood.map = timber;
+    this.wood.bumpMap = timber;
+    this.wood.bumpScale = 0.012;
     const concrete = this.surface('pillbox-concrete', '#aaa79c', 0.6);
     const floor = this.surface('pillbox-concrete', '#77786e', 0.7);
     for (const r of rooms) {
       this.box(r.x, -0.15, r.z, r.w, 0.3, r.d, floor);
       this.box(r.x, r.h + 0.18, r.z, r.w, 0.36, r.d, concrete);
     }
+    const equipment = new BunkerEquipment(
+      this.metal,
+      this.dark,
+      this.wood,
+      this.brass,
+    );
     for (const s of solids) {
       if (s.kind === 'gun') continue;
-      this.box(
-        s.x,
-        s.y,
-        s.z,
-        s.w,
-        s.h,
-        s.d,
-        s.kind === 'crate' ? this.wood : concrete,
-      );
       if (s.kind === 'crate') {
-        for (const x of [-0.38, 0.38])
-          this.box(
-            s.x + x * s.w,
-            s.y,
-            s.z,
-            0.07,
-            s.h + 0.03,
-            s.d + 0.04,
-            this.dark,
-          );
-        for (let i = 0; i < 5; i++)
-          this.box(
-            s.x,
-            s.y - s.h / 2 + (i * s.h) / 5,
-            s.z + s.d / 2 + 0.006,
-            s.w,
-            0.015,
-            0.01,
-            this.dark,
-          );
+        const crate = equipment.crate(s.w, s.h, s.d);
+        crate.position.set(s.x, s.y - s.h / 2, s.z);
+        this.scene.add(crate);
+        continue;
       }
+      this.box(s.x, s.y, s.z, s.w, s.h, s.d, concrete);
     }
     // Steel lintels, ribs, pipes and cable runs give the corridor readable depth.
     addBunkerArchitecture(
@@ -283,13 +268,20 @@ export class BunkerScene {
     }
     floor.roughness = 0.78;
     floor.metalness = 0.18;
-    this.gun();
-    this.doors = addExpansion(this.scene, this.metal, this.dark, this.brass);
+    this.gun(equipment);
+    this.doors = addExpansion(
+      this.scene,
+      this.metal,
+      this.dark,
+      this.brass,
+      equipment,
+    );
     this.missionProps = addMissionProps(
       this.scene,
       this.metal,
       this.dark,
       this.wood,
+      equipment,
     );
     this.camera.add(this.missionProps.held);
     for (const r of rooms.slice(5)) this.lamp(r.x, r.z, r.h - 0.6);
@@ -355,17 +347,10 @@ export class BunkerScene {
     for (const z of [-18.6, -21.3])
       this.box(-5, 0.43, z, 0.1, 0.85, 0.1, this.metal);
     for (let i = 0; i < 3; i++) {
-      this.box(-5, 1.2, -19 - i * 0.65, 0.75, 0.55, 0.5, this.metal);
-      for (let j = 0; j < 3; j++)
-        this.cylinder(
-          -4.6,
-          1.17,
-          -19 - i * 0.65 + j * 0.1 - 0.1,
-          0.045,
-          0.06,
-          this.dark,
-          'x',
-        );
+      const receiver = equipment.radio(0.65, 0.5, 0.72);
+      receiver.rotation.y = Math.PI / 2;
+      receiver.position.set(-5, 0.95, -19 - i * 0.85);
+      this.scene.add(receiver);
     }
     const exit = new T.Group();
     exit.rotation.y = Math.PI;
@@ -407,7 +392,10 @@ export class BunkerScene {
       color: '#ddd2ac',
       roughness: 0.85,
     });
-    const kit = new T.Mesh(new T.BoxGeometry(0.6, 0.28, 0.45), kitMat);
+    const kit = new T.Mesh(
+      new RoundedBoxGeometry(0.6, 0.28, 0.45, 3, 0.07),
+      kitMat,
+    );
     this.medkit.add(kit);
     const stripe = new T.Mesh(
       new T.BoxGeometry(0.32, 0.012, 0.08),
@@ -671,16 +659,90 @@ export class BunkerScene {
       }),
     );
   }
-  private gun() {
+  private gun(equipment: BunkerEquipment) {
     this.cylinder(-4.7, 0.15, 8.5, 1.75, 0.3, this.dark);
-    this.cylinder(-4.7, 0.55, 8.5, 0.72, 0.85, this.metal);
-    this.box(-4.8, 1.1, 8.5, 2.4, 0.5, 0.95, this.metal);
-    this.cylinder(-6.6, 1.7, 8.5, 0.19, 5.6, this.metal, 'x');
-    this.cylinder(-7.6, 1.7, 8.5, 0.125, 4.7, this.dark, 'x');
+    const machinery = new T.Group();
+    const profile = [
+      [0, 0],
+      [0.92, 0],
+      [0.94, 0.08],
+      [0.79, 0.15],
+      [0.55, 0.7],
+      [0.59, 0.8],
+      [0, 0.8],
+    ].map(([x, y]) => new T.Vector2(x, y));
+    equipment.mesh(
+      machinery,
+      new T.LatheGeometry(profile, 48),
+      this.metal,
+      [-4.7, 0.3, 8.5],
+    );
+    equipment.box(
+      machinery,
+      [-4.8, 1.1, 8.5],
+      [2.4, 0.5, 0.95],
+      this.metal,
+      0.16,
+    );
+    equipment.rod(
+      machinery,
+      [-4.2, 1.7, 8.5],
+      [-9.65, 1.7, 8.5],
+      0.24,
+      this.metal,
+      0.115,
+      40,
+    );
+    equipment.rod(
+      machinery,
+      [-9.64, 1.7, 8.5],
+      [-9.69, 1.7, 8.5],
+      0.082,
+      this.dark,
+      0.082,
+      32,
+    );
+    for (const x of [-4.5, -5.15, -6.4])
+      equipment.rod(
+        machinery,
+        [x, 1.7, 8.5],
+        [x - 0.1, 1.7, 8.5],
+        0.255 - (-4.5 - x) * 0.02,
+        this.dark,
+        0.25 - (-4.5 - x) * 0.02,
+        32,
+      );
     this.cylinder(-4.3, 1.9, 8.5, 0.13, 1.8, this.metal, 'x');
-    this.box(-3.65, 1.76, 8.5, 0.8, 0.8, 0.75, this.dark);
+    equipment.box(
+      machinery,
+      [-3.65, 1.76, 8.5],
+      [0.8, 0.72, 0.75],
+      this.dark,
+      0.13,
+    );
     for (const z of [7.98, 9.02]) {
-      this.box(-4.7, 1.43, z, 1.9, 1.26, 0.22, this.metal);
+      const cheek = new T.Shape();
+      cheek.moveTo(-5.65, 0.85);
+      cheek.lineTo(-3.75, 0.85);
+      cheek.lineTo(-3.85, 1.25);
+      cheek.quadraticCurveTo(-4.25, 1.45, -4.38, 1.87);
+      cheek.quadraticCurveTo(-4.65, 2.24, -5.02, 1.98);
+      cheek.lineTo(-5.55, 1.48);
+      cheek.closePath();
+      equipment.mesh(
+        machinery,
+        new T.ExtrudeGeometry(cheek, {
+          depth: 0.19,
+          bevelEnabled: true,
+          bevelSize: 0.035,
+          bevelThickness: 0.025,
+          bevelSegments: 3,
+          steps: 1,
+          curveSegments: 16,
+        }),
+        this.metal,
+        [0, 0, z - 0.095],
+      );
       const wheel = this.part(
         this.scene,
         new T.TorusGeometry(0.32, 0.032, 8, 24),
@@ -697,6 +759,7 @@ export class BunkerScene {
         spoke.rotation.z = (i * Math.PI) / 4;
       }
     }
+    this.scene.add(equipment.finish(machinery));
     for (let i = 0; i < 14; i++) {
       const a = (i * Math.PI * 2) / 14;
       this.cylinder(

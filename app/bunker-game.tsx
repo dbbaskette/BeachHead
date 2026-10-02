@@ -45,6 +45,8 @@ import {
 } from '@/lib/bunker/simulation';
 import { assetUrl } from '@/lib/asset-url';
 import { PillboxAudio } from '@/lib/pillbox/audio';
+import { GuardVoiceDirector } from '@/lib/bunker/guard-voices';
+import { BunkerVoiceAudio } from '@/lib/bunker/voice-audio';
 import type { BunkerScene } from '@/lib/bunker/scene';
 
 const snapshot = (b: BunkerState) => ({
@@ -74,6 +76,8 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
   const battle = useRef(createBunker()),
     scene = useRef<BunkerScene | null>(null),
     audio = useRef<PillboxAudio | null>(null);
+  const voices = useRef<BunkerVoiceAudio | null>(null);
+  const voiceDirector = useRef(new GuardVoiceDirector());
   const keys = useRef(new Set<string>()),
     controls = useRef(new BunkerControls()),
     keyboard = useRef(new BunkerKeyboard()),
@@ -107,6 +111,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     battle.current.status = 'paused';
     clear();
     audio.current?.setPaused(true);
+    voices.current?.setPaused(true);
     unlock();
     publish();
   };
@@ -127,9 +132,13 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     if (retry || battle.current.status === 'ready') {
       battle.current = createBunker();
       scene.current?.reset();
+      voices.current?.stop();
+      voiceDirector.current.reset();
     }
     battle.current.status = 'playing';
     audio.current?.setPaused(false);
+    voices.current?.setPaused(false);
+    void voices.current?.start();
     void audio.current?.start();
     publish();
     root.current?.focus();
@@ -154,6 +163,9 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     }
     audio.current = new PillboxAudio();
     void audio.current.preload();
+    const director = voiceDirector.current;
+    voices.current = new BunkerVoiceAudio();
+    void voices.current.preload();
     const keydown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const element = e.target as HTMLElement;
@@ -243,6 +255,9 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
         controls.current.turn.y * dt * 520,
       );
       stepBunker(battle.current, input, dt);
+      voices.current?.stopDeadSpeakers(battle.current.guards);
+      const callout = voiceDirector.current.update(battle.current);
+      if (callout) voices.current?.play(callout);
       const events = battle.current.effects.splice(0);
       for (const e of events) {
         if (e.kind === 'shot' || e.kind === 'enemy')
@@ -261,6 +276,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
         clear();
         unlock();
         audio.current?.setPaused(battle.current.status !== 'cinematic');
+        voices.current?.setPaused(true);
         publish();
       }
       if (battle.current.status !== 'cinematic')
@@ -310,6 +326,9 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       scene.current = null;
       audio.current?.dispose();
       audio.current = null;
+      voices.current?.dispose();
+      voices.current = null;
+      director.reset();
     };
   }, []);
   const beginPointer = (
@@ -379,6 +398,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             aria-label={muted ? 'Enable sound' : 'Mute sound'}
             onClick={() => {
               audio.current?.setEnabled(muted);
+              voices.current?.setEnabled(muted);
               setMuted(!muted);
             }}
           >
@@ -587,6 +607,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
           onComplete={() => {
             finishBunker(battle.current);
             audio.current?.setPaused(true);
+            voices.current?.setPaused(true);
             publish();
           }}
           onBlast={() => {

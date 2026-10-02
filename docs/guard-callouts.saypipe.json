@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "title": "Bunker guard German callouts",
+  "segments": [
+    {
+      "id": "achtung",
+      "text": "Achtung!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "da-ist-er",
+      "text": "Da ist er!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "deckung",
+      "text": "In Deckung!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "beschuss",
+      "text": "Beschuss! Deckung!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "granate",
+      "text": "Handgranate!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "weg-da",
+      "text": "Handgranate! Weg da!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "wo-ist-er",
+      "text": "Wo ist er?",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    },
+    {
+      "id": "sucht-ihn",
+      "text": "Sucht ihn!",
+      "selection": {
+        "language": "de",
+        "style": {
+          "delivery": "Sprich ausschließlich den vorgegebenen deutschen Text. Ein erwachsener Mann ruft laut, kurz und dringend. Klare hochdeutsche Aussprache. Keine zusätzlichen Worte oder Wiederholungen."
+        }
+      }
+    }
+  ]
+}
