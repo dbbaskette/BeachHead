@@ -1,4 +1,5 @@
 import * as T from 'three';
+import type { GuardMotion } from './guard-motion';
 import { guardReaction } from './reactions';
 import { canStand, solids, type Box, type Guard } from './simulation';
 import { GuardRagdoll, GuardHitSpring } from './ragdoll';
@@ -16,6 +17,7 @@ export type GuardActor = {
   rifle: T.Group;
   joints: { bone: T.Object3D; rest: T.Quaternion; name: string }[];
   ragdoll?: GuardRagdoll;
+  motion?: GuardMotion;
   hitSpring?: GuardHitSpring;
   hitSeen?: number;
   walkWeight: number;
@@ -70,7 +72,14 @@ export function animateGuard(
   playing: boolean,
   obstacles: Box[] = solids,
 ) {
-  if (g.health > 0) {
+  if (a.motion && !a.ragdoll && g.health <= 0 && g.hitLift > 0.7) {
+    a.motion.suspend();
+    a.ragdoll = new GuardRagdoll(a.model, g);
+    a.hitSeen = g.hits;
+  }
+  if (a.motion && !a.ragdoll) {
+    a.motion.update(g, frame, obstacles);
+  } else if (g.health > 0) {
     const reaction = guardReaction(g);
     a.hitSpring ??= new GuardHitSpring();
     if (g.hits !== (a.hitSeen ?? 0)) a.hitSpring.kick(g);
@@ -139,6 +148,8 @@ export function animateGuard(
     a.ragdoll.update(frame, obstacles);
     a.ragdoll.applyPose();
     g.bodyTargets = a.ragdoll.targets();
+  }
+  if (g.health <= 0) {
     if (!a.dropped) {
       scene.attach(a.rifle);
       a.dropped = {
@@ -209,4 +220,5 @@ export function resetGuardActor(a: GuardActor) {
   a.idle.setEffectiveWeight(1);
   a.walk.setEffectiveWeight(0);
   a.mixer.setTime(0);
+  a.motion?.reset();
 }

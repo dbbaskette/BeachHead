@@ -9,6 +9,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
 import { PELVIS_HEIGHT } from './reactions';
+import { GuardMotion, loadGuardMotions } from './guard-motion';
 import {
   animateGuard,
   resetGuardActor,
@@ -249,6 +250,13 @@ export class BunkerScene {
     gunFill.shadow.mapSize.set(512, 512);
     gunFill.shadow.bias = -0.001;
     this.scene.add(gunFill, gunFill.target);
+    const archLight = new T.SpotLight('#ffe0ac', 95, 13, 0.9, 0.7, 2);
+    archLight.position.set(3.7, 2.35, 5.5);
+    archLight.target.position.set(-1.3, 2.9, 2.05);
+    archLight.castShadow = !touch;
+    archLight.shadow.mapSize.set(512, 512);
+    archLight.shadow.normalBias = 0.025;
+    this.scene.add(archLight, archLight.target);
     // Embrasure: sea, distant shoreline, and a heavy gun pointing out of the slit.
     const seaMat = new T.MeshStandardMaterial({
       color: '#607d84',
@@ -557,7 +565,8 @@ export class BunkerScene {
     return new T.MeshStandardMaterial({
       map,
       bumpMap: map,
-      bumpScale: 0.045,
+      bumpScale: 0.018,
+      normalMap: load('normal'),
       roughnessMap: load('roughness'),
       normalScale: new T.Vector2(0.45, 0.45),
       color,
@@ -732,7 +741,10 @@ export class BunkerScene {
       this.release(gltf.scene);
       return;
     }
-    const material = await uniformMaterial();
+    const [material, motions] = await Promise.all([
+      uniformMaterial(),
+      loadGuardMotions(),
+    ]);
     if (this.disposed) {
       material.map?.dispose();
       material.dispose();
@@ -851,6 +863,8 @@ export class BunkerScene {
         }),
       });
     }
+    for (const actor of this.guards)
+      actor.motion = new GuardMotion(actor, motions);
     // Instances share the source meshes; dispose its unused skeleton separately.
     gltf.scene.traverse((o) => {
       if (o instanceof T.SkinnedMesh) o.skeleton.dispose();
@@ -1146,7 +1160,7 @@ export class BunkerScene {
         active &&
         g.health <= 0 &&
         !a.contactEmitted &&
-        a.ragdoll?.floorImpact
+        (a.ragdoll?.floorImpact || a.motion?.floorImpact)
       ) {
         a.contactEmitted = true;
         const torso = a.ragdoll?.nodes.find((n) => n.name === 'Spine2');

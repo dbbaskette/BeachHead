@@ -2,7 +2,7 @@ import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { worldUV } from './detail';
-import { rooms } from './simulation';
+import { rooms, solids, doorLayouts } from './simulation';
 
 /** Real silhouette and shadow geometry; no flat decals stand in for these fixtures. */
 export function addBunkerArchitecture(
@@ -63,18 +63,20 @@ export function addBunkerArchitecture(
     depth: number,
     z: number,
     mat: T.Material,
+    centerX = 0,
+    spring = 2.25,
   ) {
     const shape = new T.Shape();
     for (let i = 0; i <= 40; i++) {
       const a = Math.PI - (i * Math.PI) / 40,
         x = Math.cos(a) * outerX,
-        y = 2.25 + Math.sin(a) * outerY;
+        y = spring + Math.sin(a) * outerY;
       if (i === 0) shape.moveTo(x, y);
       else shape.lineTo(x, y);
     }
     for (let i = 0; i <= 40; i++) {
       const a = (i * Math.PI) / 40;
-      shape.lineTo(Math.cos(a) * innerX, 2.25 + Math.sin(a) * innerY);
+      shape.lineTo(Math.cos(a) * innerX, spring + Math.sin(a) * innerY);
     }
     shape.closePath();
     mesh(
@@ -90,7 +92,7 @@ export function addBunkerArchitecture(
         }),
       ),
       mat,
-      0,
+      centerX,
       0,
       z,
     );
@@ -101,12 +103,128 @@ export function addBunkerArchitecture(
     for (const x of [-1.73, 1.73])
       box(x, 1.15, z + 0.12, 0.18, 2.3, 0.27, concrete);
   }
+  // Room-scale vaults replace the flat-box silhouette throughout the interior.
+  // Spring lines stay above a standing person's head; the existing passages
+  // remain clear, including the 2.9 m blast doors and the gun embrasure.
+  for (const r of rooms.filter((r) => r.w >= 8 && r.d >= 8)) {
+    const spring = r.h - 1.15,
+      half = r.w / 2 - 0.16;
+    arch(
+      half + 0.12,
+      1.25,
+      half - 0.08,
+      1.08,
+      r.d - 0.5,
+      r.z - r.d / 2 + 0.25,
+      concrete,
+      r.x,
+      spring,
+    );
+    for (let z = r.z - r.d / 2 + 1.1; z < r.z + r.d / 2 - 0.5; z += 3.4) {
+      arch(half - 0.06, 1.08, half - 0.3, 0.87, 0.3, z, concrete, r.x, spring);
+      // Haunch blocks are high enough not to intrude into movement or doors.
+      for (const side of [-1, 1])
+        box(
+          r.x + side * (half - 0.12),
+          spring - 0.14,
+          z + 0.15,
+          0.3,
+          0.38,
+          0.43,
+          concrete,
+        );
+    }
+  }
+  // Deep, curved concrete reveals frame the first tunnel, visible from spawn.
+  arch(2.32, 1.23, 1.73, 0.87, 0.85, 1.72, concrete, 0, 2.23);
+  for (const x of [-2.03, 2.03]) box(x, 1.13, 2.16, 0.54, 2.26, 0.88, concrete);
+  // Substantial jambs and rounded lintels give every working blast door depth.
+  for (const door of doorLayouts) {
+    for (const side of [-1, 1])
+      box(door.x + side * 1.61, 1.46, door.z, 0.3, 2.92, 0.68, concrete);
+    box(door.x, 3.02, door.z, 3.5, 0.22, 0.68, concrete);
+  }
+  // Raised cast-concrete skirtings and wall courses catch raking light. They
+  // follow actual wall segments rather than spanning across openings.
+  for (const wall of solids.filter(
+    (w) => !w.kind && w.y - w.h / 2 < 0.1 && (w.w < 1 || w.d < 1),
+  )) {
+    const alongZ = wall.w < 1;
+    for (const side of [-1, 1]) {
+      const x = wall.x + (alongZ ? side * (wall.w / 2 + 0.025) : 0);
+      const z = wall.z + (alongZ ? 0 : side * (wall.d / 2 + 0.025));
+      box(
+        x,
+        0.18,
+        z,
+        alongZ ? 0.09 : wall.w,
+        0.36,
+        alongZ ? wall.d : 0.09,
+        concrete,
+      );
+      box(
+        x,
+        1.22,
+        z,
+        alongZ ? 0.065 : wall.w,
+        0.1,
+        alongZ ? wall.d : 0.065,
+        concrete,
+      );
+    }
+  }
+  // Eye-level service manifolds: curved elbows, valve wheels and collars.
+  // Mounted close to the right wall, within its existing player clearance.
+  for (const r of rooms.filter((r) => r.w >= 8)) {
+    const x = r.x + r.w / 2 - 0.36,
+      z = r.z + r.d * 0.22;
+    tube(
+      [
+        new T.Vector3(x, 0.2, z),
+        new T.Vector3(x, 1.65, z),
+        new T.Vector3(x, 1.92, z - 0.25),
+        new T.Vector3(x, 1.92, z - 1.7),
+      ],
+      0.095,
+      steel,
+    );
+    for (const height of [0.48, 1.1, 1.53]) {
+      const collar = mesh(
+        new T.CylinderGeometry(0.125, 0.125, 0.075, 20),
+        dark,
+        x,
+        height,
+        z,
+      );
+      collar.rotation.y = 0.1;
+    }
+    const wheel = mesh(
+      new T.TorusGeometry(0.24, 0.025, 10, 32),
+      brass,
+      x - 0.12,
+      1.12,
+      z,
+    );
+    wheel.rotation.y = Math.PI / 2;
+    const hub = mesh(
+      new T.CylinderGeometry(0.065, 0.065, 0.2, 16),
+      dark,
+      x - 0.05,
+      1.12,
+      z,
+    );
+    hub.rotation.z = Math.PI / 2;
+    for (let i = 0; i < 4; i++) {
+      const spoke = box(x - 0.12, 1.12, z, 0.028, 0.45, 0.028, steel);
+      spoke.rotation.x = (i * Math.PI) / 4;
+    }
+  }
   // Large overhead extraction duct with cylindrical seams, elbows and brackets.
   for (const r of rooms.filter((r) => r.w >= 8)) {
     const x = r.x + r.w / 2 - 0.65,
-      y = r.h - 0.65;
+      y = r.h - 1.0;
     const duct = mesh(
-      new T.CylinderGeometry(0.19, 0.19, r.d - 1, 24, 1),
+      new T.CylinderGeometry(0.24, 0.24, r.d - 1, 24, 1),
       steel,
       x,
       y,
@@ -115,7 +233,7 @@ export function addBunkerArchitecture(
     duct.rotation.x = Math.PI / 2;
     for (let z = r.z - r.d / 2 + 1; z < r.z + r.d / 2 - 0.3; z += 2) {
       const flange = mesh(
-        new T.TorusGeometry(0.205, 0.025, 8, 28),
+        new T.TorusGeometry(0.255, 0.025, 8, 28),
         dark,
         x,
         y,
@@ -128,8 +246,8 @@ export function addBunkerArchitecture(
         mesh(
           new T.SphereGeometry(0.024, 6, 4),
           brass,
-          x + Math.cos(a) * 0.21,
-          y + Math.sin(a) * 0.21,
+          x + Math.cos(a) * 0.26,
+          y + Math.sin(a) * 0.26,
           z + 0.035,
         );
       }
@@ -140,7 +258,7 @@ export function addBunkerArchitecture(
         new T.Vector3(x, y - 0.16, r.z + r.d / 2 - 0.35),
         new T.Vector3(x, y - 0.75, r.z + r.d / 2 - 0.35),
       ],
-      0.19,
+      0.24,
       steel,
     );
   }

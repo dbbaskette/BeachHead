@@ -41,6 +41,7 @@ type Node = {
   child?: Node;
   direction?: T.Vector3;
   frameInverse?: T.Quaternion;
+  limbFrameInverse?: T.Quaternion;
   contact: boolean;
   parent?: Node;
 };
@@ -165,6 +166,9 @@ export class GuardRagdoll {
     for (const n of this.nodes)
       if (n.name === 'Hips' || n.name.startsWith('Spine'))
         n.frameInverse = this.bodyFrame(n).invert();
+    for (const n of this.nodes)
+      if (n.child && /^(Left|Right)(UpLeg|Leg|Arm|ForeArm)$/.test(n.name))
+        n.limbFrameInverse = this.limbFrame(n).invert();
     this.trunkLength = this.nodes
       .find((n) => n.name === 'Spine2')!
       .p.distanceTo(this.nodes[0].p);
@@ -191,7 +195,7 @@ export class GuardRagdoll {
       ['LeftUpLeg', 'RightArm'],
       ['RightUpLeg', 'LeftArm'],
     ])
-      this.namedLink(a, b, 0.93, 1.015, 0.95);
+      this.namedLink(a, b, 0.975, 1.01, 1);
     this.namedLink('Spine2', 'Head', 0.96, 1.01, 1);
     this.namedLink('LeftArm', 'Head', 0.92, 1.06, 0.9);
     this.namedLink('RightArm', 'Head', 0.92, 1.06, 0.9);
@@ -232,6 +236,13 @@ export class GuardRagdoll {
     ))
       for (const body of this.nodes.filter((n) =>
         ['Hips', 'Spine', 'Spine2', 'Head'].includes(n.name),
+      ))
+        this.selfContacts.push([limb, body]);
+    for (const limb of this.nodes.filter(
+      (n) => n.name.endsWith('Leg') || n.name.includes('Foot'),
+    ))
+      for (const body of this.nodes.filter((n) =>
+        ['Spine1', 'Spine2', 'Head'].includes(n.name),
       ))
         this.selfContacts.push([limb, body]);
     for (const part of ['Leg', 'Foot'])
@@ -305,6 +316,18 @@ export class GuardRagdoll {
       new T.Matrix4().makeBasis(across, up, forward),
     );
   }
+  private limbFrame(n: Node, direction?: T.Vector3) {
+    const y = direction?.clone() ?? n.child!.p.clone().sub(n.p).normalize();
+    const across = this.nodes
+      .find((p) => p.name === 'RightArm')!
+      .p.clone()
+      .sub(this.nodes.find((p) => p.name === 'LeftArm')!.p);
+    across.addScaledVector(y, -across.dot(y)).normalize();
+    const z = new T.Vector3().crossVectors(across, y).normalize();
+    return new T.Quaternion().setFromRotationMatrix(
+      new T.Matrix4().makeBasis(across, y, z),
+    );
+  }
   private link(a: Node, b: Node, min: number, max: number, stiffness: number) {
     const length = a.p.distanceTo(b.p);
     if (length > 0.001)
@@ -357,11 +380,12 @@ export class GuardRagdoll {
     const left = this.limbs[0],
       right = this.limbs[1];
     const up = this.nodes
-      .find((n) => n.name === 'Neck')!
+      .find((n) => n.name === 'Spine2')!
       .p.clone()
-      .sub(this.nodes.find((n) => n.name === 'Spine1')!.p)
+      .sub(this.nodes[0].p)
       .normalize();
-    const across = right.shoulder.p.clone().sub(left.shoulder.p).normalize();
+    const across = right.shoulder.p.clone().sub(left.shoulder.p);
+    across.addScaledVector(up, -across.dot(up)).normalize();
     const forward = new T.Vector3().crossVectors(up, across).normalize();
     return { up, across, forward };
   }
@@ -488,97 +512,107 @@ export class GuardRagdoll {
   }
   private jointLimits() {
     const { up, across, forward } = this.axes();
-    for (const limb of this.limbs) {
-      const beforeKnee = limb.knee.p.clone(),
-        beforeElbow = limb.elbow.p.clone();
-      // Femurs cannot fold backward or swing sideways into a split.
-      const v = limb.knee.p.clone().sub(limb.hip.p).divideScalar(limb.thigh);
-      const lateral = v.dot(across),
-        backwards = v.dot(forward);
-      if (Math.abs(lateral) > 0.4)
-        limb.knee.p.addScaledVector(
-          across,
-          (Math.sign(lateral) * 0.4 - lateral) * limb.thigh * 0.8,
-        );
-      if (backwards < -0.45)
-        limb.knee.p.addScaledVector(
-          forward,
-          (-0.45 - backwards) * limb.thigh * 0.8,
-        );
-      // The elbow bends toward the palm/front, rather than freely rotating through the ribcage.
-      const axis = limb.hand.p.clone().sub(limb.shoulder.p).normalize();
-      const bend = forward
+    // Limits are measured in the moving anatomical frame, not world Euler angles.
+    // Project the distal segment itself: an endpoint-distance constraint alone
+    // permits a knee to orbit the hip/ankle and can turn a crouch inside out.
+    const project = (
+      parent: Node,
+      child: Node,
+      direction: T.Vector3,
+      length: number,
+    ) => {
+      const correction = parent.p
         .clone()
-        .negate()
-        .addScaledVector(axis, forward.dot(axis))
-        .normalize();
-      const signed = limb.elbow.p.clone().sub(limb.shoulder.p).dot(bend);
-      if (signed < -0.012)
-        limb.elbow.p.addScaledVector(bend, (-0.012 - signed) * 0.8);
-      // Keep upper arms outside the trunk; a crossed forearm remains possible.
-      const armSide =
-        limb.elbow.p.clone().sub(limb.shoulder.p).dot(across) * limb.side;
-      if (armSide < -0.04)
-        limb.elbow.p.addScaledVector(
-          across,
-          limb.side * (-0.04 - armSide) * 0.8,
-        );
-      // A hinge has one bending plane. Distance limits alone allow knees and
-      // elbows to orbit their endpoints, which reads as boneless writhing.
-      const hingePlane = (
-        a: Node,
-        joint: Node,
-        end: Node,
-        first: number,
-        second: number,
-        pole: T.Vector3,
-      ) => {
-        const line = end.p.clone().sub(a.p);
-        const distance = Math.max(0.0001, line.length());
-        line.divideScalar(distance);
-        const along = Math.max(
-          0,
-          Math.min(
-            first,
-            (first * first - second * second + distance * distance) /
-              (2 * distance),
-          ),
-        );
-        const height = Math.sqrt(Math.max(0, first * first - along * along));
-        const bend = pole.clone().addScaledVector(line, -pole.dot(line));
-        if (bend.lengthSq() < 0.005) return;
-        const target = a.p
-          .clone()
-          .addScaledVector(line, along)
-          .addScaledVector(bend.normalize(), height);
-        joint.p.lerp(target, 0.8);
-      };
-      hingePlane(
+        .addScaledVector(direction, length)
+        .sub(child.p);
+      const childShare = child.weight / (parent.weight + child.weight);
+      child.p.addScaledVector(correction, childShare);
+      parent.p.addScaledVector(correction, -(1 - childShare));
+    };
+    const hinge = (
+      start: Node,
+      joint: Node,
+      end: Node,
+      length: number,
+      pole: T.Vector3,
+      max: number,
+      min = 0.04,
+    ) => {
+      const proximal = joint.p.clone().sub(start.p).normalize();
+      const bend = pole.clone().addScaledVector(proximal, -pole.dot(proximal));
+      if (bend.lengthSq() < 0.001) return;
+      bend.normalize();
+      const distal = end.p.clone().sub(joint.p).normalize();
+      const angle = T.MathUtils.clamp(
+        Math.atan2(distal.dot(bend), distal.dot(proximal)),
+        min,
+        max,
+      );
+      const direction = proximal
+        .multiplyScalar(Math.cos(angle))
+        .addScaledVector(bend, Math.sin(angle));
+      project(joint, end, direction, length);
+    };
+    for (const limb of this.limbs) {
+      const thigh = limb.knee.p.clone().sub(limb.hip.p).normalize();
+      // Hip extension stops at 25 degrees; flexion at 80. A fallen guard cannot
+      // tuck a femur through his ribcage, even when the floor pushes on the foot.
+      const flexion = T.MathUtils.clamp(
+        Math.atan2(thigh.dot(forward), -thigh.dot(up)),
+        -0.43,
+        1.4,
+      );
+      const spread = T.MathUtils.clamp(
+        Math.asin(T.MathUtils.clamp(thigh.dot(across), -1, 1)),
+        limb.side < 0 ? -0.45 : -0.08,
+        limb.side < 0 ? 0.08 : 0.45,
+      );
+      const direction = up
+        .clone()
+        .multiplyScalar(-Math.cos(flexion) * Math.cos(spread))
+        .addScaledVector(forward, Math.sin(flexion) * Math.cos(spread))
+        .addScaledVector(across, Math.sin(spread));
+      project(limb.hip, limb.knee, direction, limb.thigh);
+      const buckle =
+        this.model === 'knee-buckle' && !this.blast
+          ? fallPose(this.model, this.age, limb.side === this.leading).knee *
+            Math.max(0, 1 - Math.max(0, this.age - 0.6) / 0.45)
+          : 0.04;
+      hinge(
         limb.hip,
         limb.knee,
         limb.foot,
-        limb.thigh,
         limb.shin,
-        forward,
+        forward.clone().negate(),
+        this.model === 'knee-buckle' && this.age < 0.9 ? 2.0 : 1.65,
+        Math.max(0.04, buckle),
       );
-      hingePlane(
+      // Shoulders can swing and abduct, but cannot pass through the chest.
+      const arm = limb.elbow.p.clone().sub(limb.shoulder.p).normalize();
+      const swing = T.MathUtils.clamp(
+        Math.atan2(arm.dot(forward), -arm.dot(up)),
+        -0.75,
+        2.5,
+      );
+      const abduction = T.MathUtils.clamp(
+        Math.asin(T.MathUtils.clamp(arm.dot(across) * limb.side, -1, 1)),
+        0.05,
+        1.4,
+      );
+      const armDirection = up
+        .clone()
+        .multiplyScalar(-Math.cos(swing) * Math.cos(abduction))
+        .addScaledVector(forward, Math.sin(swing) * Math.cos(abduction))
+        .addScaledVector(across, limb.side * Math.sin(abduction));
+      project(limb.shoulder, limb.elbow, armDirection, limb.upperArm);
+      hinge(
         limb.shoulder,
         limb.elbow,
         limb.hand,
-        limb.upperArm,
         limb.lowerArm,
-        forward.clone().negate(),
+        forward.clone().addScaledVector(across, limb.side * 0.2),
+        2.25,
       );
-      // Prevent legs reversing upwards behind the pelvis.
-      const raised = v.dot(up);
-      if (raised > 0.2)
-        limb.knee.p.addScaledVector(up, (0.2 - raised) * limb.thigh * 0.8);
-      const kneeChange = limb.knee.p.clone().sub(beforeKnee),
-        elbowChange = limb.elbow.p.clone().sub(beforeElbow);
-      limb.hip.p.addScaledVector(kneeChange, -0.5);
-      limb.foot.p.addScaledVector(kneeChange, -0.5);
-      limb.shoulder.p.addScaledVector(elbowChange, -0.5);
-      limb.hand.p.addScaledVector(elbowChange, -0.5);
     }
   }
   private collide(n: Node) {
@@ -642,9 +676,9 @@ export class GuardRagdoll {
       if (!this.blast)
         for (const chord of this.kneeChords) {
           const release = Math.max(0, Math.min(1, (this.age - 0.38) / 0.55));
-          const start = this.model === 'knee-buckle' ? 0.42 : 0.93;
+          const start = this.model === 'knee-buckle' ? 0.58 : 0.93;
           chord.link.min =
-            chord.length * (start * (1 - release) + 0.42 * release);
+            chord.length * (start * (1 - release) + 0.68 * release);
         }
       this.driveLimbs();
       for (const n of this.nodes) n.predicted.copy(n.p);
@@ -659,23 +693,6 @@ export class GuardRagdoll {
             (c.a.weight + c.b.weight);
           c.a.p.addScaledVector(delta, correction * c.a.weight);
           c.b.p.addScaledVector(delta, -correction * c.b.weight);
-        }
-        const front = new T.Vector3(0, 0, 1).applyQuaternion(
-          this.bodyFrame(this.nodes[0]),
-        );
-        for (const [hip, knee, ankle] of this.knees) {
-          const axis = ankle.p.clone().sub(hip.p).normalize();
-          const bend = front
-            .clone()
-            .addScaledVector(axis, -front.dot(axis))
-            .normalize();
-          const signed = knee.p.clone().sub(hip.p).dot(bend);
-          if (signed < -0.015) {
-            const correction = bend.multiplyScalar((-0.015 - signed) * 0.7);
-            knee.p.add(correction);
-            hip.p.addScaledVector(correction, -0.5);
-            ankle.p.addScaledVector(correction, -0.5);
-          }
         }
         this.jointLimits();
         for (const [a, b] of this.selfContacts) {
@@ -745,10 +762,49 @@ export class GuardRagdoll {
       else n.bone.position.copy(n.restPosition);
       if (n.child && n.direction) {
         delta.subVectors(n.child.p, n.p).normalize();
+        // The physics particles and the fixed-length rendered skeleton can
+        // diverge slightly at contact. Enforce the hinge again on the actual
+        // visible limb, so skinning can never turn a knee into a ball joint.
+        if (/^(Left|Right)(Leg|ForeArm)$/.test(n.name)) {
+          const knee = n.name.endsWith('Leg');
+          const proximal = n.bone
+            .getWorldPosition(new T.Vector3())
+            .sub(n.bone.parent.getWorldPosition(new T.Vector3()))
+            .normalize();
+          const get = (name: string) =>
+            this.nodes
+              .find((p) => p.name === name)!
+              .bone.getWorldPosition(new T.Vector3());
+          const up = get('Spine2').sub(get('Hips')).normalize();
+          const across = get('RightArm').sub(get('LeftArm'));
+          across.addScaledVector(up, -across.dot(up)).normalize();
+          const pole = new T.Vector3().crossVectors(up, across).normalize();
+          if (knee) pole.negate();
+          else
+            pole.addScaledVector(
+              across,
+              n.name.startsWith('Left') ? -0.2 : 0.2,
+            );
+          pole.addScaledVector(proximal, -pole.dot(proximal)).normalize();
+          const angle = T.MathUtils.clamp(
+            Math.atan2(delta.dot(pole), delta.dot(proximal)),
+            0.04,
+            knee ? 2.0 : 2.25,
+          );
+          delta
+            .copy(proximal)
+            .multiplyScalar(Math.cos(angle))
+            .addScaledVector(pole, Math.sin(angle));
+        }
         if (n.frameInverse)
           orientation
             .copy(this.bodyFrame(n))
             .multiply(n.frameInverse)
+            .multiply(n.orientation);
+        else if (n.limbFrameInverse)
+          orientation
+            .copy(this.limbFrame(n, delta))
+            .multiply(n.limbFrameInverse)
             .multiply(n.orientation);
         else
           orientation
