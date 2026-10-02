@@ -540,7 +540,7 @@ export function shootBunker(b: BunkerState) {
   if (direction[1] > 0)
     distance = Math.min(distance, ((room?.h ?? 4) - 1.65) / direction[1]);
   for (const guard of b.guards) {
-    if (guard.health <= 0) {
+    if (guard.health <= 0 || guard.bodyTargets?.length) {
       for (const body of guard.bodyTargets ?? []) {
         const ox = origin[0] - body.x,
           oy = origin[1] - body.y,
@@ -586,7 +586,7 @@ export function shootBunker(b: BunkerState) {
       -1,
       1,
     );
-    target.health -= y > 1.45 ? 75 : 34;
+    target.health -= (region ? region === 'head' : y > 1.45) ? 75 : 34;
     target.alert = true;
     target.hitTime = 0.42;
     target.hitRegion =

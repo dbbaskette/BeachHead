@@ -374,3 +374,85 @@ void test('falling skin retains authored bone offsets instead of stretching or s
     }
   }
 });
+
+void test('rendered knees and elbows stay in anatomical bend planes and thighs cannot fold into the chest', async () => {
+  const source = await sourceModel();
+  for (const action of ['reel', 'kneel', 'spin'] as const)
+    for (const yaw of [0, 1.4, Math.PI]) {
+      const scene = new T.Scene(),
+        a = rig(source, scene),
+        g = createBunker().guards[0];
+      Object.assign(g, {
+        x: 0,
+        z: 0,
+        yaw,
+        readiness: 1,
+        hitSide: 0.5,
+        hitDirection: { x: Math.sin(yaw), z: Math.cos(yaw) },
+      });
+      // Use the real live hit pose, including three accumulated angular kicks.
+      for (let hit = 0; hit < 3; hit++) {
+        g.hits++;
+        g.hitTime = 0.42;
+        for (let i = 0; i < 20; i++) {
+          g.hitTime = Math.max(0, g.hitTime - 1 / 60);
+          animateGuard(a, g, 1 / 60, scene, true, []);
+        }
+      }
+      g.health = 0;
+      g.deathAction = action;
+      const p = (name: string) =>
+        a.model.getObjectByName(name)!.getWorldPosition(new T.Vector3());
+      for (let frame = 0; frame < 240; frame++) {
+        animateGuard(a, g, 1 / 60, scene, true, []);
+        const up = p('Spine2').sub(p('Hips')).normalize();
+        const across = p('RightArm').sub(p('LeftArm'));
+        across.addScaledVector(up, -across.dot(up)).normalize();
+        const forward = new T.Vector3().crossVectors(up, across).normalize();
+        for (const side of ['Left', 'Right']) {
+          const thigh = p(side + 'Leg')
+            .sub(p(side + 'UpLeg'))
+            .normalize();
+          const shin = p(side + 'Foot')
+            .sub(p(side + 'Leg'))
+            .normalize();
+          const flexion = Math.atan2(thigh.dot(forward), -thigh.dot(up));
+          assert.ok(
+            flexion > -0.6 && flexion < 1.62,
+            `${action}/${yaw}/${frame}: hip flexion ${flexion}`,
+          );
+          const pole = forward
+            .clone()
+            .negate()
+            .addScaledVector(thigh, forward.dot(thigh))
+            .normalize();
+          const knee = Math.atan2(shin.dot(pole), shin.dot(thigh));
+          assert.ok(
+            knee > -0.12 && knee < 2.25,
+            `${action}/${yaw}/${frame}: reversed or overfolded knee ${knee}`,
+          );
+          const hingeAxis = new T.Vector3()
+            .crossVectors(thigh, pole)
+            .normalize();
+          assert.ok(
+            Math.abs(shin.dot(hingeAxis)) < 0.25,
+            `${action}/${yaw}/${frame}: knee twisted out of plane`,
+          );
+          const upper = p(side + 'ForeArm')
+            .sub(p(side + 'Arm'))
+            .normalize();
+          const forearm = p(side + 'Hand')
+            .sub(p(side + 'ForeArm'))
+            .normalize();
+          assert.ok(
+            upper.angleTo(forearm) < 2.55,
+            `${action}: elbow overfolded`,
+          );
+          assert.ok(
+            p(side + 'Foot').distanceTo(p('Head')) > 0.45,
+            `${action}: foot folded into head`,
+          );
+        }
+      }
+    }
+});
