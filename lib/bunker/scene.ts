@@ -18,10 +18,12 @@ import { uniformMaterial, guardClips } from './uniform';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
 import { addExpansion } from './expansion';
+import { addMissionProps } from './mission-props';
 import {
   rooms,
   solids,
   guardSpawns,
+  doorLayouts,
   worldSolids,
   rayBox,
   type BunkerState,
@@ -50,6 +52,7 @@ export class BunkerScene {
   private guards: GuardActor[] = [];
   private particles: Particle[] = [];
   private doors: T.Group[] = [];
+  private missionProps: ReturnType<typeof addMissionProps>;
   private grenades = new Map<number, T.Group>();
   private blastLight = new T.PointLight('#ffba70', 0, 12, 2);
   private blastAge = 0;
@@ -206,11 +209,19 @@ export class BunkerScene {
     }
     for (const r of rooms) {
       for (const x of [r.w / 2 - 0.4, r.w / 2 - 0.65])
-        this.cylinder(x, r.h - 0.48, r.z, 0.065, r.d, this.metal, 'z');
+        this.cylinder(r.x + x, r.h - 0.48, r.z, 0.065, r.d, this.metal, 'z');
       for (let z = r.z - r.d / 2 + 1; z < r.z + r.d / 2; z += 2.5) {
-        this.box(r.w / 2 - 0.52, r.h - 0.48, z, 0.43, 0.055, 0.08, this.dark);
         this.box(
-          -r.w / 2 + 0.025,
+          r.x + r.w / 2 - 0.52,
+          r.h - 0.48,
+          z,
+          0.43,
+          0.055,
+          0.08,
+          this.dark,
+        );
+        this.box(
+          r.x - r.w / 2 + 0.025,
           0.35,
           z,
           0.025,
@@ -269,11 +280,28 @@ export class BunkerScene {
     floor.metalness = 0.18;
     this.gun();
     this.doors = addExpansion(this.scene, this.metal, this.dark, this.brass);
+    this.missionProps = addMissionProps(
+      this.scene,
+      this.metal,
+      this.dark,
+      this.wood,
+    );
+    this.camera.add(this.missionProps.held);
+    for (const r of rooms.slice(5)) this.lamp(r.x, r.z, r.h - 0.6);
+    this.sign('FUNKRAUM / RADIO', 0, 3.2, -45.7, 2.5);
+    this.sign('TRANSMITTER', -2, 2.5, -54.1, 1.7);
+    this.sign('RADIO CONTROL', 2, 2.5, -54.1, 1.8);
+    this.sign('RADIO  ↑', 0, 3.15, -41.7, 1.8);
+    this.sign('QUARTERS  →', 2.8, 2.8, -23.7, 2.4);
+    this.sign('INFIRMARY', 19, 3.2, -21.7, 2);
+    this.sign('RECORDS', 19, 3.2, -35.7, 1.8);
+    this.sign('RADIO  ←', 19, 3.15, -35.65, 1.7);
+    this.sign('STORES / RETURN', 10, 2.7, -21.7, 2.3);
     this.scene.add(this.blastLight);
     this.lamp(0, -27, 3.25);
     this.lamp(-1, -36, 3.3);
     this.lamp(1, -40, 3.3);
-    this.sign('FUNKRAUM', 0, 3.32, -23.7, 1.6);
+    this.sign('VERMITTLUNG', 0, 3.32, -23.7, 1.8);
     this.sign('MASCHINENRAUM', 0, 3.32, -31.7, 2.1);
     addBunkerDetail(this.scene, concrete, this.metal, this.dark, this.brass);
     for (let i = 0; i < 7; i++) {
@@ -285,13 +313,14 @@ export class BunkerScene {
     }
     this.box(-5.8, 0.12, 5.2, 0.65, 0.18, 2.8, this.wood);
     // Small rubble, drainage gratings and ceiling beams break up broad surfaces.
-    for (const r of [rooms[0], rooms[2], rooms[3], rooms[4]]) {
+    for (const r of rooms.filter((r) => r.w > 4)) {
       for (let z = r.z - r.d / 2 + 2; z < r.z + r.d / 2; z += 4)
-        this.box(0, r.h - 0.18, z, r.w, 0.25, 0.32, concrete);
+        this.box(r.x, r.h - 0.18, z, r.w, 0.25, 0.32, concrete);
       for (let i = 0; i < 20; i++) {
         const x =
+            r.x +
             (i % 2 ? 1 : -1) *
-            (r.w / 2 - 0.55 - Math.abs(Math.sin(i * 4)) * 0.4),
+              (r.w / 2 - 0.55 - Math.abs(Math.sin(i * 4)) * 0.4),
           z = r.z - r.d / 2 + 1 + ((i * 0.63) % (r.d - 2));
         const chip = this.part(
           this.scene,
@@ -333,10 +362,39 @@ export class BunkerScene {
           'x',
         );
     }
-    this.box(0, 1.25, -41.7, 2.5, 2.5, 0.18, this.metal);
-    this.box(0, 1.35, -41.58, 1.7, 1.8, 0.08, this.dark);
-    this.box(0, 2.7, -41.4, 1.5, 0.17, 0.08, this.exitLight);
-    this.sign('TUNNELS', 0, 3.2, -41.35, 1.5);
+    const exit = new T.Group();
+    exit.rotation.y = Math.PI;
+    exit.position.set(0, 0, 15.68);
+    this.scene.add(exit);
+    this.part(
+      exit,
+      new T.BoxGeometry(2.5, 2.65, 0.18),
+      this.metal,
+      [0, 1.325, 0],
+    );
+    this.part(
+      exit,
+      new T.BoxGeometry(1.8, 1.8, 0.08),
+      this.dark,
+      [0, 1.4, 0.15],
+    );
+    this.part(
+      exit,
+      new T.BoxGeometry(1.5, 0.18, 0.08),
+      this.exitLight,
+      [0, 2.82, 0.16],
+    );
+    const exitSign = this.sign('EXIT / BEACH', 0, 3.2, 15.5, 2);
+    exitSign.rotation.y = Math.PI;
+    for (const [x, z] of [
+      [0, -45.7],
+      [0, -31.7],
+      [0, -9.65],
+      [19, -21.7],
+    ]) {
+      const arrow = this.sign('EXIT  ↑', x, 2.7, z - 0.62, 1.5);
+      arrow.rotation.y = Math.PI;
+    }
     this.sign('MUNITIONS', 0, 2.75, -9.66, 1.7);
     this.sign('04  /  KASEMATTE', 2.8, 2.9, 2.28, 2.4);
     this.box(0, 0, 0, 0.01, 0.01, 0.01, this.dark); // shared origin marker stays under the floor
@@ -662,7 +720,7 @@ export class BunkerScene {
     const texture = new T.CanvasTexture(canvas);
     texture.colorSpace = T.SRGBColorSpace;
     this.resources.add(texture);
-    this.part(
+    return this.part(
       this.scene,
       new T.PlaneGeometry(w, w / 5.12),
       new T.MeshStandardMaterial({ map: texture, roughness: 1 }),
@@ -813,7 +871,7 @@ export class BunkerScene {
     this.grenades.clear();
     this.blastAge = 0;
     this.blastLight.intensity = 0;
-    this.doors.forEach((d) => (d.position.x = 0));
+    this.doors.forEach((d, i) => (d.position.x = doorLayouts[i].x));
     for (const p of this.particles) {
       p.mesh.removeFromParent();
       p.mesh.geometry.dispose();
@@ -993,7 +1051,7 @@ export class BunkerScene {
     this.effects(events);
     const obstacles = worldSolids(b);
     this.doors.forEach(
-      (door, i) => (door.position.x = b.doors[i].progress * 3),
+      (door, i) => (door.position.x = b.doors[i].x + b.doors[i].progress * 3),
     );
     this.blastAge = Math.max(0, this.blastAge - frame);
     this.blastLight.intensity = 85 * Math.pow(this.blastAge / 0.24, 2);
@@ -1060,11 +1118,22 @@ export class BunkerScene {
       -b.reload * 0.07,
       b.reload > 0 ? -0.3 : 0,
     );
-    this.muzzle.visible = active && b.recoil > 0.7;
+    this.weapon.visible = b.weapon === 'mp40';
+    this.missionProps.held.visible = b.weapon === 'charge';
+    this.missionProps.held.position.x = 0.23 * Math.min(1, this.camera.aspect);
+    this.missionProps.held.position.y =
+      -0.32 + (b.planting !== null ? Math.sin(b.plantTime * 5) * 0.025 : 0);
+    this.missionProps.charges.forEach(
+      (charge, i) => (charge.visible = b.charges[i]),
+    );
+    this.missionProps.supplies.forEach(
+      (supply, i) => (supply.visible = b.supplies[i]),
+    );
+    this.muzzle.visible = active && b.weapon === 'mp40' && b.recoil > 0.7;
     this.muzzle.rotation.y = b.time * 37;
     this.muzzleLight.intensity = this.muzzle.visible ? 9 : 0;
     this.medkit.visible = b.medkit;
-    const cleared = b.guards.every((g) => g.health <= 0);
+    const cleared = b.mission === 'escape';
     this.exitLight.emissive.set(cleared ? '#5cce97' : '#cf7e2c');
     b.guards.forEach((g, i) => {
       const a = this.guards[i];

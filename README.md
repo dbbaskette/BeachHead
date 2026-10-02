@@ -14,7 +14,7 @@
 
 A 3D browser game inspired by **Beach-Head** and **Beach-Head II**. Lead the Allied fleet through a naval blockade, switch to a German fighter-bomber attacking the landing, then hold the German pillbox as troops reach shore. Textured battlefields, physically consistent weapon origins, smoke, persistent wrecks and spatial weapon effects bring the classic idea into a modern browser.
 
-**Four full stages are playable, plus a short Stage 5 bunker sample.** Choose **Play campaign** for the complete sea–flak–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
+**Five stages are playable, including the Stage 5 radio-demolition mission.** Choose **Play campaign** for the complete sea–flak–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
 
 ## The campaign
 
@@ -55,13 +55,22 @@ Man a German four-barrel coastal antiaircraft battery through three overlapping 
 - **Mobile:** hold and move the left aim pad, hold Fire with the other thumb, or swipe the sky. The optic button narrows the view for precision. Quick taps also fire.
 - Detailed period aircraft, framed glazing, radial engines, propellers, tapered wings, Allied markings, swaying parachutes, impact smoke, falling wrecks, flak clouds, textured gun metal, concrete and sandbags.
 
-The campaign now runs **Naval battle → Hold the skies → Air assault → Hold the beach**. The bunker is a separate **Stage 5 sample**. [Design, visual references and verification](docs/hold-the-skies.md).
+The campaign now runs **Naval battle → Hold the skies → Air assault → Hold the beach**. The bunker is a separate **Stage 5 mission**. [Design, visual references and verification](docs/hold-the-skies.md).
 
-## Playable sample — Stage 5: Beneath the guns
+## Stage 5: Beneath the guns — Radio silence
 
 ![Stage 5 concept artwork: a first-person view inside a coastal gun emplacement with tunnels below.](public/images/stage-4-bunker-concept.jpg)
 
-Enter the coastal gun emplacement, clear the service tunnel, munitions room, radio room and generator room, and reach the tunnel door. The first-person sample includes six guards, two opening steel doors, three throwable grenades, cover, reloading and a medical kit. Press **E** to open a nearby door and **G** to throw a grenade; mobile players have separate buttons alongside the move/look/fire controls. Grenades bounce, detonate after a short fuse, and respect walls and closed doors. Keep clear of your own blast. Select **Stage 5 · Playable sample** on the main menu. The four-stage campaign remains separate.
+Infiltrate a twelve-area underground bunker with a barracks, infirmary, stores, records vault, generator room and radio command room. The east wing forms a second route through the complex. Find the radio racks, plant **two demolition charges**, and return to the gun-room exit. You do not need to eliminate every guard.
+
+Press **C** to equip charges, **E** to plant a nearby charge or open a door, **G** to throw a grenade, and **M** for the floor plan. Stay still for the short planting animation. Touch controls have separate charge and contextual placement buttons. Medical supplies and ammunition are available in the infirmary and records vault.
+
+Escaping triggers a fourteen-second exterior cinematic across the Normandy landing beach: wrecked tanks, damaged landing craft and fallen troops below the collapsing cliff gun emplacement. The finale combines generated photographic plates with animated smoke and debris, supports pause/skip and reduced motion, and ends on mission completion. Select **Stage 5 · Radio silence** from the main menu; the four-stage campaign remains separate.
+
+![Normandy landing beach beneath the coastal battery during the demolition finale.](public/cinematics/bunker-beach-blast.jpg)
+
+[Mission layout, controls and asset provenance](docs/bunker-radio-mission.md).
+
 
 **Desktop:** WASD moves, mouse looks, click fires, R reloads, and Esc pauses. Arrow keys aim in all directions; Space fires and Shift slows aiming. If the browser cannot capture the pointer, drag the view to look. **Mobile:** the left pad walks, the right pad turns and aims, and the separate Fire button shoots. Walk and turn together, or drag the view to look. Tap the ammo counter to reload.
 

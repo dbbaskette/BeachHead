@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   Crosshair,
   Bomb,
+  Map,
+  Package,
   DoorOpen,
   Footprints,
   Home,
@@ -14,6 +16,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { useTouchLayout } from './touch-controls';
+import { BunkerFinaleView } from './bunker-finale';
 import { StageFourPreview } from './stage-four-preview';
 import { TOUCH_LAYOUT_QUERY } from '@/lib/touch-input';
 import {
@@ -25,6 +28,12 @@ import {
 } from '@/lib/bunker/controls';
 import {
   createBunker,
+  equipCharges,
+  plantCharge,
+  nearbyChargeSite,
+  finishBunker,
+  roomAt,
+  rooms,
   throwGrenade,
   openDoor,
   nearbyDoor,
@@ -34,6 +43,7 @@ import {
   stepBunker,
   type BunkerState,
 } from '@/lib/bunker/simulation';
+import { assetUrl } from '@/lib/asset-url';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import type { BunkerScene } from '@/lib/bunker/scene';
 
@@ -46,18 +56,16 @@ const snapshot = (b: BunkerState) => ({
   grenadeReady: b.grenadeCooldown <= 0,
   door: !!nearbyDoor(b),
   reloading: b.reload > 0,
-  cleared: b.guards.every((g) => g.health <= 0),
+  mission: b.mission,
+  charges: b.charges.filter(Boolean).length,
+  weapon: b.weapon,
+  chargeSite: nearbyChargeSite(b),
+  planting: b.planting !== null,
+  plantProgress: b.plantTime / 1.8,
   hurt: b.hurt > 0,
-  room:
-    b.z > 2
-      ? 'Gun emplacement'
-      : b.z > -10
-        ? 'Service tunnel'
-        : b.z > -24
-          ? 'Munitions room'
-          : b.z > -32
-            ? 'Radio room'
-            : 'Generator room',
+  x: b.x,
+  z: b.z,
+  room: roomAt(b.x, b.z)?.name ?? 'Bunker',
 });
 export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
   const host = useRef<HTMLDivElement>(null),
@@ -74,7 +82,8 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
     [muted, setMuted] = useState(false),
-    [preview, setPreview] = useState(false);
+    [preview, setPreview] = useState(false),
+    [mapOpen, setMapOpen] = useState(false);
   const [stick, setStick] = useState({ x: 0, y: 0 });
   const [aimStick, setAimStick] = useState({ x: 0, y: 0 });
   const updateSticks = () => {
@@ -113,6 +122,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     }
   };
   const start = (retry = false) => {
+    setMapOpen(false);
     clear();
     if (retry || battle.current.status === 'ready') {
       battle.current = createBunker();
@@ -138,6 +148,10 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     const steady = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches;
+    for (const file of ['before', 'blast', 'after']) {
+      const image = new Image();
+      image.src = assetUrl(`/cinematics/bunker-beach-${file}.jpg`);
+    }
     audio.current = new PillboxAudio();
     void audio.current.preload();
     const keydown = (e: KeyboardEvent) => {
@@ -153,10 +167,16 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       }
       if (battle.current.status !== 'playing') return;
       if (e.code === 'Space' && !e.repeat) shootBunker(battle.current);
-      if (['KeyG', 'KeyE'].includes(e.code)) {
+      if (['KeyG', 'KeyE', 'KeyC', 'KeyM'].includes(e.code)) {
         e.preventDefault();
         if (!e.repeat) {
           if (e.code === 'KeyG') throwGrenade(battle.current);
+          else if (e.code === 'KeyC') equipCharges(battle.current);
+          else if (e.code === 'KeyM') {
+            setMapOpen(true);
+            pause();
+          } else if (nearbyChargeSite(battle.current) >= 0)
+            plantCharge(battle.current);
           else openDoor(battle.current);
           publish();
         }
@@ -240,10 +260,11 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       if (battle.current.status !== before) {
         clear();
         unlock();
-        audio.current?.setPaused(true);
+        audio.current?.setPaused(battle.current.status !== 'cinematic');
         publish();
       }
-      scene.current?.render(battle.current, dt, events, steady);
+      if (battle.current.status !== 'cinematic')
+        scene.current?.render(battle.current, dt, events, steady);
       hudClock += dt;
       if (hudClock > 0.1) {
         publish();
@@ -340,9 +361,20 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       <header className="bunker-header">
         <div>
           <span>BEACH HEAD</span>
-          <small>05 / BENEATH THE GUNS · SAMPLE</small>
+          <small>05 / BENEATH THE GUNS</small>
         </div>
         <nav aria-label="Bunker options">
+          {playing && (
+            <button
+              aria-label="View bunker map"
+              onClick={() => {
+                setMapOpen(true);
+                pause();
+              }}
+            >
+              <Map />
+            </button>
+          )}
           <button
             aria-label={muted ? 'Enable sound' : 'Mute sound'}
             onClick={() => {
@@ -356,7 +388,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             <Home />
           </button>
           {playing && (
-            <button aria-label="Pause bunker sample" onClick={pause}>
+            <button aria-label="Pause bunker mission" onClick={pause}>
               <Pause />
             </button>
           )}
@@ -373,9 +405,26 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
             aria-hidden="true"
           />
           <div className="bunker-objective">
-            {hud.cleared
-              ? 'Area clear · Reach the illuminated tunnel door'
-              : 'Find the tunnel exit'}
+            {hud.mission === 'escape'
+              ? 'Charges armed · Return to the gun room and exit to the beach'
+              : hud.mission === 'plant'
+                ? `Radio room · Plant charges on both racks (${hud.charges}/2)`
+                : 'Find the radio command room · Follow RADIO signs'}
+            {hud.planting && (
+              <progress
+                className="bunker-plant-progress"
+                aria-label="Planting charge"
+                value={hud.plantProgress}
+                max={1}
+              />
+            )}
+            {hud.weapon === 'charge' && !hud.planting && (
+              <small>
+                {hud.chargeSite >= 0
+                  ? 'Place charge, then stay still'
+                  : 'Approach an uncharged radio rack'}
+              </small>
+            )}
           </div>
           <div className="bunker-hud">
             <div>
@@ -398,13 +447,62 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               }}
               aria-label="Reload weapon"
             >
-              <small>{hud.reloading ? 'RELOADING' : 'MP40 · RELOAD'}</small>
+              <small>
+                {hud.weapon === 'charge'
+                  ? 'CHARGES EQUIPPED'
+                  : hud.reloading
+                    ? 'RELOADING'
+                    : 'MP40 · RELOAD'}
+              </small>
               <strong>
                 {hud.ammo} <span>/ {hud.reserve}</span>
               </strong>
             </button>
           </div>
           <div className="bunker-actions">
+            <button
+              className={hud.weapon === 'charge' ? 'selected' : ''}
+              aria-label={
+                hud.weapon === 'charge'
+                  ? 'Equip MP40'
+                  : `Equip demolition charges (${2 - hud.charges} remaining)`
+              }
+              onClick={() => {
+                equipCharges(battle.current);
+                publish();
+                root.current?.focus();
+              }}
+            >
+              <Package />
+              <span>
+                {hud.weapon === 'charge'
+                  ? 'MP40'
+                  : touch
+                    ? 'Charges'
+                    : 'C · Charges'}{' '}
+                <b>{2 - hud.charges}</b>
+              </span>
+            </button>
+            {hud.chargeSite >= 0 && (
+              <button
+                disabled={hud.planting}
+                aria-label="Place charge on radio equipment"
+                onClick={() => {
+                  plantCharge(battle.current);
+                  publish();
+                  root.current?.focus();
+                }}
+              >
+                <Package />
+                <span>
+                  {hud.planting
+                    ? 'Planting…'
+                    : touch
+                      ? 'Place charge'
+                      : 'E · Place charge'}
+                </span>
+              </button>
+            )}
             <button
               className="bunker-grenade"
               disabled={!hud.grenades || !hud.grenadeReady}
@@ -468,19 +566,36 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               </button>
               <button
                 className="bunker-fire bunker-fire-separate"
-                aria-label="Hold to fire and drag to aim"
+                aria-label={
+                  hud.weapon === 'charge'
+                    ? 'Place charge on nearby radio equipment'
+                    : 'Hold to fire and drag to aim'
+                }
                 onContextMenu={(e) => e.preventDefault()}
                 onPointerDown={(e) => beginPointer('fire', e)}
               >
                 <Crosshair />
-                <b>Fire</b>
-                <span>Hold</span>
+                <b>{hud.weapon === 'charge' ? 'Place' : 'Fire'}</b>
+                <span>{hud.weapon === 'charge' ? 'Charge' : 'Hold'}</span>
               </button>
             </div>
           )}
         </>
       )}
-      {(hud.status !== 'playing' || error) && (
+      {hud.status === 'cinematic' && (
+        <BunkerFinaleView
+          onComplete={() => {
+            finishBunker(battle.current);
+            audio.current?.setPaused(true);
+            publish();
+          }}
+          onBlast={() => {
+            audio.current?.play('impact', { distance: 0.1 });
+          }}
+          onPause={(value) => audio.current?.setPaused(value)}
+        />
+      )}
+      {((hud.status !== 'playing' && hud.status !== 'cinematic') || error) && (
         <div className="bunker-overlay">
           <section
             className="bunker-panel"
@@ -490,7 +605,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 : 'Bunker mission status'
             }
           >
-            <p className="bunker-eyebrow">STAGE 5 · PLAYABLE SAMPLE</p>
+            <p className="bunker-eyebrow">STAGE 5 · RADIO SILENCE</p>
             <h1>
               {error
                 ? 'Unable to enter'
@@ -499,36 +614,99 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                   : hud.status === 'paused'
                     ? 'Hold your position'
                     : hud.status === 'won'
-                      ? 'Into the tunnels'
+                      ? 'Radio silence'
                       : 'Position lost'}
             </h1>
             <p>
               {error ||
                 (hud.status === 'ready'
-                  ? 'Step inside the coastal gun emplacement. Push through the munitions room, radio room and generator room. Open the steel doors and reach the tunnels below.'
+                  ? 'Infiltrate the coastal battery. Search twelve underground spaces, find the radio command room, plant two demolition charges and get back to the beach. Detonation begins only after you escape.'
                   : hud.status === 'paused'
                     ? 'Take a breath. The bunker will wait.'
                     : hud.status === 'won'
-                      ? 'The gun room is secure. Beyond this door, the tunnels run deeper. This is the end of the short sample.'
+                      ? 'Both radio racks are destroyed. The coastal gun emplacement has collapsed, and you made it back to the landing beach. Mission complete.'
                       : 'The guards held the bunker. Use the doorways for cover and keep moving when they fire.')}
             </p>
             {hud.status === 'ready' && (
               <>
                 <div className="bunker-mission-facts">
-                  <span>5 spaces</span>
-                  <span>6 guards</span>
-                  <span>3 grenades</span>
+                  <span>12 spaces</span>
+                  <span>12 guards</span>
+                  <span>2 charges</span>
                 </div>
                 <p className="bunker-control-help">
                   {touch
-                    ? 'Use the left stick to walk and the right stick to turn and aim at the same time. Hold Fire to shoot. You can also drag the view or Fire button to aim. Tap the ammo counter to reload. Tap Grenade to throw, and Open door when near a steel door. Keep clear of your own blast.'
-                    : 'Keyboard: WASD moves and strafes. Arrow keys aim in all directions. Hold Space to fire, Shift for fine aim, R to reload, Esc to pause. G throws a grenade; E opens nearby doors. Mouse aiming and click-to-fire also work. Keep clear of your own blast.'}
+                    ? 'Use the left stick to walk and the right stick to turn and aim at the same time. Hold Fire to shoot. You can also drag the view or Fire button to aim. Tap the ammo counter to reload. Tap Grenade to throw, and Open door near steel doors. In the radio room, tap Place charge and stay still until planted. The map button pauses the game.'
+                    : 'Keyboard: WASD moves and strafes. Arrow keys aim in all directions. Hold Space to fire, Shift for fine aim, R to reload, Esc to pause. G throws a grenade. C equips charges; E opens doors or plants a nearby charge. Stay still while planting. M opens the map. Mouse aiming and click-to-fire also work. Keep clear of your own blast.'}
                 </p>
                 <p className="bunker-tip">
-                  Use cover. Clear the guards to unlock the tunnel door. A
-                  medical kit is just inside the munitions room.
+                  You can bypass guards. RADIO signs lead through the generator
+                  room. The barracks and infirmary form a second route; medical
+                  supplies and ammunition reward exploration.
                 </p>
               </>
+            )}
+            {mapOpen && (
+              <div className="bunker-map" aria-label="Bunker floor plan">
+                <svg
+                  viewBox="-9 -58 36 77"
+                  aria-label="Radio room at the north end; exit at the south gun room. East wing loops through stores, barracks, infirmary and generator."
+                >
+                  {rooms.map((r, i) => (
+                    <g key={r.name}>
+                      <rect
+                        x={r.x - r.w / 2}
+                        y={r.z - r.d / 2}
+                        width={r.w}
+                        height={r.d}
+                        fill={i === 6 ? '#856840' : '#2b4246'}
+                        stroke="#b4aa91"
+                        strokeWidth=".25"
+                      />
+                      <text
+                        x={r.x}
+                        y={r.z}
+                        textAnchor="middle"
+                        fill="#f1e7ce"
+                        fontSize={r.w < 6 ? 1 : 1.3}
+                      >
+                        {i + 1}
+                      </text>
+                    </g>
+                  ))}
+                  <circle
+                    cx={hud.x}
+                    cy={hud.z}
+                    r=".9"
+                    fill="#ffdc8b"
+                    stroke="#fff"
+                    strokeWidth=".25"
+                  />
+                  <text
+                    x="0"
+                    y="-57"
+                    textAnchor="middle"
+                    fill="#eac77e"
+                    fontSize="1.5"
+                  >
+                    RADIO
+                  </text>
+                  <text
+                    x="0"
+                    y="18"
+                    textAnchor="middle"
+                    fill="#a4d8bd"
+                    fontSize="1.5"
+                  >
+                    EXIT TO BEACH
+                  </text>
+                </svg>
+                <ol>
+                  {rooms.map((r) => (
+                    <li key={r.name}>{r.name}</li>
+                  ))}
+                </ol>
+              </div>
             )}
             {!error && (
               <button
@@ -548,7 +726,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 {!loaded
                   ? 'Preparing the bunker…'
                   : hud.status === 'paused'
-                    ? 'Resume sample'
+                    ? 'Resume mission'
                     : hud.status === 'ready'
                       ? 'Enter the bunker'
                       : 'Play again'}
