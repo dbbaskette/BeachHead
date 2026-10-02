@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   canStand,
+  rooms,
+  guardSpawns,
+  chargeSites,
+  plantCharge,
+  equipCharges,
+  nearbyChargeSite,
+  finishBunker,
   createBunker,
   emptyInput,
   moveBody,
@@ -97,7 +104,7 @@ void test('guards cannot see through a wall, telegraph shots, and allow movement
   for (let i = 0; i < 14; i++) stepBunker(b, emptyInput(), 0.05);
   assert.equal(b.health, 92);
 });
-void test('pause freezes timers and movement; exit only completes after clearing all guards', () => {
+void test('pause freezes timers and movement; clearing guards alone never completes the mission', () => {
   const b = active();
   b.status = 'paused';
   b.reload = 1;
@@ -111,8 +118,8 @@ void test('pause freezes timers and movement; exit only completes after clearing
   assert.equal(b.status, 'playing');
   b.guards.forEach((g) => (g.health = 0));
   stepBunker(b, emptyInput(), 0.05);
-  assert.equal(b.status, 'won');
-  assert.equal(createBunker().guards.length, 6);
+  assert.equal(b.status, 'playing');
+  assert.equal(createBunker().guards.length, 12);
   assert.equal(createBunker().status, 'ready');
 });
 void test('medical kit is consumed once, health cannot exceed 100, and zero health loses', () => {
@@ -132,7 +139,7 @@ void test('medical kit is consumed once, health cannot exceed 100, and zero heal
   assert.equal(b.status, 'lost');
 });
 
-void test('sample can be completed through movement and gunfire without bypassing walls or guard damage', () => {
+void test('radio mission can be completed through combat, doors, planting and escape without bypassing collision', () => {
   const b = active();
   b.ammo = 2;
   const route = [
@@ -144,6 +151,22 @@ void test('sample can be completed through movement and gunfire without bypassin
     [0, -30],
     [0, -34],
     [0, -41],
+    [0, -44],
+    [0, -48],
+    [-2, -52.6],
+    [2, -52.6],
+    [0, -49],
+    [0, -40],
+    [0, -34],
+    [9.5, -34],
+    [19, -34],
+    [19, -25],
+    [19, -17],
+    [10, -17],
+    [0, -17],
+    [0, -8],
+    [0, 4],
+    [0, 14.5],
   ];
   let waypoint = 0;
   for (let frame = 0; frame < 7000 && b.status === 'playing'; frame++) {
@@ -155,6 +178,15 @@ void test('sample can be completed through movement and gunfire without bypassin
         sightLine(b.x, b.z, g.x, g.z, worldSolids(b)),
     );
     const input = emptyInput();
+    if (b.planting !== null) {
+      stepBunker(b, input, 1 / 60);
+      continue;
+    }
+    if (nearbyChargeSite(b) >= 0) {
+      plantCharge(b);
+      continue;
+    }
+    if (b.weapon === 'charge') equipCharges(b);
     if (target) {
       b.yaw = Math.atan2(b.x - target.x, b.z - target.z);
       b.pitch = 0;
@@ -170,9 +202,18 @@ void test('sample can be completed through movement and gunfire without bypassin
     stepBunker(b, input, 1 / 60);
     b.effects.splice(0);
   }
+  assert.equal(
+    b.status,
+    'cinematic',
+    `position ${b.x}, ${b.z}; waypoint ${waypoint}`,
+  );
+  assert.deepEqual(b.charges, [true, true]);
+  finishBunker(b);
   assert.equal(b.status, 'won');
-  assert.ok(b.guards.every((g) => g.health <= 0));
-  assert.ok(b.reserve < 128, 'automatic reload used reserve ammunition');
+  assert.ok(
+    b.reserve < 192 + b.supplies.filter((s) => !s).length * 64,
+    'automatic reload used reserve ammunition',
+  );
   assert.ok(b.health > 0);
 });
 
@@ -379,4 +420,103 @@ void test('blast falloff and cover govern guard damage and physical impulse, inc
   assert.equal(g.hits, hits + 1);
   assert.equal(g.down, 0.7);
   assert.ok(b.blastShake > 0);
+});
+
+void test('every room, guard and supply route belongs to the connected walkable bunker', () => {
+  const b = active();
+  b.doors.forEach((d) => (d.progress = 1));
+  const obstacles = worldSolids(b);
+  const visited = new Set<string>();
+  const queue = [[0, 12]];
+  for (let index = 0; index < queue.length; index++) {
+    const [x, z] = queue[index],
+      key = `${x},${z}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    for (const [dx, dz] of [
+      [0.5, 0],
+      [-0.5, 0],
+      [0, 0.5],
+      [0, -0.5],
+    ]) {
+      const nx = x + dx,
+        nz = z + dz;
+      if (!visited.has(`${nx},${nz}`) && canStand(nx, nz, 0.3, obstacles))
+        queue.push([nx, nz]);
+    }
+  }
+  for (const r of rooms)
+    assert.ok(
+      [...visited].some((key) => {
+        const [x, z] = key.split(',').map(Number);
+        return (
+          Math.abs(x - r.x) < r.w / 2 - 0.5 && Math.abs(z - r.z) < r.d / 2 - 0.5
+        );
+      }),
+      `reachable ${r.name}`,
+    );
+  for (const [x, z] of guardSpawns)
+    assert.ok(canStand(x, z, 0.3, obstacles), `guard at ${x},${z}`);
+  for (const site of chargeSites) assert.ok(visited.has(`${site.x},-52.5`));
+});
+void test('charges require proximity, remain limited and cannot be detonated by gunfire or grenades', () => {
+  const b = active();
+  b.guards = [];
+  plantCharge(b);
+  assert.equal(b.planting, null);
+  b.x = -2;
+  b.z = -52.6;
+  plantCharge(b);
+  assert.equal(b.planting, 0);
+  for (let i = 0; i < 40; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.deepEqual(b.charges, [true, false]);
+  plantCharge(b);
+  assert.equal(b.planting, null);
+  explodeGrenade(b, { x: -2, y: 1, z: -54 });
+  assert.equal(b.status, 'playing');
+  assert.equal(b.mission, 'plant');
+  b.health = 100;
+  b.x = 2;
+  b.z = -52.6;
+  plantCharge(b);
+  for (let i = 0; i < 40; i++) stepBunker(b, emptyInput(), 0.05);
+  assert.deepEqual(b.charges, [true, true]);
+  assert.equal(b.mission, 'escape');
+  assert.equal(b.weapon, 'mp40');
+  b.x = 0;
+  b.z = 14.5;
+  stepBunker(b, emptyInput(), 0.05);
+  assert.equal(b.status, 'cinematic');
+  const before = structuredClone(b);
+  stepBunker(b, { ...emptyInput(), fire: true, forward: 1 }, 0.05);
+  assert.deepEqual(b, before);
+  finishBunker(b);
+  assert.equal(b.status, 'won');
+  assert.deepEqual(createBunker().charges, [false, false]);
+});
+void test('planting pauses, cancels when moving or switching weapons, and escape requires both charges', () => {
+  const b = active();
+  b.guards = [];
+  b.x = -2;
+  b.z = -52.6;
+  plantCharge(b);
+  stepBunker(b, emptyInput(), 0.05);
+  b.status = 'paused';
+  const before = structuredClone(b);
+  stepBunker(b, emptyInput(), 0.05);
+  assert.deepEqual(b, before);
+  b.status = 'playing';
+  b.x += 0.5;
+  stepBunker(b, emptyInput(), 0.05);
+  assert.equal(b.planting, null);
+  assert.equal(b.charges[0], false);
+  plantCharge(b);
+  equipCharges(b);
+  assert.equal(b.planting, null);
+  b.x = 0;
+  b.z = 14.5;
+  stepBunker(b, emptyInput(), 0.05);
+  assert.equal(b.status, 'playing');
+  finishBunker(b);
+  assert.equal(b.status, 'playing');
 });

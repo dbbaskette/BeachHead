@@ -734,17 +734,17 @@ export default function NavalGame({
             </button>
             <button
               className="mission-tile bunker-tile"
-              aria-label="Play Stage 5 sample — Beneath the guns"
+              aria-label="Play Stage 5 — Beneath the guns"
               onClick={onBunker}
               style={{
                 backgroundImage: `linear-gradient(90deg, #181b1bf2, #181b1b99), url("${assetUrl('/images/stage-4-bunker-concept.jpg')}")`,
               }}
             >
-              <span className="mission-stage">Stage 5 · Playable sample</span>
+              <span className="mission-stage">Stage 5 · Radio silence</span>
               <strong>Beneath the guns</strong>
-              <span>Five spaces · Six guards · Doors & grenades</span>
+              <span>Explore the bunker · Plant charges · Escape</span>
               <span className="mission-tile-action">
-                Play sample <ArrowUpRight size={18} aria-hidden="true" />
+                Play Stage 5 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
           </nav>

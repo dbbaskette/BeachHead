@@ -60,8 +60,9 @@ export function StageFourPreview({
           close-quarters combat, hidden passages and underground exploration.
         </p>
         <p className="bunker-preview-note">
-          The visual direction for Stage 5. A short playable sample is now
-          available; the full mission is still in development.
+          The visual direction for Stage 5. The playable mission now includes
+          twelve underground spaces, radio demolition and an escape to the
+          landing beach.
         </p>
         <button type="button" className="bunker-preview-back" onClick={onClose}>
           Close concept art

@@ -8,13 +8,20 @@ export type Box = {
   kind?: 'wall' | 'crate' | 'gun';
 };
 export const rooms = [
-  { x: 0, z: 9, w: 14, d: 14, h: 4.6 },
-  { x: 0, z: -4, w: 4, d: 12, h: 3.4 },
-  { x: 0, z: -17, w: 12, d: 14, h: 4 },
-  { x: 0, z: -28, w: 8, d: 8, h: 3.8 },
-  { x: 0, z: -37, w: 10, d: 10, h: 4 },
+  { name: 'Gun emplacement', x: 0, z: 9, w: 14, d: 14, h: 4.6 },
+  { name: 'Service tunnel', x: 0, z: -4, w: 4, d: 12, h: 3.4 },
+  { name: 'Munitions room', x: 0, z: -17, w: 12, d: 14, h: 4 },
+  { name: 'Switchboard', x: 0, z: -28, w: 8, d: 8, h: 3.8 },
+  { name: 'Generator room', x: 0, z: -37, w: 10, d: 10, h: 4 },
+  { name: 'Cable tunnel', x: 0, z: -44, w: 4, d: 4, h: 3.4 },
+  { name: 'Radio command room', x: 0, z: -51, w: 10, d: 10, h: 4 },
+  { name: 'Quartermaster stores', x: 10, z: -17, w: 8, d: 10, h: 3.8 },
+  { name: 'Barracks', x: 19, z: -17, w: 10, d: 10, h: 3.8 },
+  { name: 'Infirmary', x: 19, z: -29, w: 10, d: 14, h: 3.8 },
+  { name: 'Return passage', x: 9.5, z: -34, w: 9, d: 4, h: 3.4 },
+  { name: 'Records vault', x: 19, z: -42, w: 10, d: 12, h: 3.8 },
 ];
-export const solids: Box[] = [
+const originalSolids: Box[] = [
   { x: 0, y: 2.3, z: 16, w: 14.5, h: 4.6, d: 0.5 },
   { x: 7, y: 2.3, z: 9, w: 0.5, h: 4.6, d: 14 },
   ...[3.5, 13.5].map((z) => ({ x: -7, y: 2.3, z, w: 0.5, h: 4.6, d: 5 })),
@@ -40,6 +47,127 @@ export const solids: Box[] = [
   { x: -3.8, y: 0.65, z: -15, w: 2.4, h: 1.3, d: 1.1, kind: 'crate' },
   { x: 4.4, y: 0.65, z: -19, w: 1.6, h: 1.3, d: 2, kind: 'crate' },
 ];
+
+/** Doorways are shared by collision, wall detailing and the floor plan. */
+export const passages = [
+  { x: 6, z: -17, axis: 'x' },
+  { x: 5, z: -34, axis: 'x' },
+  { x: 0, z: -42, axis: 'z' },
+] as const;
+function cutPassage(wall: Box, x: number, z: number, axis: 'x' | 'z'): Box[] {
+  const along = axis === 'x' ? 'z' : 'x',
+    size = axis === 'x' ? 'd' : 'w';
+  const center = along === 'x' ? x : z,
+    low = wall[along] - wall[size] / 2,
+    high = wall[along] + wall[size] / 2;
+  return [
+    { ...wall, [along]: (low + center - 1.4) / 2, [size]: center - 1.4 - low },
+    {
+      ...wall,
+      [along]: (center + 1.4 + high) / 2,
+      [size]: high - center - 1.4,
+    },
+    {
+      ...wall,
+      [along]: center,
+      [size]: 2.8,
+      y: (wall.h + 2.9) / 2,
+      h: wall.h - 2.9,
+    },
+  ].filter((w) => w.w > 0.01 && w.d > 0.01 && w.h > 0.01);
+}
+const extendedWalls: Box[] = [];
+for (const r of rooms.slice(5)) {
+  for (const axis of ['x', 'z'] as const)
+    for (const side of [-1, 1]) {
+      const size = axis === 'x' ? 'w' : 'd',
+        along = axis === 'x' ? 'z' : 'x',
+        extent = axis === 'x' ? 'd' : 'w',
+        boundary = r[axis] + (side * r[size]) / 2;
+      const wall: Box = { x: r.x, z: r.z, y: r.h / 2, w: r.w, d: r.d, h: r.h };
+      wall[axis] = boundary;
+      wall[size] = 0.5;
+      const neighbor = rooms.find(
+        (n) =>
+          n !== r &&
+          Math.abs(n[axis] - (side * n[size]) / 2 - boundary) < 0.01 &&
+          Math.min(r[along] + r[extent] / 2, n[along] + n[extent] / 2) -
+            Math.max(r[along] - r[extent] / 2, n[along] - n[extent] / 2) >=
+            2.8,
+      );
+      if (neighbor) {
+        const c =
+          (Math.min(
+            r[along] + r[extent] / 2,
+            neighbor[along] + neighbor[extent] / 2,
+          ) +
+            Math.max(
+              r[along] - r[extent] / 2,
+              neighbor[along] - neighbor[extent] / 2,
+            )) /
+          2;
+        extendedWalls.push(
+          ...cutPassage(
+            wall,
+            axis === 'x' ? boundary : c,
+            axis === 'z' ? boundary : c,
+            axis,
+          ),
+        );
+      } else extendedWalls.push(wall);
+    }
+}
+export const solids: Box[] = [
+  ...originalSolids.flatMap((w) => {
+    const opening = passages.find(
+      (p) =>
+        Math.abs(w[p.axis] - p[p.axis]) < 0.01 &&
+        (p.axis === 'x' ? w.d > 8 && w.w < 1 : w.w > 8 && w.d < 1),
+    );
+    return opening ? cutPassage(w, opening.x, opening.z, opening.axis) : [w];
+  }),
+  ...extendedWalls,
+  ...[-2, 2].map((x) => ({
+    x,
+    y: 1.05,
+    z: -54.8,
+    w: 2.2,
+    h: 2.1,
+    d: 1.2,
+    kind: 'gun' as const,
+  })),
+  ...[16, 22].flatMap((x) =>
+    [-14, -19.5].map((z) => ({
+      x,
+      y: 0.8,
+      z,
+      w: 1.4,
+      h: 1.6,
+      d: 2.2,
+      kind: 'gun' as const,
+    })),
+  ),
+  ...[16, 22].map((x) => ({
+    x,
+    y: 0.4,
+    z: -28,
+    w: 1.4,
+    h: 0.8,
+    d: 2.4,
+    kind: 'gun' as const,
+  })),
+  { x: 11.5, y: 0.7, z: -14, w: 2, h: 1.4, d: 1.8, kind: 'crate' },
+  { x: 8.3, y: 0.6, z: -20, w: 2, h: 1.2, d: 1.5, kind: 'crate' },
+  { x: 22.6, y: 1, z: -42, w: 1.2, h: 2, d: 7, kind: 'crate' },
+];
+export const chargeSites = [
+  { x: -2, y: 1.15, z: -54.12, name: 'Transmitter' },
+  { x: 2, y: 1.15, z: -54.12, name: 'Radio control rack' },
+];
+export const roomAt = (x: number, z: number) =>
+  rooms.find(
+    (r) => Math.abs(x - r.x) <= r.w / 2 && Math.abs(z - r.z) <= r.d / 2,
+  );
 export type GuardMode = 'idle' | 'notice' | 'engage' | 'search';
 export type DeathAction = 'reel' | 'spin' | 'sprawl' | 'fold' | 'kneel';
 export type HitRegion = 'head' | 'torso' | 'leg';
@@ -93,7 +221,8 @@ export type Effect = {
     | 'reload'
     | 'blast'
     | 'bounce'
-    | 'door';
+    | 'door'
+    | 'charge';
   direction?: number[];
   guardId?: number;
   fatal?: boolean;
@@ -108,12 +237,21 @@ export const guardSpawns = [
   [3.1, -21],
   [2.3, -29],
   [-2.5, -38],
+  [9, -18],
+  [19.5, -15.5],
+  [20, -32],
+  [18, -42],
+  [-2.7, -49],
+  [2.8, -52],
 ];
 export const doorLayouts = [
-  { z: -24, label: 'Radio room' },
-  { z: -32, label: 'Generator room' },
+  { x: 0, z: -24, label: 'Switchboard' },
+  { x: 0, z: -32, label: 'Generator room' },
+  { x: 0, z: -46, label: 'Radio command' },
+  { x: 19, z: -22, label: 'Infirmary' },
+  { x: 19, z: -36, label: 'Records vault' },
 ];
-export type Door = { z: number; progress: number; opening: boolean };
+export type Door = { x: number; z: number; progress: number; opening: boolean };
 export type Grenade = {
   id: number;
   x: number;
@@ -125,7 +263,7 @@ export type Grenade = {
   fuse: number;
 };
 export const doorBox = (door: Door): Box => ({
-  x: door.progress * 3,
+  x: door.x + door.progress * 3,
   y: 1.45,
   z: door.z,
   w: 2.8,
@@ -137,17 +275,17 @@ export const worldSolids = (b: BunkerState): Box[] => [
   ...b.doors.map(doorBox),
 ];
 export const nearbyDoor = (b: BunkerState) =>
-  b.doors.find((d) => !d.opening && Math.hypot(b.x, b.z - d.z) < 2.5);
+  b.doors.find((d) => !d.opening && Math.hypot(b.x - d.x, b.z - d.z) < 2.5);
 export function openDoor(b: BunkerState) {
   if (b.status !== 'playing') return;
   const door = nearbyDoor(b);
   if (door) {
     door.opening = true;
-    b.effects.push({ kind: 'door', x: 0, y: 1.4, z: door.z });
+    b.effects.push({ kind: 'door', x: door.x, y: 1.4, z: door.z });
   }
 }
 export type BunkerState = {
-  status: 'ready' | 'playing' | 'paused' | 'won' | 'lost';
+  status: 'ready' | 'playing' | 'paused' | 'cinematic' | 'won' | 'lost';
   x: number;
   z: number;
   yaw: number;
@@ -162,6 +300,14 @@ export type BunkerState = {
   hurt: number;
   steps: number;
   medkit: boolean;
+  supplies: boolean[];
+  mission: 'search' | 'plant' | 'escape';
+  weapon: 'mp40' | 'charge';
+  charges: boolean[];
+  planting: number | null;
+  plantTime: number;
+  plantX: number;
+  plantZ: number;
   doors: Door[];
   grenades: number;
   activeGrenades: Grenade[];
@@ -196,7 +342,7 @@ export function createBunker(): BunkerState {
     pitch: 0,
     health: 100,
     ammo: 32,
-    reserve: 128,
+    reserve: 192,
     reload: 0,
     cooldown: 0,
     recoil: 0,
@@ -204,7 +350,20 @@ export function createBunker(): BunkerState {
     hurt: 0,
     steps: 0,
     medkit: true,
-    doors: doorLayouts.map((d) => ({ z: d.z, progress: 0, opening: false })),
+    supplies: [true, true],
+    mission: 'search',
+    weapon: 'mp40',
+    charges: [false, false],
+    planting: null,
+    plantTime: 0,
+    plantX: 0,
+    plantZ: 0,
+    doors: doorLayouts.map((d) => ({
+      x: d.x,
+      z: d.z,
+      progress: 0,
+      opening: false,
+    })),
     grenades: 3,
     activeGrenades: [],
     nextGrenadeId: 0,
@@ -225,8 +384,23 @@ export function createBunker(): BunkerState {
       moving: false,
       alert: false,
       mode: 'idle',
-      yaw: [2.3, Math.PI, 2.7, 2.4, 0.4, -0.3][id],
-      homeYaw: [2.3, Math.PI, 2.7, 2.4, 0.4, -0.3][id],
+      yaw: [2.3, Math.PI, 2.7, 2.4, 0.4, -0.3, 1.6, 2.2, 0.3, 0.2, 0.4, -0.7][
+        id
+      ],
+      homeYaw: [
+        2.3,
+        Math.PI,
+        2.7,
+        2.4,
+        0.4,
+        -0.3,
+        1.6,
+        2.2,
+        0.3,
+        0.2,
+        0.4,
+        -0.7,
+      ][id],
       headYaw: 0,
       awareness: 0,
       readiness: 0,
@@ -334,6 +508,10 @@ export function reloadBunker(b: BunkerState) {
   b.effects.push({ kind: 'reload', x: b.x, y: 1, z: b.z });
 }
 export function shootBunker(b: BunkerState) {
+  if (b.weapon === 'charge') {
+    plantCharge(b);
+    return;
+  }
   if (b.status !== 'playing' || b.cooldown > 0 || b.reload > 0) return;
   if (b.ammo <= 0) {
     reloadBunker(b);
@@ -460,6 +638,32 @@ export function shootBunker(b: BunkerState) {
     },
   );
 }
+export const nearbyChargeSite = (b: BunkerState) =>
+  chargeSites.findIndex(
+    (site, i) =>
+      !b.charges[i] &&
+      Math.hypot(b.x - site.x, b.z - site.z) < 2.1 &&
+      sightLine(b.x, b.z, site.x, site.z, worldSolids(b)),
+  );
+export function equipCharges(b: BunkerState) {
+  if (b.status !== 'playing') return;
+  b.weapon = b.weapon === 'charge' ? 'mp40' : 'charge';
+  b.planting = null;
+  b.plantTime = 0;
+}
+export function plantCharge(b: BunkerState) {
+  if (b.status !== 'playing' || b.planting !== null) return;
+  const site = nearbyChargeSite(b);
+  if (site < 0) return;
+  b.weapon = 'charge';
+  b.planting = site;
+  b.plantTime = 0;
+  b.plantX = b.x;
+  b.plantZ = b.z;
+}
+export function finishBunker(b: BunkerState) {
+  if (b.status === 'cinematic') b.status = 'won';
+}
 export function stepBunker(b: BunkerState, input: Input, delta: number) {
   if (b.status !== 'playing') return;
   const dt = clamp(delta, 0, 0.05);
@@ -521,13 +725,47 @@ export function stepBunker(b: BunkerState, input: Input, delta: number) {
     b.health = Math.min(100, b.health + 35);
     b.medkit = false;
   }
+  if (b.mission === 'search' && roomAt(b.x, b.z)?.name === 'Radio command room')
+    b.mission = 'plant';
+  if (b.planting !== null) {
+    if (
+      Math.hypot(b.x - b.plantX, b.z - b.plantZ) > 0.35 ||
+      b.weapon !== 'charge'
+    ) {
+      b.planting = null;
+      b.plantTime = 0;
+    } else {
+      b.plantTime += dt;
+      if (b.plantTime >= 1.8) {
+        b.charges[b.planting] = true;
+        b.effects.push({ kind: 'charge', ...chargeSites[b.planting] });
+        b.planting = null;
+        b.plantTime = 0;
+        if (b.charges.every(Boolean)) {
+          b.mission = 'escape';
+          b.weapon = 'mp40';
+        }
+      }
+    }
+  }
+  for (const [i, x, z] of [
+    [0, 19, -33.5],
+    [1, 17, -44.5],
+  ]) {
+    if (b.supplies[i] && Math.hypot(b.x - x, b.z - z) < 1.2) {
+      b.supplies[i] = false;
+      b.health = Math.min(100, b.health + 45);
+      b.reserve += 64;
+    }
+  }
   if (b.health <= 0) b.status = 'lost';
   else if (
-    b.guards.every((g) => g.health <= 0) &&
-    Math.abs(b.x) < 1.5 &&
-    b.z < -40.1
+    b.mission === 'escape' &&
+    b.charges.every(Boolean) &&
+    Math.abs(b.x) < 1.35 &&
+    b.z > 14.2
   )
-    b.status = 'won';
+    b.status = 'cinematic';
 }
 
 export const angleDifference = (target: number, current: number) =>
@@ -664,6 +902,8 @@ function updateGuard(g: Guard, b: BunkerState, dt: number) {
 export function throwGrenade(b: BunkerState) {
   if (b.status !== 'playing' || b.grenades <= 0 || b.grenadeCooldown > 0)
     return;
+  b.planting = null;
+  b.plantTime = 0;
   b.grenades--;
   b.grenadeCooldown = 0.8;
   b.activeGrenades.push({

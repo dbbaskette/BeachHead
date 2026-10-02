@@ -42,9 +42,9 @@ export function addExpansion(
     parent.add(mesh);
     return mesh;
   };
-  const doors = doorLayouts.map(({ z }) => {
+  const doors = doorLayouts.map(({ x: originX, z }) => {
     const group = new T.Group();
-    group.position.z = z;
+    group.position.set(originX, 0, z);
     scene.add(group);
     box(group, 0, 1.45, 0, 2.8, 2.9, 0.18, metal);
     for (const y of [0.22, 1.45, 2.7])
@@ -58,8 +58,9 @@ export function addExpansion(
       box(group, -0.9, 1.3, side * 0.22, 0.07, 0.38, 0.08, brass);
       box(group, 0, 2.2, side * 0.11, 0.5, 0.22, 0.04, dark);
     }
-    for (const x of [-1.48, 1.48]) box(scene, x, 1.5, z, 0.14, 3.1, 0.4, dark);
-    box(scene, 0, 3.04, z, 3.25, 0.12, 0.42, metal);
+    for (const x of [-1.48, 1.48])
+      box(scene, originX + x, 1.5, z, 0.14, 3.1, 0.4, dark);
+    box(scene, originX, 3.04, z, 3.25, 0.12, 0.42, metal);
     return group;
   });
   // Radio rack: steel faceplates, Bakelite knobs, warm dial windows and ventilation.

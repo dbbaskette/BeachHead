@@ -1,5 +1,5 @@
 import * as T from 'three';
-import { rooms } from './simulation';
+import { solids } from './simulation';
 
 /** Box UVs measured in metres: identical concrete grain on every wall size. */
 export function worldUV(geometry: T.BufferGeometry) {
@@ -73,10 +73,13 @@ export function addBunkerDetail(
     polygonOffset: true,
     polygonOffsetFactor: -1,
   });
-  for (const room of rooms) {
+  for (const wall of solids.filter(
+    (s) => !s.kind && s.w < 1 && s.d > 0.5 && s.y - s.h / 2 < 0.1,
+  )) {
+    const room = { x: wall.x, z: wall.z, w: wall.w, d: wall.d, h: wall.h };
     for (const side of [-1, 1]) {
       // Water running down formwork, plus a chipped footing against the wall.
-      const x = side * (room.w / 2 - 0.26);
+      const x = room.x + side * (room.w / 2 + 0.008);
       const patch = mesh(
         new T.PlaneGeometry(room.d, room.h),
         stain,
@@ -107,7 +110,15 @@ export function addBunkerDetail(
     // Concrete pour seams, subtle rather than a tile grid.
     for (let y = 0.9; y < room.h; y += 0.9) {
       for (const side of [-1, 1])
-        box(side * (room.w / 2 - 0.265), y, room.z, 0.009, 0.009, room.d, dark);
+        box(
+          room.x + side * (room.w / 2 + 0.009),
+          y,
+          room.z,
+          0.009,
+          0.009,
+          room.d,
+          dark,
+        );
     }
   }
   // Thick steel tunnel surround and an open blast door folded against the wall.

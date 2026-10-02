@@ -1650,3 +1650,29 @@ kbd {
     bottom: 212px;
   }
 }
+
+/* Radio-demolition mission and its photographic exterior finale. */
+.bunker-objective small{display:block;margin-top:6px;color:#efc17d}
+.bunker-plant-progress{width:180px;height:4px;margin:10px auto;background:#080f16b3}
+.bunker-plant-progress i{display:block;height:100%;background:#ebc780}
+.bunker-actions .selected{border-color:#edcc86;background:#5b4a2ebd}
+.bunker-map{display:flex;gap:20px;align-items:center;margin-bottom:22px;border:1px solid #b4aa9144;padding:14px;background:#101c21}
+.bunker-map svg{height:290px;max-width:50%;flex:1}
+.bunker-map ol{font-size:11px;line-height:1.8;color:#cdc6b3;padding-left:15px}
+.bunker-finale{position:absolute;inset:0;z-index:20;background:#06090b;display:flex;align-items:center;justify-content:center}
+.bunker-finale canvas{width:100%;max-height:100%;object-fit:contain;aspect-ratio:1672/941}
+.bunker-finale-caption{position:absolute;bottom:max(8%,80px);left:7%;text-shadow:0 2px 8px #000;color:#eee5d4}
+.bunker-finale-caption small{font-size:9px;letter-spacing:3px;color:#d6bd8e}
+.bunker-finale-caption p{font-family:Georgia,serif;font-size:clamp(18px,3vw,32px);margin:10px 0 0}
+.bunker-finale-controls{position:absolute;bottom:max(20px,env(safe-area-inset-bottom));right:max(20px,env(safe-area-inset-right));display:flex;gap:10px}
+.bunker-finale-controls button{min-height:44px;padding:8px 16px;border:1px solid #c8bca45c;border-radius:3px;background:#0c161bd9;color:#eee5d4;font-size:12px}
+.bunker-touch .bunker-actions{gap:6px;max-width:calc(100% - 112px);flex-wrap:wrap}
+.bunker-touch .bunker-actions button{padding:7px;min-height:44px;font-size:10px}
+.bunker-touch .bunker-actions svg{width:16px}
+@media(max-height:500px){.bunker-finale-caption{bottom:76px}.bunker-finale-caption p{font-size:21px}.bunker-finale-controls{bottom:12px}.bunker-map svg{height:220px}}
+@media(max-width:500px){.bunker-finale-caption{bottom:calc(50% - 170px);left:6%}.bunker-finale-caption p{font-size:22px}.bunker-finale-caption small{font-size:8px;letter-spacing:1.5px}.bunker-map{gap:10px;padding:10px}.bunker-map ol{font-size:10px}.bunker-actions button span{line-height:1.3}}
+progress.bunker-plant-progress{display:block;border:0;appearance:none;border-radius:2px;overflow:hidden}
+progress.bunker-plant-progress::-webkit-progress-bar{background:#080f16b3}
+progress.bunker-plant-progress::-webkit-progress-value{background:#ebc780}
+progress.bunker-plant-progress::-moz-progress-bar{background:#ebc780}
+.bunker-map ol{list-style:decimal}
