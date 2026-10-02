@@ -14,10 +14,11 @@ import {
   resetGuardActor,
   type GuardActor,
 } from './guard-animation';
-import { uniformMaterial, guardClips } from './uniform';
+import { uniformMaterial, guardClips, smoothGuardNormals } from './uniform';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
 import { addExpansion } from './expansion';
+import { addBunkerArchitecture } from './architecture';
 import { addMissionProps } from './mission-props';
 import {
   rooms,
@@ -196,17 +197,13 @@ export class BunkerScene {
       }
     }
     // Steel lintels, ribs, pipes and cable runs give the corridor readable depth.
-    for (const z of [1.7, -1, -4, -7, -9.7]) {
-      this.box(0, 3.05, z, 3.6, 0.23, 0.25, this.metal);
-      for (const x of [-1.7, 1.7]) this.box(x, 1.5, z, 0.18, 3, 0.25, concrete);
-      for (let i = 0; i < 7; i++) {
-        const angle = (i * Math.PI) / 6,
-          x = Math.cos(angle) * 1.55,
-          y = 2.45 + Math.sin(angle) * 0.55;
-        const brick = this.box(x, y, z, 0.55, 0.22, 0.28, concrete);
-        brick.rotation.z = angle - Math.PI / 2;
-      }
-    }
+    addBunkerArchitecture(
+      this.scene,
+      concrete,
+      this.metal,
+      this.dark,
+      this.brass,
+    );
     for (const r of rooms) {
       for (const x of [r.w / 2 - 0.4, r.w / 2 - 0.65])
         this.cylinder(r.x + x, r.h - 0.48, r.z, 0.065, r.d, this.metal, 'z');
@@ -748,6 +745,7 @@ export class BunkerScene {
       if (o instanceof T.Mesh) {
         (o.material as T.Material).dispose();
         o.material = material;
+        smoothGuardNormals(o.geometry);
       }
     });
     const [idleClip, walkClip] = guardClips(gltf.scene);

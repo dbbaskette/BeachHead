@@ -336,3 +336,41 @@ void test('ribcage width and trunk length survive floor contact, bursts and a bl
     }
   }
 });
+
+void test('falling skin retains authored bone offsets instead of stretching or shearing at shoulders and hips', async () => {
+  const source = await sourceModel();
+  for (const action of ['reel', 'kneel', 'spin'] as const) {
+    const scene = new T.Scene(),
+      a = rig(source, scene),
+      g = createBunker().guards[0];
+    g.x = 0;
+    g.z = 8;
+    g.yaw = Math.PI;
+    g.hitDirection = { x: 0, z: -1 };
+    animateGuard(a, g, 0, scene, true);
+    g.health = 0;
+    g.deathAction = action;
+    animateGuard(a, g, 0, scene, true);
+    const offsets = new Map(
+      a.ragdoll!.nodes.map((n) => [n.name, n.restPosition.clone()]),
+    );
+    for (let frame = 0; frame < 180; frame++) {
+      animateGuard(a, g, 1 / 60, scene, true);
+      for (const n of a.ragdoll!.nodes) {
+        if (n.name === 'Hips') continue;
+        assert.ok(
+          n.bone.position.distanceTo(offsets.get(n.name)!) < 1e-8,
+          `${action}: ${n.name} bind offset changed`,
+        );
+      }
+      const head = a.model
+        .getObjectByName('Head')!
+        .getWorldPosition(new T.Vector3());
+      const hit = g.bodyTargets!.find((t) => t.region === 'head')!;
+      assert.ok(
+        head.distanceTo(new T.Vector3(hit.x, hit.y, hit.z)) < 1e-8,
+        'hits track the visible head after support correction',
+      );
+    }
+  }
+});

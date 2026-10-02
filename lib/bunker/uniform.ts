@@ -79,3 +79,38 @@ export function guardClips(model: T.Object3D) {
   };
   return [make(false), make(true)];
 }
+
+/** Smooth shared cloth/helmet vertices across UV seams without rounding hard edges.
+ * The source uses unindexed triangles, so computeVertexNormals alone stays faceted.
+ * Positions, UVs and skin weights are deliberately preserved.
+ */
+export function smoothGuardNormals(geometry: T.BufferGeometry) {
+  const positions = geometry.getAttribute('position');
+  const normals = geometry.getAttribute('normal');
+  if (!positions || !normals) return;
+  const original = Array.from(normals.array);
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < positions.count; i++) {
+    const key = [positions.getX(i), positions.getY(i), positions.getZ(i)]
+      .map((n) => Math.round(n * 10000))
+      .join(',');
+    const group = groups.get(key);
+    if (group) group.push(i);
+    else groups.set(key, [i]);
+  }
+  const normal = new T.Vector3(),
+    other = new T.Vector3(),
+    sum = new T.Vector3();
+  for (const group of groups.values())
+    for (const i of group) {
+      normal.fromArray(original, i * 3);
+      sum.set(0, 0, 0);
+      for (const j of group) {
+        other.fromArray(original, j * 3);
+        if (normal.dot(other) > 0.45) sum.add(other);
+      }
+      sum.normalize();
+      normals.setXYZ(i, sum.x, sum.y, sum.z);
+    }
+  normals.needsUpdate = true;
+}

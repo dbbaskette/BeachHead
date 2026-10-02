@@ -407,6 +407,20 @@ export class GuardRagdoll {
       );
     }
     for (const limb of this.limbs) {
+      // Once the trunk is supported, let the unloaded forearm rotate down under
+      // its weight. Pure distance projection can otherwise leave it balanced
+      // upright on its elbow, especially in a side landing.
+      if (this.floorImpact && this.age > 0.9) {
+        for (const [node, amount] of [
+          [limb.hand, 0.0024],
+          [limb.elbow, 0.0012],
+        ] as const) {
+          if (node.p.y > node.radius + 0.025) {
+            node.p.y -= amount;
+            node.old.y -= amount;
+          }
+        }
+      }
       const pose = fallPose(this.model, this.age, limb.side === this.leading);
       const strength = (this.blast ? 0.012 : 0.055) * pose.brace;
       const arm = up
@@ -509,6 +523,52 @@ export class GuardRagdoll {
           across,
           limb.side * (-0.04 - armSide) * 0.8,
         );
+      // A hinge has one bending plane. Distance limits alone allow knees and
+      // elbows to orbit their endpoints, which reads as boneless writhing.
+      const hingePlane = (
+        a: Node,
+        joint: Node,
+        end: Node,
+        first: number,
+        second: number,
+        pole: T.Vector3,
+      ) => {
+        const line = end.p.clone().sub(a.p);
+        const distance = Math.max(0.0001, line.length());
+        line.divideScalar(distance);
+        const along = Math.max(
+          0,
+          Math.min(
+            first,
+            (first * first - second * second + distance * distance) /
+              (2 * distance),
+          ),
+        );
+        const height = Math.sqrt(Math.max(0, first * first - along * along));
+        const bend = pole.clone().addScaledVector(line, -pole.dot(line));
+        if (bend.lengthSq() < 0.005) return;
+        const target = a.p
+          .clone()
+          .addScaledVector(line, along)
+          .addScaledVector(bend.normalize(), height);
+        joint.p.lerp(target, 0.8);
+      };
+      hingePlane(
+        limb.hip,
+        limb.knee,
+        limb.foot,
+        limb.thigh,
+        limb.shin,
+        forward,
+      );
+      hingePlane(
+        limb.shoulder,
+        limb.elbow,
+        limb.hand,
+        limb.upperArm,
+        limb.lowerArm,
+        forward.clone().negate(),
+      );
       // Prevent legs reversing upwards behind the pelvis.
       const raised = v.dot(up);
       if (raised > 0.2)
@@ -634,13 +694,16 @@ export class GuardRagdoll {
       // Constraint projection removes penetration; it must not become a spring
       // that launches the body on the next Verlet step.
       for (const n of this.nodes)
-        n.old.addScaledVector(n.p.clone().sub(n.predicted), 0.65);
+        n.old.addScaledVector(
+          n.p.clone().sub(n.predicted),
+          this.floorImpact ? 0.96 : 0.75,
+        );
       // Damp relative joint motion while retaining the body's shared momentum.
       // This removes the long, independent limb oscillation after a landing.
       const centerVelocity = new T.Vector3();
       for (const n of this.nodes) centerVelocity.add(n.p.clone().sub(n.old));
       centerVelocity.divideScalar(this.nodes.length);
-      const damping = this.floorImpact ? 0.18 : 0.055;
+      const damping = this.floorImpact ? 0.32 : 0.07;
       for (const n of this.nodes) {
         const velocity = n.p.clone().sub(n.old).lerp(centerVelocity, damping);
         n.old.copy(n.p).sub(velocity);
@@ -651,13 +714,20 @@ export class GuardRagdoll {
           n.old.x += (n.p.x - n.old.x) * 0.45;
           n.old.z += (n.p.z - n.old.z) * 0.45;
           if (n.p.y <= n.radius + 0.013) {
-            if (n.name === 'Spine2' && this.age > 0.12) this.floorImpact = true;
+            if (
+              ['Hips', 'Spine1', 'Spine2', 'Head'].includes(n.name) &&
+              this.age > 0.12
+            )
+              this.floorImpact = true;
             n.old.y = n.p.y;
           }
         }
         speed = Math.max(speed, n.p.distanceTo(n.stepStart) / STEP);
       }
-      this.quiet = speed < 0.055 ? this.quiet + STEP : 0;
+      this.quiet =
+        speed < (this.floorImpact && this.age > 1.5 ? 0.12 : 0.055)
+          ? this.quiet + STEP
+          : 0;
       if (this.quiet > 0.45 && this.age > 0.8) {
         this.sleeping = true;
         break;
@@ -667,9 +737,12 @@ export class GuardRagdoll {
   applyPose() {
     for (const n of this.nodes) {
       if (!n.bone.parent) continue;
-      // Set translations too: physical segment endpoints stay together even through
-      // branching shoulders/hips. Length constraints keep skin from stretching.
-      n.bone.position.copy(n.bone.parent.worldToLocal(n.p.clone()));
+      // Only the pelvis translates. Changing every joint offset deforms the bind
+      // skeleton and shears the skin at the hips/shoulders, even when particle
+      // distances pass their checks. Limbs rotate with their authored proportions.
+      if (n.name === 'Hips')
+        n.bone.position.copy(n.bone.parent.worldToLocal(n.p.clone()));
+      else n.bone.position.copy(n.restPosition);
       if (n.child && n.direction) {
         delta.subVectors(n.child.p, n.p).normalize();
         if (n.frameInverse)
@@ -688,6 +761,20 @@ export class GuardRagdoll {
       }
       n.bone.updateMatrixWorld(true);
     }
+    // Bone lengths now stay exact, so support is corrected at the pelvis instead
+    // of stretching a foot or shoulder to reach its collision particle.
+    let support = 0;
+    for (const n of this.nodes) {
+      const rendered = n.bone.getWorldPosition(new T.Vector3());
+      support = Math.max(support, n.radius + 0.012 - rendered.y);
+    }
+    if (support > 0) {
+      const hips = this.nodes[0];
+      const world = hips.bone.getWorldPosition(new T.Vector3());
+      world.y += support;
+      hips.bone.position.copy(hips.bone.parent!.worldToLocal(world));
+      hips.bone.updateMatrixWorld(true);
+    }
   }
   targets() {
     const targets: {
@@ -705,9 +792,18 @@ export class GuardRagdoll {
           : n.name.includes('Leg') || n.name.includes('Foot')
             ? 'leg'
             : 'torso';
-      targets.push({ x: n.p.x, y: n.p.y, z: n.p.z, r: n.radius, region });
+      const rendered = n.bone.getWorldPosition(new T.Vector3());
+      targets.push({
+        x: rendered.x,
+        y: rendered.y,
+        z: rendered.z,
+        r: n.radius,
+        region,
+      });
       if (n.child && n.p.distanceTo(n.child.p) > 0.18) {
-        const mid = n.p.clone().lerp(n.child.p, 0.5);
+        const mid = rendered
+          .clone()
+          .lerp(n.child.bone.getWorldPosition(new T.Vector3()), 0.5);
         targets.push({
           x: mid.x,
           y: mid.y,

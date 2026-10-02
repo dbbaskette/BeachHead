@@ -24,3 +24,13 @@ Bullet reactions are localized; the previous exaggerated whole-body bullet lift 
 ## Verification
 
 Actual WWII model tests cover distinct trajectories, torso dimensions under repeated hits and blasts, multiple facings, floor and wall bounds, grenade launch into a door, pause/retry, sleep/wake and frame-rate agreement. A temporary visual study compares the three reactions in quarter-second steps and is removed before building. All 151 game tests, typecheck, lint and the production Pages build pass.
+
+## October follow-up: preserve the rendered skeleton
+
+Live playtesting still showed excessive leg folding and lingering motion after impact. The physical distance checks alone missed a rendering problem: `applyPose` was rewriting every local joint translation. In the diagnostic cases, hip-joint offsets deviated by approximately 42–69% of their original offset length. This can shear a skinned mesh even when the solver's ribcage width stays valid.
+
+The follow-up retains authored local translations for every bone except the pelvis. Bone rotations follow the collision simulation; a pelvis-level support correction keeps the fixed-length rendered rig above the floor. Hit targets are sampled from those visible bones. Knees and elbows now use a two-segment hinge plane instead of freely orbiting their endpoints. Projection damping increases after trunk contact, and unloaded forearms settle under their weight. The three fall variants, wall contacts, grenade impulses and repeat hits remain supported.
+
+A regression test now checks every non-pelvis joint's exact authored offset across three complete falls and verifies that head hit volumes follow the rendered head. Floor contact, multiple facings, frame-rate independence, repeated hits, blast response and retry tests remain unchanged.
+
+The visual pass also adds curved concrete barrel vaults and ribs, cylindrical extraction ducts with flanges, recessed circular vents, steel handwheels, rounded sandbags and irregular footing stones. Static architecture is batched by material. Shared cloth/helmet normals are smoothed across UV seams while preserving hard edges, positions and skin weights.
