@@ -1,4 +1,6 @@
 import * as T from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { worldUV } from './detail';
 import { doorLayouts } from './simulation';
 
 /** Machinery is assembled to human scale; all movable door parts share one transform. */
@@ -18,7 +20,18 @@ export function addExpansion(
     d: number,
     mat: T.Material,
   ) => {
-    const mesh = new T.Mesh(new T.BoxGeometry(w, h, d), mat);
+    const mesh = new T.Mesh(
+      worldUV(
+        new RoundedBoxGeometry(
+          w,
+          h,
+          d,
+          3,
+          Math.min(0.025, w / 6, h / 6, d / 6),
+        ),
+      ),
+      mat,
+    );
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -55,8 +68,26 @@ export function addExpansion(
         cylinder(group, x, y, 0.19, 0.025, 0.06, brass, 'z');
     }
     for (const side of [-1, 1]) {
-      box(group, -0.9, 1.3, side * 0.22, 0.07, 0.38, 0.08, brass);
+      const wheel = new T.Mesh(new T.TorusGeometry(0.24, 0.025, 10, 32), dark);
+      wheel.position.set(-0.72, 1.25, side * 0.25);
+      group.add(wheel);
+      for (let i = 0; i < 5; i++) {
+        const spoke = box(
+          group,
+          -0.72,
+          1.25,
+          side * 0.25,
+          0.45,
+          0.025,
+          0.025,
+          metal,
+        );
+        spoke.rotation.z = (i * Math.PI) / 5;
+      }
+      cylinder(group, -0.72, 1.25, side * 0.26, 0.07, 0.17, brass, 'z');
       box(group, 0, 2.2, side * 0.11, 0.5, 0.22, 0.04, dark);
+      for (const x of [-1.3, 1.3])
+        box(group, x, 1.45, side * 0.11, 0.04, 2.72, 0.045, dark);
     }
     for (const x of [-1.48, 1.48])
       box(scene, originX + x, 1.5, z, 0.14, 3.1, 0.4, dark);
