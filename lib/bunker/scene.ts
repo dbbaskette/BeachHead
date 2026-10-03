@@ -20,6 +20,7 @@ import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { assetUrl } from '../asset-url';
 import { addExpansion } from './expansion';
 import { addBunkerArchitecture } from './architecture';
+import { addBunkerBanners } from './banners';
 import { addMissionProps } from './mission-props';
 import { BunkerEquipment } from './equipment';
 import {
@@ -301,6 +302,7 @@ export class BunkerScene {
     this.sign('VERMITTLUNG', 0, 3.32, -23.7, 1.8);
     this.sign('MASCHINENRAUM', 0, 3.32, -31.7, 2.1);
     addBunkerDetail(this.scene, concrete, this.metal, this.dark, this.brass);
+    addBunkerBanners(this.scene, this.dark);
     for (let i = 0; i < 7; i++) {
       const z = 4.2 + i * 0.34;
       this.cylinder(-5.8, 0.55, z, 0.1, 1.1, this.brass);
