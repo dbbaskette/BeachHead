@@ -23,6 +23,8 @@ import { addBunkerArchitecture } from './architecture';
 import { addBunkerBanners } from './banners';
 import { addMissionProps } from './mission-props';
 import { BunkerEquipment } from './equipment';
+import { batchBunkerScenery } from './static-batches';
+import { BunkerMobileLights } from './mobile-lights';
 import {
   rooms,
   solids,
@@ -73,6 +75,10 @@ export class BunkerScene {
   private environment: T.WebGLRenderTarget;
   private resources = new Set<T.Texture>();
   private detailShadows = false;
+  private mobileLights?: BunkerMobileLights;
+  private guardFrustum = new T.Frustum();
+  private viewProjection = new T.Matrix4();
+  private guardBounds = new T.Sphere();
   private metal = new T.MeshStandardMaterial({
     color: '#434b49',
     roughness: 0.58,
@@ -96,11 +102,11 @@ export class BunkerScene {
   constructor(host: HTMLElement, touch: boolean) {
     this.detailShadows = !touch;
     this.renderer = new T.WebGLRenderer({
-      antialias: true,
+      antialias: !touch,
       powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, touch ? 1.25 : 1.75),
+      Math.min(window.devicePixelRatio, touch ? 1 : 1.75),
     );
     this.renderer.outputColorSpace = T.SRGBColorSpace;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
@@ -511,6 +517,22 @@ export class BunkerScene {
     this.muzzle.visible = false;
     this.muzzleLight.position.set(0.1, -0.1, -0.7);
     this.camera.add(this.muzzleLight);
+    if (touch) {
+      batchBunkerScenery(this.scene, [
+        this.camera,
+        this.sea,
+        this.medkit,
+        ...this.doors,
+        ...this.missionProps.charges,
+        ...this.missionProps.supplies,
+      ]);
+      for (const door of this.doors) batchBunkerScenery(door, []);
+      batchBunkerScenery(this.weapon, [this.muzzle]);
+      this.mobileLights = new BunkerMobileLights(this.scene, [
+        this.camera,
+        this.blastLight,
+      ]);
+    }
     if (!touch) {
       this.composer = new EffectComposer(this.renderer);
       this.ao = new SSAOPass(this.scene, this.camera, 1, 1, 16);
@@ -1179,6 +1201,7 @@ export class BunkerScene {
       b.z,
     );
     this.camera.rotation.order = 'YXZ';
+    this.mobileLights?.update(this.camera.position);
     this.camera.rotation.set(
       b.pitch + (steady ? 0 : Math.sin(b.time * 71) * b.blastShake * 0.024),
       b.yaw,
@@ -1212,10 +1235,21 @@ export class BunkerScene {
     this.medkit.visible = b.medkit;
     const cleared = b.mission === 'escape';
     this.exitLight.emissive.set(cleared ? '#5cce97' : '#cf7e2c');
+    this.camera.updateMatrixWorld();
+    this.viewProjection.multiplyMatrices(
+      this.camera.projectionMatrix,
+      this.camera.matrixWorldInverse,
+    );
+    this.guardFrustum.setFromProjectionMatrix(this.viewProjection);
     b.guards.forEach((g, i) => {
       const a = this.guards[i];
       if (!a) return;
       animateGuard(a, g, frame, this.scene, active, obstacles);
+      // Skinned submeshes have frustumCulled=false because bind-pose bounds
+      // cannot follow animated limbs. Cull their whole actor conservatively.
+      this.guardBounds.center.copy(a.root.position);
+      this.guardBounds.radius = g.health > 0 ? 3 : 6;
+      a.root.visible = this.guardFrustum.intersectsSphere(this.guardBounds);
       if (active && a.ragdoll?.wallImpact) {
         const p = a.ragdoll.wallImpact;
         this.impactDust(p.x, p.y, p.z, true);
