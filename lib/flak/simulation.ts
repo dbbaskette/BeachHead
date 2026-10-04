@@ -1,8 +1,9 @@
 export type Vec = { x: number; y: number; z: number };
 export type Aircraft = Vec & {
   id: number;
-  kind: 'bomber' | 'transport';
+  kind: 'bomber' | 'transport' | 'fighter';
   vx: number;
+  vy: number;
   vz: number;
   health: number;
   age: number;
@@ -25,7 +26,7 @@ export type Round = Vec & {
   age: number;
 };
 export type FlakEvent = {
-  kind: 'shot' | 'hit' | 'burst' | 'crash' | 'damage';
+  kind: 'shot' | 'hit' | 'burst' | 'crash' | 'damage' | 'strafe' | 'strike';
   at: Vec;
 };
 export type FlakState = {
@@ -46,6 +47,7 @@ export type FlakState = {
   troops: Trooper[];
   rounds: Round[];
   bombs: Round[];
+  enemyRounds: Round[];
   events: FlakEvent[];
 };
 export const RAIDS = [
@@ -63,8 +65,8 @@ export function createFlak(): FlakState {
   return {
     status: 'ready',
     time: 0,
-    yaw: -0.96,
-    pitch: 0.37,
+    yaw: -0.75,
+    pitch: 0.3,
     integrity: 100,
     magazine: 80,
     reload: 0,
@@ -78,6 +80,7 @@ export function createFlak(): FlakState {
     troops: [],
     rounds: [],
     bombs: [],
+    enemyRounds: [],
     events: [],
   };
 }
@@ -127,20 +130,33 @@ function shoot(s: FlakState) {
   if (!s.magazine) s.reload = 3.2;
 }
 export function spawnAircraft(s: FlakState, index: number) {
-  const kind = [0, 1, 4, 6, 9, 11, 14].includes(index) ? 'transport' : 'bomber';
-  const side = index % 2 ? 1 : -1;
+  const kind = [0, 1, 4, 6, 9, 11, 14].includes(index)
+    ? 'transport'
+    : [3, 7, 10, 13, 16].includes(index)
+      ? 'fighter'
+      : 'bomber';
+  // Every raid follows the same offshore-to-inland bearing. Transports use
+  // an offset drop corridor; attack aircraft pass over the battery.
+  const x = kind === 'transport' ? -360 : kind === 'fighter' ? -520 : -480;
+  const vx = kind === 'transport' ? 43 : kind === 'fighter' ? 82 : 44;
   s.planes.push({
     id: ++s.serial,
     kind,
-    x: side * (kind === 'bomber' ? 360 : 340),
-    y: kind === 'bomber' ? 180 : 155 + index * 3,
-    z: kind === 'bomber' ? -660 : -190 - (index % 3) * 15,
-    vx: -side * (kind === 'bomber' ? 30 : 43),
-    vz: kind === 'bomber' ? 55 : 0,
-    health: kind === 'bomber' ? 5 : 4,
+    x,
+    y:
+      kind === 'bomber'
+        ? 180
+        : kind === 'fighter'
+          ? 108
+          : 155 + (index % 3) * 9,
+    z: x * 0.6875 + (kind === 'transport' ? -190 : 4),
+    vx,
+    vy: 0,
+    vz: vx * 0.6875,
+    health: kind === 'bomber' ? 5 : kind === 'fighter' ? 3 : 4,
     age: 0,
     falling: 0,
-    payload: kind === 'bomber' ? 1 : 4,
+    payload: kind === 'bomber' ? 1 : kind === 'fighter' ? 12 : 4,
     dropClock: 0,
     hit: null,
   });
@@ -170,14 +186,25 @@ function planeHit(a: Vec, b: Vec, p: Aircraft, dt: number) {
   const local = (v: Vec, old: boolean): Vec => {
     const x = v.x - p.x + (old ? p.vx * dt : 0),
       z = v.z - p.z + (old ? p.vz * dt : 0);
-    return { x: -fz * x + fx * z, y: v.y - p.y, z: fx * x + fz * z };
+    const dy = v.y - p.y + (old ? p.vy * dt : 0);
+    const forward = fx * x + fz * z;
+    const pitch = Math.atan2(p.vy, length);
+    return {
+      x: -fz * x + fx * z,
+      y: dy * Math.cos(pitch) - forward * Math.sin(pitch),
+      z: forward * Math.cos(pitch) + dy * Math.sin(pitch),
+    };
   };
   const from = local(a, true),
     to = local(b, false);
   const hits = [
-    ellipsoidHit(from, to, { x: 1.6, y: 1.7, z: p.kind === 'bomber' ? 8 : 10 }),
     ellipsoidHit(from, to, {
-      x: p.kind === 'bomber' ? 10.5 : 14.7,
+      x: p.kind === 'fighter' ? 0.9 : 1.6,
+      y: p.kind === 'fighter' ? 1 : 1.7,
+      z: p.kind === 'fighter' ? 5 : p.kind === 'bomber' ? 8 : 10,
+    }),
+    ellipsoidHit(from, to, {
+      x: p.kind === 'fighter' ? 5.6 : p.kind === 'bomber' ? 10.5 : 14.7,
       y: 1.1,
       z: 2.4,
     }),
@@ -214,10 +241,39 @@ export function stepFlak(s: FlakState, seconds: number, firing = false) {
         }
         continue;
       }
+      if (p.kind === 'fighter') {
+        // Shallow attack dive, then climb out over the battery along the same heading.
+        const desired = p.x > -90 ? 24 : p.x > -400 ? -7 : 0;
+        p.vy += (desired - p.vy) * Math.min(1, dt * 2);
+        p.y += p.vy * dt;
+        const range = Math.hypot(p.x, p.z - 4);
+        p.dropClock -= dt;
+        if (p.payload && p.x < -90 && range < 390 && p.dropClock <= 0) {
+          const flight = Math.hypot(range, p.y) / 440;
+          // A short beaten zone sweeps toward the emplacement; some rounds miss.
+          const offset = (p.payload - 6) * 2.2;
+          const dx = offset - p.x,
+            dz = 4 + Math.sin(p.payload * 2.4) * 8 - p.z;
+          const dy = -p.y + 0.5 * GRAVITY * flight * flight;
+          const length = Math.hypot(dx, dy, dz);
+          const at = { x: p.x, y: p.y - 0.8, z: p.z };
+          s.enemyRounds.push({
+            ...at,
+            id: ++s.serial,
+            vx: (dx / length) * 440,
+            vy: (dy / length) * 440,
+            vz: (dz / length) * 440,
+            age: 0,
+          });
+          s.events.push({ kind: 'strafe', at });
+          p.payload--;
+          p.dropClock = 0.13;
+        }
+      }
       if (
         p.kind === 'bomber' &&
         p.payload &&
-        p.z + p.vz * Math.sqrt((2 * p.y) / GRAVITY) >= -8
+        p.z + p.vz * Math.sqrt((2 * (p.y - 1)) / GRAVITY) >= 4
       ) {
         s.bombs.push({
           id: ++s.serial,
@@ -248,7 +304,7 @@ export function stepFlak(s: FlakState, seconds: number, firing = false) {
         }
       }
       if (Math.abs(p.x) > 850 || p.z > 260) {
-        s.integrity -= p.kind === 'transport' ? 4 : 2;
+        s.integrity -= p.kind === 'transport' ? 4 : 0;
         p.y = -999;
       }
     }
@@ -276,10 +332,22 @@ export function stepFlak(s: FlakState, seconds: number, firing = false) {
       b.y += b.vy * dt - 0.5 * GRAVITY * dt * dt;
       b.vy -= GRAVITY * dt;
       if (b.y <= 0 && b.age !== -1) {
-        const distance = Math.hypot(b.x, b.z);
-        s.integrity -= Math.max(6, 26 - distance * 0.22);
+        const distance = Math.hypot(b.x, b.z - 4);
+        s.integrity -= Math.max(0, 26 - distance * 0.5);
         s.events.push({ kind: 'damage', at: { x: b.x, y: 0, z: b.z } });
         b.age = -1;
+      }
+    }
+    for (const r of s.enemyRounds) {
+      r.age += dt;
+      r.x += r.vx * dt;
+      r.z += r.vz * dt;
+      r.y += r.vy * dt - 0.5 * GRAVITY * dt * dt;
+      r.vy -= GRAVITY * dt;
+      if (r.y <= 0) {
+        if (Math.hypot(r.x, r.z - 4) < 10) s.integrity -= 2.5;
+        s.events.push({ kind: 'strike', at: { x: r.x, y: 0, z: r.z } });
+        r.age = 99;
       }
     }
     for (const r of s.rounds) {
@@ -339,6 +407,7 @@ export function stepFlak(s: FlakState, seconds: number, firing = false) {
     s.planes = s.planes.filter((p) => p.y > 0);
     s.troops = s.troops.filter((p) => p.y > 0);
     s.bombs = s.bombs.filter((p) => p.age !== -1);
+    s.enemyRounds = s.enemyRounds.filter((r) => r.age < 3);
     s.rounds = s.rounds.filter((r) => r.age < 3);
     s.integrity = clamp(s.integrity, 0, 100);
     if (!s.integrity) s.status = 'lost';
@@ -346,7 +415,8 @@ export function stepFlak(s: FlakState, seconds: number, firing = false) {
       s.next === RAIDS.length &&
       !s.planes.length &&
       !s.troops.length &&
-      !s.bombs.length
+      !s.bombs.length &&
+      !s.enemyRounds.length
     )
       s.status = 'won';
   }
