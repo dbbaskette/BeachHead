@@ -168,7 +168,130 @@ function insignia(a: FlakArt) {
   a.materials.add(m);
   return m;
 }
-export function aircraft(a: FlakArt, kind: 'bomber' | 'transport') {
+/** Compact single-engine fighter: tapered airfoils, radial cowling and framed canopy. */
+function fighter(a: FlakArt) {
+  const root = new T.Group(),
+    body = new T.Group(),
+    prop = new T.Group();
+  a.mesh(body, fuselage(a, false), a.olivePaint, [0, 0, 0], [0.63, 0.68, 0.62]);
+  a.mesh(body, a.sphere, a.belly, [0, -0.27, -0.4], [0.7, 0.55, 3.8]);
+  a.mesh(body, wing(a, 11.2, 2.65), a.olivePaint, [0, -0.28, -0.6], [1, 1, 1]);
+  a.mesh(body, wing(a, 4.4, 1.65), a.olivePaint, [0, 0.2, 3.6], [1, 1, 1]);
+  a.mesh(body, a.sphere, a.olivePaint, [0, 1.03, 3.55], [0.12, 1.38, 1.05]);
+  a.mesh(body, a.sphere, a.canopy, [0, 0.8, -0.45], [0.57, 0.62, 1.2]);
+  for (const z of [-1.1, -0.35, 0.4]) {
+    const frame = a.mesh(
+      body,
+      a.geo(new T.TorusGeometry(0.57, 0.035, 6, 16, Math.PI)),
+      a.olivePaint,
+      [0, 0.81, z],
+      [1, 1, 1],
+    );
+    frame.rotation.z = 0;
+  }
+  a.block(body, a.olivePaint, [0, 1.36, -0.4], [0.05, 0.06, 1.55]);
+  const cowling = a.mesh(
+    body,
+    a.cylinder,
+    a.olivePaint,
+    [0, 0, -3.95],
+    [0.95, 1.35, 0.95],
+  );
+  cowling.rotation.x = Math.PI / 2;
+  const face = a.mesh(
+    body,
+    a.cylinder,
+    a.black,
+    [0, 0, -4.64],
+    [0.8, 0.07, 0.8],
+  );
+  face.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 9; i++) {
+    const angle = (i * Math.PI * 2) / 9;
+    const cylinder = a.mesh(
+      body,
+      a.cylinder,
+      a.steel,
+      [Math.cos(angle) * 0.49, Math.sin(angle) * 0.49, -4.7],
+      [0.12, 0.35, 0.12],
+    );
+    cylinder.rotation.z = angle - Math.PI / 2;
+  }
+  a.mesh(body, a.sphere, a.black, [0, -0.7, -3.4], [0.35, 0.2, 0.6]);
+  const marking = insignia(a),
+    plate = a.geo(new T.PlaneGeometry(1, 1));
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      const barrel = a.mesh(
+        body,
+        a.cylinder,
+        a.dark,
+        [side * (1.9 + i * 0.25), -0.21, -2.1 + i * 0.08],
+        [0.035, 0.9, 0.035],
+      );
+      barrel.rotation.x = Math.PI / 2;
+    }
+    a.block(body, a.dark, [side * 3.9, -0.02, 0.63], [2.4, 0.025, 0.035]);
+    const mark = a.mesh(
+      body,
+      plate,
+      marking,
+      [side * 3.8, 0.08, -0.2],
+      [1.7, 0.85, 1],
+    );
+    mark.rotation.x = -Math.PI / 2;
+    const underside = a.mesh(
+      body,
+      plate,
+      marking,
+      [side * 3.8, -0.5, -0.2],
+      [1.7, 0.85, 1],
+    );
+    underside.rotation.x = Math.PI / 2;
+    const flank = a.mesh(
+      body,
+      plate,
+      marking,
+      [side * 0.52, 0.13, 2],
+      [1.5, 0.75, 1],
+    );
+    flank.rotation.y = (side * Math.PI) / 2;
+    a.block(body, a.dark, [side * 0.72, -0.15, -2.65], [0.12, 0.15, 0.55]);
+  }
+  a.mesh(prop, a.sphere, a.steel, [0, 0, 0], [0.23, 0.23, 0.35]);
+  for (let i = 0; i < 4; i++) {
+    const angle = (i * Math.PI) / 2;
+    const blade = a.mesh(
+      prop,
+      a.sphere,
+      a.black,
+      [Math.sin(angle) * 0.7, Math.cos(angle) * 0.7, 0],
+      [0.12, 1, 0.055],
+    );
+    blade.rotation.z = -angle;
+  }
+  prop.position.set(0, 0, -4.9);
+  const blur = new T.MeshBasicMaterial({
+    color: '#c9c4b0',
+    transparent: true,
+    opacity: 0.09,
+    side: T.DoubleSide,
+    depthWrite: false,
+  });
+  a.materials.add(blur);
+  a.mesh(
+    body,
+    a.geo(new T.CircleGeometry(1.65, 32)),
+    blur,
+    [0, 0, -4.86],
+    [1, 1, 1],
+  );
+  consolidate(body, a);
+  root.add(body, prop);
+  return { root, props: [prop] };
+}
+export function aircraft(a: FlakArt, kind: 'bomber' | 'transport' | 'fighter') {
+  if (kind === 'fighter') return fighter(a);
   const root = new T.Group(),
     body = new T.Group(),
     props: T.Group[] = [];

@@ -57,11 +57,14 @@ export class FlakScene {
   private puffs: Puff[] = [];
   private object = new T.Object3D();
   private color = new T.Color();
-  private planes = Array.from({ length: 6 }, (_, i) => ({
-    id: -1,
-    ...aircraft(this.art, i < 3 ? 'bomber' : 'transport'),
-    kind: i < 3 ? 'bomber' : 'transport',
-  }));
+  private planes = (['bomber', 'transport', 'fighter'] as const).flatMap(
+    (kind) =>
+      Array.from({ length: 3 }, () => ({
+        id: -1,
+        ...aircraft(this.art, kind),
+        kind,
+      })),
+  );
   private troops = Array.from({ length: 20 }, () => ({
     id: -1,
     ...paratrooper(this.art),
@@ -69,6 +72,8 @@ export class FlakScene {
   private trailArray = new Float32Array(40 * 6);
   private trails: T.LineSegments;
   private trailGeometry = new T.BufferGeometry();
+  private enemyTrailArray = new Float32Array(24 * 6);
+  private enemyTrailGeometry = new T.BufferGeometry();
   private bombs: T.InstancedMesh;
   private shells: T.InstancedMesh;
   private observer: ResizeObserver;
@@ -156,6 +161,23 @@ export class FlakScene {
     this.trails = new T.LineSegments(this.trailGeometry, trailMat);
     this.trails.frustumCulled = false;
     this.scene.add(this.trails);
+    this.enemyTrailGeometry.setAttribute(
+      'position',
+      new T.BufferAttribute(this.enemyTrailArray, 3).setUsage(
+        T.DynamicDrawUsage,
+      ),
+    );
+    this.enemyTrailGeometry.setDrawRange(0, 0);
+    const enemyMat = new T.LineBasicMaterial({
+      color: '#ff9960',
+      transparent: true,
+      opacity: 0.95,
+      toneMapped: false,
+    });
+    this.art.materials.add(enemyMat);
+    const enemyTrails = new T.LineSegments(this.enemyTrailGeometry, enemyMat);
+    enemyTrails.frustumCulled = false;
+    this.scene.add(enemyTrails);
     this.bombs = new T.InstancedMesh(this.art.sphere, this.art.dark, 8);
     this.bombs.count = 0;
     this.bombs.frustumCulled = false;
@@ -379,6 +401,13 @@ export class FlakScene {
       } else if (e.kind === 'hit') {
         this.puff(e.at, 2, 0.16, 1, true);
         this.puff(e.at, 3, 3, 0.16);
+      } else if (e.kind === 'strafe') {
+        this.puff(e.at, 2.4, 0.09, 1, true);
+      } else if (e.kind === 'strike') {
+        this.puff(e.at, 1.2, 0.12, 1, true);
+        this.puff({ ...e.at, y: 0.5 }, 2.8, 1.8, 0.4);
+        if (Math.hypot(e.at.x, e.at.z - 4) < 10)
+          this.shake = Math.max(this.shake, 0.35);
       } else if (e.kind === 'burst') {
         this.puff(e.at, 5, 4, 0.2);
       } else {
@@ -440,7 +469,10 @@ export class FlakScene {
       slot.root.visible = true;
       slot.root.position.set(p.x, p.y, p.z);
       slot.root.rotation.set(
-        p.falling ? -0.1 - p.falling * 0.09 : Math.sin(p.age * 0.3) * 0.01,
+        p.falling
+          ? -0.1 - p.falling * 0.09
+          : Math.atan2(p.vy, Math.hypot(p.vx, p.vz)) +
+              Math.sin(p.age * 0.3) * 0.01,
         Math.atan2(-p.vx, -p.vz),
         p.falling
           ? Math.sin(p.id) * p.falling * 0.3
@@ -506,6 +538,22 @@ export class FlakScene {
     }
     this.trailGeometry.attributes.position.needsUpdate = true;
     this.trailGeometry.setDrawRange(0, n * 2);
+    let enemyCount = 0;
+    for (const r of s.enemyRounds.slice(0, 24)) {
+      this.enemyTrailArray.set(
+        [
+          r.x - r.vx * 0.045,
+          r.y - r.vy * 0.045,
+          r.z - r.vz * 0.045,
+          r.x,
+          r.y,
+          r.z,
+        ],
+        enemyCount++ * 6,
+      );
+    }
+    this.enemyTrailGeometry.attributes.position.needsUpdate = true;
+    this.enemyTrailGeometry.setDrawRange(0, enemyCount * 2);
     this.bombs.count = Math.min(8, s.bombs.length);
     for (let i = 0; i < this.bombs.count; i++) {
       const b = s.bombs[i];
@@ -579,6 +627,7 @@ export class FlakScene {
         (o as T.DirectionalLight).shadow?.dispose();
     });
     this.trailGeometry.dispose();
+    this.enemyTrailGeometry.dispose();
     this.ocean.dispose();
     (this.sky.material as T.Material).dispose();
     this.sky.geometry.dispose();

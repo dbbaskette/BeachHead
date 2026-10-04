@@ -183,8 +183,13 @@ export default function FlakGame({
       stepFlak(s, dt, controls.current.takeFire(held('Space')));
       for (const e of s.events) {
         if (e.kind === 'shot') audio.current?.play('fire');
+        else if (e.kind === 'strafe')
+          audio.current?.play('fire', {
+            distance: 0.85,
+            pan: Math.max(-1, Math.min(1, e.at.x / 500)),
+          });
         else if (e.kind === 'damage') audio.current?.play('damage');
-        else if (e.kind === 'hit' || e.kind === 'crash')
+        else if (e.kind === 'hit' || e.kind === 'crash' || e.kind === 'strike')
           audio.current?.play('impact', {
             distance: 0.8,
             pan: Math.max(-1, Math.min(1, e.at.x / 500)),
@@ -385,7 +390,7 @@ export default function FlakGame({
             <p>
               {error ||
                 (hud.status === 'ready'
-                  ? 'Enemy bombers are closing on the coast. Man the four-barrel battery, lead your targets, and stop the transports before their parachutes fill the sky.'
+                  ? 'All raids approach from the same offshore sector. Stop transports before they drop parachutes, break up low fighter strafing runs, and down bombers before they release bombs at your battery.'
                   : hud.status === 'paused'
                     ? 'Take a breath. The raid will wait.'
                     : `${hud.downed} aircraft downed · ${hud.stopped} parachute landings stopped · ${hud.integrity}% battery integrity`)}

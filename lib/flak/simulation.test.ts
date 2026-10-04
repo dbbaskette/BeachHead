@@ -8,6 +8,8 @@ import {
   spawnAircraft,
   SPEED,
   EYE,
+  eyePosition,
+  GRAVITY,
   RAIDS,
 } from './simulation';
 function active() {
@@ -115,10 +117,20 @@ void test('leading aircraft with ballistic shots can win all three raids without
   for (let i = 0; i < 180 * 60 && s.status === 'playing'; i++) {
     const p = s.planes.find((p) => p.health > 0);
     if (p) {
-      const t = Math.hypot(p.x - EYE.x, p.y - EYE.y, p.z - EYE.z) / SPEED;
-      const x = p.x + p.vx * t - EYE.x,
-        z = p.z + p.vz * t - EYE.z,
-        y = p.y - EYE.y;
+      // Solve interception for aircraft moving toward us, including vertical
+      // motion and the gun's existing 600 m ballistic zero.
+      const eye = eyePosition(s);
+      let t = Math.hypot(p.x - eye.x, p.y - EYE.y, p.z - eye.z) / SPEED;
+      for (let n = 0; n < 6; n++)
+        t =
+          Math.hypot(
+            p.x + p.vx * t - eye.x,
+            p.y + p.vy * t - EYE.y,
+            p.z + p.vz * t - eye.z,
+          ) / SPEED;
+      const x = p.x + p.vx * t - eye.x,
+        z = p.z + p.vz * t - eye.z;
+      const y = p.y + p.vy * t - EYE.y + 0.5 * GRAVITY * t * (t - 600 / SPEED);
       s.yaw = Math.atan2(x, -z);
       s.pitch = Math.atan2(y, Math.hypot(x, z));
     }
@@ -137,4 +149,95 @@ void test('aim wraps smoothly around the horizon and cannot invert over the zeni
   assert.equal(s.pitch, 1.43);
   aimFlak(s, 0, -10);
   assert.equal(s.pitch, 0.04);
+});
+void test('every aircraft type approaches from the same offshore bearing', () => {
+  const s = active();
+  RAIDS.forEach((_, i) => spawnAircraft(s, i));
+  assert.deepEqual(
+    new Set(s.planes.map((p) => p.kind)),
+    new Set(['transport', 'bomber', 'fighter']),
+  );
+  for (const p of s.planes) {
+    assert.ok(p.x < 0 && p.z < 0 && p.vx > 0 && p.vz > 0);
+    assert.equal(p.vz / p.vx, 0.6875);
+    if (p.kind !== 'transport')
+      assert.ok(Math.abs(p.z - p.x * 0.6875 - 4) < 1e-8);
+  }
+});
+void test('fighters strafe the battery with bounded ballistic rounds and climb away', () => {
+  const s = active();
+  s.next = RAIDS.length;
+  spawnAircraft(s, 3);
+  const p = s.planes[0];
+  let shots = 0,
+    strikes = 0,
+    maxRounds = 0,
+    minHeight = p.y;
+  for (let i = 0; i < 9 * 60; i++) {
+    stepFlak(s, 1 / 60);
+    shots += s.events.filter((e) => e.kind === 'strafe').length;
+    strikes += s.events.filter((e) => e.kind === 'strike').length;
+    maxRounds = Math.max(maxRounds, s.enemyRounds.length);
+    minHeight = Math.min(minHeight, p.y);
+  }
+  assert.equal(shots, 12);
+  assert.equal(strikes, 12);
+  assert.ok(maxRounds <= 8);
+  assert.ok(s.integrity < 100 && s.integrity >= 70);
+  assert.ok(minHeight < 100 && p.y > 108 && p.vy > 0);
+  assert.equal(s.enemyRounds.length, 0);
+});
+void test('downing a strafing fighter stops future shots while released rounds still land', () => {
+  const s = active();
+  s.next = RAIDS.length;
+  spawnAircraft(s, 3);
+  while (!s.enemyRounds.length) stepFlak(s, 1 / 60);
+  const p = s.planes[0],
+    payload = p.payload;
+  p.health = 0;
+  let impacts = 0;
+  for (let i = 0; i < 120; i++) {
+    stepFlak(s, 1 / 60);
+    assert.ok(!s.events.some((e) => e.kind === 'strafe'));
+    impacts += s.events.filter((e) => e.kind === 'strike').length;
+  }
+  assert.equal(p.payload, payload);
+  assert.ok(impacts > 0);
+});
+void test('pending hostile fire prevents victory and pauses with the rest of the simulation', () => {
+  const s = active();
+  s.next = RAIDS.length;
+  s.enemyRounds.push({
+    id: 1,
+    x: 0,
+    y: 10,
+    z: 4,
+    vx: 0,
+    vy: -20,
+    vz: 0,
+    age: 0,
+  });
+  stepFlak(s, 0.1);
+  assert.equal(s.status, 'playing');
+  s.status = 'paused';
+  const before = structuredClone(s.enemyRounds);
+  stepFlak(s, 0.1);
+  assert.deepEqual(s.enemyRounds, before);
+  s.status = 'playing';
+  advance(s, 1);
+  assert.equal(s.status, 'won');
+  assert.equal(s.integrity, 97.5);
+});
+void test('the complete unattended raid schedule fits the aircraft and tracer render pools', () => {
+  const s = active();
+  for (let i = 0; i < 150 * 60 && s.status === 'playing'; i++) {
+    // Isolate pool capacity from battery defeat; do not skip any wave or attack.
+    s.integrity = 100;
+    stepFlak(s, 1 / 60);
+    for (const kind of ['transport', 'bomber', 'fighter'])
+      assert.ok(s.planes.filter((p) => p.kind === kind).length <= 3, kind);
+    assert.ok(s.enemyRounds.length <= 24);
+  }
+  assert.equal(s.next, RAIDS.length);
+  assert.equal(s.status, 'won');
 });
