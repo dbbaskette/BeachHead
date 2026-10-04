@@ -109,6 +109,7 @@ export function bindControlRelease(
   target: EventTarget,
   controls: BunkerControls,
   changed: () => void,
+  resetOnBlur: () => boolean = () => true,
 ) {
   const end = (event: Event) => {
     if (controls.end((event as PointerEvent).pointerId)) changed();
@@ -123,6 +124,9 @@ export function bindControlRelease(
     controls.clear();
     changed();
   };
+  const blur = () => {
+    if (resetOnBlur()) reset();
+  };
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
     target.addEventListener(type, end, true);
   target.addEventListener('touchstart', touchstart, {
@@ -131,7 +135,8 @@ export function bindControlRelease(
   });
   for (const type of ['touchend', 'touchcancel'])
     target.addEventListener(type, touches, { capture: true, passive: true });
-  for (const type of ['blur', 'pagehide', 'orientationchange'])
+  target.addEventListener('blur', blur);
+  for (const type of ['pagehide', 'orientationchange'])
     target.addEventListener(type, reset);
   return () => {
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
@@ -139,7 +144,8 @@ export function bindControlRelease(
     target.removeEventListener('touchstart', touchstart, true);
     for (const type of ['touchend', 'touchcancel'])
       target.removeEventListener(type, touches, true);
-    for (const type of ['blur', 'pagehide', 'orientationchange'])
+    target.removeEventListener('blur', blur);
+    for (const type of ['pagehide', 'orientationchange'])
       target.removeEventListener(type, reset);
     controls.clear();
   };

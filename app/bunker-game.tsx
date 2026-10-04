@@ -20,6 +20,10 @@ import { BunkerFinaleView } from './bunker-finale';
 import { StageFourPreview } from './stage-four-preview';
 import { TOUCH_LAYOUT_QUERY } from '@/lib/touch-input';
 import {
+  bindBunkerInterruptions,
+  bunkerBlurIsInterruption,
+} from '@/lib/bunker/lifecycle';
+import {
   BunkerControls,
   BunkerKeyboard,
   BUNKER_KEYS,
@@ -96,6 +100,10 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
   };
   const touch = useTouchLayout();
   const publish = () => setHud(snapshot(battle.current));
+  const focusKeyboard = () => {
+    if (!window.matchMedia(TOUCH_LAYOUT_QUERY).matches)
+      root.current?.focus({ preventScroll: true });
+  };
   const clear = () => {
     keys.current.clear();
     keyboard.current.clear();
@@ -141,7 +149,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
     void voices.current?.start();
     void audio.current?.start();
     publish();
-    root.current?.focus();
+    focusKeyboard();
     lock();
   };
   const leave = () => {
@@ -207,6 +215,11 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       window,
       controls.current,
       updateSticks,
+      () =>
+        bunkerBlurIsInterruption(
+          window.matchMedia(TOUCH_LAYOUT_QUERY).matches,
+          document.hidden,
+        ),
     );
     const pointermove = (e: PointerEvent) => {
       if (e.pointerType === 'mouse' && e.buttons === 0) {
@@ -230,16 +243,17 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       locked.current = now;
       if (lost) pause();
     };
-    const visibility = () => {
-      if (document.hidden) pause();
-    };
+    const releaseInterruptions = bindBunkerInterruptions(
+      window,
+      document,
+      () => window.matchMedia(TOUCH_LAYOUT_QUERY).matches,
+      pause,
+    );
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
     window.addEventListener('mousemove', mouse);
     window.addEventListener('pointermove', pointermove, true);
-    window.addEventListener('blur', pause);
     document.addEventListener('pointerlockchange', lockChange);
-    document.addEventListener('visibilitychange', visibility);
     const tick = (stamp: number) => {
       if (cancelled) return;
       const dt = Math.min(0.05, (stamp - (last || stamp)) / 1000);
@@ -318,9 +332,8 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
       window.removeEventListener('mousemove', mouse);
       window.removeEventListener('pointermove', pointermove, true);
       releaseControls();
-      window.removeEventListener('blur', pause);
+      releaseInterruptions();
       document.removeEventListener('pointerlockchange', lockChange);
-      document.removeEventListener('visibilitychange', visibility);
       unlock();
       scene.current?.dispose();
       scene.current = null;
@@ -490,7 +503,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               onClick={() => {
                 equipCharges(battle.current);
                 publish();
-                root.current?.focus();
+                focusKeyboard();
               }}
             >
               <Package />
@@ -510,7 +523,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 onClick={() => {
                   plantCharge(battle.current);
                   publish();
-                  root.current?.focus();
+                  focusKeyboard();
                 }}
               >
                 <Package />
@@ -530,7 +543,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
               onClick={() => {
                 throwGrenade(battle.current);
                 publish();
-                root.current?.focus();
+                focusKeyboard();
               }}
             >
               <Bomb />
@@ -545,7 +558,7 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                 onClick={() => {
                   openDoor(battle.current);
                   publish();
-                  root.current?.focus();
+                  focusKeyboard();
                 }}
               >
                 <DoorOpen />
