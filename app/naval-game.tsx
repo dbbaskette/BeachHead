@@ -50,6 +50,7 @@ export default function NavalGame({
   onAir,
   onFlak,
   onBunker,
+  onTank,
   onStart,
   campaign,
 }: {
@@ -58,6 +59,7 @@ export default function NavalGame({
   onAir: () => void;
   onFlak: () => void;
   onBunker: () => void;
+  onTank: () => void;
   onStart: (campaign: boolean) => void;
   campaign: boolean;
 }) {
@@ -745,6 +747,22 @@ export default function NavalGame({
               <span>Explore the bunker · Plant charges · Escape</span>
               <span className="mission-tile-action">
                 Play Stage 5 <ArrowUpRight size={18} aria-hidden="true" />
+              </span>
+            </button>
+            <button
+              className="mission-tile tank-tile"
+              aria-label="Play Stage 6 — Breakout"
+              onClick={onTank}
+            >
+              <Shield className="mission-tile-art" aria-hidden="true" />
+              <span className="mission-stage">Stage 6 · Inland advance</span>
+              <strong>Breakout</strong>
+              <span>
+                Command a Sherman · Fight through the village · Secure the
+                bridge
+              </span>
+              <span className="mission-tile-action">
+                Play Stage 6 <ArrowUpRight size={18} aria-hidden="true" />
               </span>
             </button>
           </nav>

@@ -5,6 +5,7 @@ import NavalGame from './naval-game';
 import PillboxGame from './pillbox-game';
 const FlakGame = lazy(() => import('./flak-game'));
 const AirGame = lazy(() => import('./air-game'));
+const TankGame = lazy(() => import('./tank-game'));
 const BunkerGame = lazy(() => import('./bunker-game'));
 
 export default function Campaign() {
@@ -28,6 +29,9 @@ export default function Campaign() {
         dispatch({ type: 'begin', mission: 'flak', campaign: false })
       }
       onAir={() => dispatch({ type: 'begin', mission: 'air', campaign: false })}
+      onTank={() =>
+        dispatch({ type: 'begin', mission: 'tank', campaign: false })
+      }
       onBunker={() =>
         dispatch({ type: 'begin', mission: 'bunker', campaign: false })
       }
@@ -44,11 +48,22 @@ export default function Campaign() {
     >
       <AirGame campaign={campaign} onContinue={advance} onReturn={menu} />
     </Suspense>
+  ) : mission === 'tank' ? (
+    <Suspense
+      fallback={<div className="air-loading">Preparing the Sherman…</div>}
+    >
+      <TankGame onReturn={menu} />
+    </Suspense>
   ) : mission === 'bunker' ? (
     <Suspense
       fallback={<div className="air-loading">Preparing the bunker…</div>}
     >
-      <BunkerGame onReturn={menu} />
+      <BunkerGame
+        onReturn={menu}
+        onBreakout={() =>
+          dispatch({ type: 'begin', mission: 'tank', campaign: false })
+        }
+      />
     </Suspense>
   ) : (
     <PillboxGame campaign={campaign} onReturn={menu} />

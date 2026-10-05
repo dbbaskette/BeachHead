@@ -73,7 +73,13 @@ const snapshot = (b: BunkerState) => ({
   z: b.z,
   room: roomAt(b.x, b.z)?.name ?? 'Bunker',
 });
-export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
+export default function BunkerGame({
+  onReturn,
+  onBreakout,
+}: {
+  onReturn: () => void;
+  onBreakout?: () => void;
+}) {
   const host = useRef<HTMLDivElement>(null),
     surface = useRef<HTMLDivElement>(null),
     root = useRef<HTMLElement>(null);
@@ -764,6 +770,11 @@ export default function BunkerGame({ onReturn }: { onReturn: () => void }) {
                     : hud.status === 'ready'
                       ? 'Enter the bunker'
                       : 'Play again'}
+              </button>
+            )}
+            {hud.status === 'won' && onBreakout && (
+              <button className="bunker-primary" onClick={onBreakout}>
+                Continue to Stage 6 — Breakout
               </button>
             )}
             <div className="bunker-panel-links">
