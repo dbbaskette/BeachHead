@@ -14,7 +14,7 @@
 
 A 3D browser game inspired by **Beach-Head** and **Beach-Head II**. Lead the Allied fleet through a naval blockade, switch to a German fighter-bomber attacking the landing, then hold the German pillbox as troops reach shore. Textured battlefields, physically consistent weapon origins, smoke, persistent wrecks and spatial weapon effects bring the classic idea into a modern browser.
 
-**Five stages are playable, including the Stage 5 radio-demolition mission.** Choose **Play campaign** for the complete sea–flak–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
+**Six stages are playable, including the Stage 5 radio-demolition mission and Stage 6 tank breakout.** Choose **Play campaign** for the complete sea–flak–air–beach operation, or jump straight into any stage from the main menu. No installation or account is required to play. WebGL 2 and hardware acceleration are required.
 
 ## The campaign
 
@@ -77,6 +77,16 @@ Escaping triggers a fourteen-second exterior cinematic across the Normandy landi
 Guards now recognize threats, turn and raise their weapons, react to nearby gunfire, and search the last place they saw you. Hits interrupt their aim; three grounded fall models combine a backward stumble, knee-first buckle and sideways collapse with a firm torso, limited joints and physical settling. Rapid hits accumulate recoil, and later rounds continue to affect the falling body. Rifles fall separately; directional blood spray marks nearby surfaces and impacts raise dust. Grenade blasts can lift bodies into nearby walls. Keyboard-only play uses WASD to move, arrow keys to aim, Space to fire, Shift for fine aim and R to reload. [Behavior and animation details](docs/tunnel-guard-reactions.md). [Fall research and models](docs/grounded-fall-research.md).
 
 **The image above is concept artwork, not a screenshot of the prototype. The full Stage 5 mission is still in development.** [Artwork provenance and prompt](docs/stage-4-concept.md).
+
+## Stage 6: Breakout
+
+Command a Sherman through a compact Normandy village after the cliff guns fall. Follow the exposed high street or the western orchard lane, crush fences and low walls, and engage rocket crews, antitank guns and an enemy tank. Destroy the demolition post beside the stone bridge before its timer expires, enter the bridge square, then hold for 40 seconds and clear its remaining defenders. The orchard lane has one repair supply point.
+
+**Desktop:** WASD drives/steers independently of the turret. Mouse or arrows aim; click / Space fires; Q switches cannon/MG; R repairs damaged components while stationary; Z zooms, C centers the turret, M shows the route map, and Esc pauses. The repair button also starts a cancellable repair. **Mobile:** left pad drives, right pad or a battlefield swipe aims, and the separate Fire button shoots. Dragging on Fire also aims, so one thumb can aim/fire while the other drives. Switch and Repair buttons stay beside the pads.
+
+Frontal armor reduces damage; rocket hits can damage a track and enemy tank hits can slow the turret. Repairs take 4.5 seconds and movement or firing interrupts them. Buildings become rubble, tracks and road wheels animate, and recoil, dust, muzzle flashes and wreck smoke respond to combat. No enemy health labels appear in the field of view. Choose Stage 6 directly or continue from a Stage 5 victory; the original four-stage campaign stays separate.
+
+[Implementation and verification notes](docs/stage-6-breakout.md).
 
 ## Air assault — Stage 3
 
@@ -152,7 +162,7 @@ Open the local URL printed by the server. The game uses React, TypeScript, Three
 ```sh
 npm test
 npm run typecheck
-npm exec oxlint -- app lib/campaign.ts lib/campaign.test.ts lib/naval lib/pillbox lib/air lib/bunker
+npm exec oxlint -- app lib/campaign.ts lib/campaign.test.ts lib/naval lib/pillbox lib/air lib/bunker lib/flak lib/tank
 NEXT_PUBLIC_BASE_PATH=/BeachHead npm run build
 ```
 

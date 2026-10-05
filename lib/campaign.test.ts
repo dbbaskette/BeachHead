@@ -22,7 +22,14 @@ void test('campaign advances from naval approach to antiaircraft defense to air 
 });
 
 void test('direct selection opens the chosen mission without campaign continuation', () => {
-  for (const mission of ['naval', 'flak', 'air', 'beach', 'bunker'] as const) {
+  for (const mission of [
+    'naval',
+    'flak',
+    'air',
+    'beach',
+    'bunker',
+    'tank',
+  ] as const) {
     const state = campaignReducer(
       { mission: 'air', campaign: true },
       { type: 'begin', mission, campaign: false },
@@ -36,7 +43,14 @@ void test('direct selection opens the chosen mission without campaign continuati
 });
 
 void test('menu return clears campaign progression from every mission', () => {
-  for (const mission of ['naval', 'flak', 'air', 'beach', 'bunker'] as const) {
+  for (const mission of [
+    'naval',
+    'flak',
+    'air',
+    'beach',
+    'bunker',
+    'tank',
+  ] as const) {
     const menu = campaignReducer({ mission, campaign: true }, { type: 'menu' });
     assert.deepEqual(menu, INITIAL_CAMPAIGN);
     assert.deepEqual(
