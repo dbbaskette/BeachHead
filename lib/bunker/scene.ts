@@ -517,17 +517,18 @@ export class BunkerScene {
     this.muzzle.visible = false;
     this.muzzleLight.position.set(0.1, -0.1, -0.7);
     this.camera.add(this.muzzleLight);
+    // Shadow and ambient-occlusion passes resubmit the scene, so desktop gains most from batching.
+    batchBunkerScenery(this.scene, [
+      this.camera,
+      this.sea,
+      this.medkit,
+      ...this.doors,
+      ...this.missionProps.charges,
+      ...this.missionProps.supplies,
+    ]);
+    for (const door of this.doors) batchBunkerScenery(door, []);
+    batchBunkerScenery(this.weapon, [this.muzzle]);
     if (touch) {
-      batchBunkerScenery(this.scene, [
-        this.camera,
-        this.sea,
-        this.medkit,
-        ...this.doors,
-        ...this.missionProps.charges,
-        ...this.missionProps.supplies,
-      ]);
-      for (const door of this.doors) batchBunkerScenery(door, []);
-      batchBunkerScenery(this.weapon, [this.muzzle]);
       this.mobileLights = new BunkerMobileLights(this.scene, [
         this.camera,
         this.blastLight,
