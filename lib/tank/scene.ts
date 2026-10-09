@@ -7,6 +7,7 @@ import { TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { type TankState, type TankEvent, tankMuzzle } from './simulation';
 import { SUPPLY } from './map';
 import { buildTerrain, terrainHeight } from './terrain';
+import { collapsePose, stepFragment } from './impact';
 type Particle = {
   x: number;
   y: number;
@@ -18,6 +19,10 @@ type Particle = {
   life: number;
   size: number;
   glow: boolean;
+  solid?: boolean;
+  wood?: boolean;
+  tint?: number;
+  spin?: number;
 };
 export class TankScene {
   private renderer: T.WebGLRenderer;
@@ -32,6 +37,11 @@ export class TankScene {
   private particles: Particle[] = [];
   private smoke: T.InstancedMesh;
   private chips: T.InstancedMesh;
+  private fragments: T.InstancedMesh;
+  private scars: T.InstancedMesh;
+  private scarSerial = 0;
+  private scarOwners = new Map<number, number>();
+  private collapses = new Map<number, { start: number; pulse: number }>();
   private shells: T.InstancedMesh;
   private object = new T.Object3D();
   private color = new T.Color();
@@ -271,7 +281,63 @@ export class TankScene {
     this.chips.frustumCulled = false;
     this.shells = new T.InstancedMesh(this.art.sphere, glow, 80);
     this.shells.frustumCulled = false;
-    this.scene.add(this.smoke, this.chips, this.shells);
+    this.fragments = new T.InstancedMesh(
+      this.art.geo(new T.IcosahedronGeometry(1, 0)),
+      this.art.mat('#ffffff', 0.94),
+      140,
+    );
+    this.fragments.setColorAt(0, new T.Color(0xffffff));
+    this.smoke.setColorAt(0, new T.Color(0xffffff));
+    this.fragments.frustumCulled = false;
+    this.fragments.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    const scarCanvas = document.createElement('canvas');
+    scarCanvas.width = scarCanvas.height = 128;
+    const scarContext = scarCanvas.getContext('2d')!;
+    const scorch = scarContext.createRadialGradient(64, 64, 7, 64, 64, 61);
+    scorch.addColorStop(0, '#171511ed');
+    scorch.addColorStop(0.25, '#2b251be0');
+    scorch.addColorStop(0.55, '#473e2a80');
+    scorch.addColorStop(1, '#473e2a00');
+    scarContext.fillStyle = scorch;
+    scarContext.fillRect(0, 0, 128, 128);
+    scarContext.strokeStyle = '#171512a0';
+    scarContext.lineWidth = 1;
+    for (let i = 0; i < 13; i++) {
+      const angle = i * 2.399;
+      scarContext.beginPath();
+      scarContext.moveTo(64 + Math.sin(angle) * 8, 64 + Math.cos(angle) * 8);
+      scarContext.lineTo(
+        64 + Math.sin(angle + 0.09) * 29,
+        64 + Math.cos(angle + 0.09) * 29,
+      );
+      scarContext.lineTo(64 + Math.sin(angle) * 53, 64 + Math.cos(angle) * 53);
+      scarContext.stroke();
+    }
+    const scarMap = new T.CanvasTexture(scarCanvas);
+    this.art.textures.add(scarMap);
+    const scarMaterial = new T.MeshBasicMaterial({
+      map: scarMap,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    this.art.materials.add(scarMaterial);
+    this.scars = new T.InstancedMesh(
+      this.art.geo(new T.PlaneGeometry(1, 1)),
+      scarMaterial,
+      72,
+    );
+    this.scars.count = 0;
+    this.scars.frustumCulled = false;
+    this.scene.add(
+      this.smoke,
+      this.chips,
+      this.shells,
+      this.fragments,
+      this.scars,
+    );
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
@@ -361,49 +427,124 @@ export class TankScene {
     }
   }
   private burst(e: TankEvent) {
-    if (e.kind === 'repair' || e.kind === 'win') return;
+    if (['repair', 'win', 'warning'].includes(e.kind)) return;
     const big = e.kind === 'destroy',
-      hot = ['cannon', 'mg', 'ricochet', 'damage'].includes(e.kind);
-    if (big)
-      for (let i = 0; i < 5; i++)
-        this.particles.push({
-          x: e.at.x + Math.sin(i) * 0.5,
-          y: e.at.y + 0.4,
-          z: e.at.z + Math.cos(i) * 0.5,
-          vx: Math.sin(i) * 3,
-          vy: 2,
-          vz: Math.cos(i) * 3,
-          age: 0,
-          life: 0.35,
-          size: 1.2,
-          glow: true,
-        });
-    const count = e.kind === 'mg' ? 2 : e.kind === 'warning' ? 1 : big ? 22 : 9;
+      material = e.surface ?? 'metal';
+    const muzzle = e.kind === 'cannon' || e.kind === 'mg';
+    const small = e.strength < 0.3;
+    const metal = material === 'metal',
+      wood = material === 'wood';
+    const normal = e.normal ?? { x: 0, y: 1, z: 0 };
+    const solidImpact = !muzzle && material !== 'soft';
+    const tint = wood
+      ? 0x786044
+      : material === 'earth'
+        ? 0x73664c
+        : metal
+          ? 0x5b605a
+          : 0xa69b81;
+    if (e.kind === 'destroy' && e.coverId !== undefined) {
+      this.collapses.set(e.coverId, { start: this.last, pulse: -1 });
+      for (const [slot, owner] of this.scarOwners)
+        if (owner === e.coverId) {
+          this.object.scale.setScalar(0);
+          this.object.updateMatrix();
+          this.scars.setMatrixAt(slot, this.object.matrix);
+          this.scarOwners.delete(slot);
+        }
+      this.scars.instanceMatrix.needsUpdate = true;
+    }
+    if (
+      e.kind === 'impact' &&
+      (material === 'masonry' || material === 'wood' || material === 'earth')
+    ) {
+      const slot = this.scarSerial++ % 72;
+      this.object.position.set(
+        e.at.x + normal.x * 0.025,
+        e.at.y + normal.y * 0.025,
+        e.at.z + normal.z * 0.025,
+      );
+      this.object.quaternion.setFromUnitVectors(
+        new T.Vector3(0, 0, 1),
+        new T.Vector3(normal.x, normal.y, normal.z).normalize(),
+      );
+      this.object.rotateZ(this.scarSerial * 2.399);
+      this.object.scale.setScalar(
+        small ? 0.23 : material === 'earth' ? 2.4 : 1.6,
+      );
+      this.object.updateMatrix();
+      this.scars.setMatrixAt(slot, this.object.matrix);
+      this.scars.count = Math.min(72, this.scarSerial);
+      this.scars.instanceMatrix.needsUpdate = true;
+      this.scarOwners.delete(slot);
+      if (e.coverId !== undefined) this.scarOwners.set(slot, e.coverId);
+    }
+    const count = muzzle
+      ? e.kind === 'mg'
+        ? 3
+        : 12
+      : small
+        ? 5
+        : big
+          ? 38
+          : 24;
     for (let i = 0; i < count; i++) {
       const n = e.at.x + e.at.z + i * 8.7 + this.last;
+      const solid = solidImpact && i % 3 === 0;
+      const spark = (metal || muzzle) && i % 2 === 0;
+      const speed = small ? 1.5 : big ? 7 : 4;
       this.particles.push({
-        x: e.at.x,
-        y: e.at.y,
-        z: e.at.z,
-        vx: Math.sin(n * 3) * (big ? 5 : 2),
-        vy: big ? 2 + (i % 5) * 1.2 : hot ? 1 : 1.5,
-        vz: Math.cos(n * 7) * (big ? 5 : 2),
+        x: e.at.x + normal.x * 0.06,
+        y: e.at.y + normal.y * 0.06,
+        z: e.at.z + normal.z * 0.06,
+        vx: normal.x * speed + Math.sin(n * 3) * speed * 0.75,
+        vy:
+          Math.max(0.5, normal.y * speed) + Math.abs(Math.cos(n)) * speed * 0.7,
+        vz: normal.z * speed + Math.cos(n * 7) * speed * 0.75,
         age: 0,
-        life: hot ? 0.15 + i * 0.025 : big ? 3 + i * 0.1 : 1.8,
-        size: hot ? 0.08 : big ? 1.5 : 0.6,
-        glow: hot,
+        life: solid
+          ? 4 + Math.abs(Math.sin(n)) * 2
+          : spark
+            ? 0.15 + (i % 4) * 0.055
+            : big
+              ? 3.8
+              : small
+                ? 0.8
+                : 2.2,
+        size: solid
+          ? small
+            ? 0.045
+            : 0.12 + (i % 4) * 0.075
+          : spark
+            ? muzzle && e.kind === 'cannon'
+              ? 0.38
+              : 0.045
+            : small
+              ? 0.2
+              : 0.6 + (i % 4) * 0.19,
+        glow: spark && !solid,
+        solid,
+        wood,
+        tint: solid
+          ? tint
+          : material === 'masonry'
+            ? 0xb5ab96
+            : material === 'earth'
+              ? 0x998770
+              : 0x74766b,
       });
     }
     if (e.kind === 'damage') this.shake = 1;
     if (e.kind === 'cannon' && e.strength === 1) this.shake = 0.3;
-    if (
-      big &&
-      Math.hypot(
-        e.at.x - this.player.root.position.x,
-        e.at.z - this.player.root.position.z,
-      ) < 30
-    )
-      this.shake = 0.6;
+    const distance = Math.hypot(
+      e.at.x - this.player.root.position.x,
+      e.at.z - this.player.root.position.z,
+    );
+    if (!small && !muzzle)
+      this.shake = Math.max(
+        this.shake,
+        (big ? 0.75 : 0.25) * Math.max(0, 1 - distance / 90),
+      );
     this.particles = this.particles.slice(-180);
   }
   private animateTank(
@@ -508,8 +649,43 @@ export class TankScene {
         s.recoil * 0.025;
     for (const c of s.cover) {
       const m = this.covers.get(c.id)!;
+      const collapse = this.collapses.get(c.id);
+      const age = collapse ? s.time - collapse.start : 99;
       m.intact.visible = c.health > 0;
+      m.fractured.visible = c.health <= 0 && c.kind === 'house' && age < 2.1;
       m.ruin.visible = c.health <= 0;
+      if (c.kind === 'house' && c.health <= 0 && collapse) {
+        m.collapseParts.forEach((part, index) => {
+          const pose = collapsePose(age, index, c.h, c.id);
+          part.position.y = (index >= 4 ? c.h : 0) + pose.y;
+          part.rotation.set(pose.x, 0, pose.z);
+        });
+        const pulse = Math.floor(age / 0.4);
+        if (pulse !== collapse.pulse && age < 2.1) {
+          collapse.pulse = pulse;
+          for (let i = 0; i < 14; i++) {
+            const angle = (i / 14) * Math.PI * 2;
+            this.particles.push({
+              x: c.x + Math.sin(angle) * c.w * 0.43,
+              y: 0.3 + (pulse === 0 ? c.h * 0.55 : 0),
+              z: c.z + Math.cos(angle) * c.d * 0.43,
+              vx: Math.sin(angle) * (2 + pulse),
+              vy: 1.1 + pulse * 0.2,
+              vz: Math.cos(angle) * (2 + pulse),
+              age: 0,
+              life: 3.4,
+              size: 2.2 + pulse * 0.5,
+              glow: false,
+              tint: 0xb2a48b,
+            });
+          }
+        }
+      } else if (c.health > 0) {
+        m.collapseParts.forEach((part, index) => {
+          part.position.y = index >= 4 ? c.h : 0;
+          part.rotation.set(0, 0, 0);
+        });
+      }
     }
     for (const e of s.enemies) {
       if (e.kind === 'tank') {
@@ -601,29 +777,57 @@ export class TankScene {
     this.camera.fov = zoom ? 35 : 58;
     this.camera.updateProjectionMatrix();
     let dust = 0,
-      chips = 0;
+      chips = 0,
+      fragments = 0;
     this.particles = this.particles.filter((p) => p.age < p.life).slice(-180);
     for (const p of this.particles) {
       p.age += dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.z += p.vz * dt;
-      if (p.glow) p.vy -= dt * 9;
+      if (p.solid) stepFragment(p, dt);
+      else {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.z += p.vz * dt;
+        p.vx *= Math.exp(-dt * 1.1);
+        p.vz *= Math.exp(-dt * 1.1);
+        if (p.glow) p.vy -= dt * 9;
+      }
       this.object.position.set(p.x, Math.max(0.05, p.y), p.z);
-      this.object.quaternion.copy(this.camera.quaternion);
-      const size = p.size * (1 + p.age * 0.8) * (1 - (p.age / p.life) * 0.65);
-      this.object.scale.set(size, size, size);
+      if (p.solid) {
+        if (p.y > 0.09 || Math.hypot(p.vx, p.vy, p.vz) > 0.3)
+          p.spin = (p.spin ?? 0) + dt;
+        const spin = p.spin ?? 0;
+        this.object.rotation.set(spin * 3.1, spin * 2.3, spin * 1.7);
+      } else this.object.quaternion.copy(this.camera.quaternion);
+      const fade = Math.max(0, Math.min(1, (p.life - p.age) / 0.6));
+      const size = p.solid
+        ? p.size * fade
+        : p.size * (1 + p.age * 0.85) * Math.max(0, fade);
+      this.object.scale.set(
+        size * (p.wood && p.solid ? 0.45 : 1),
+        size * (p.wood && p.solid ? 2.6 : 1),
+        size,
+      );
       this.object.updateMatrix();
-      if (p.glow && chips < 100)
+      if (p.solid && fragments < 140) {
+        this.fragments.setMatrixAt(fragments, this.object.matrix);
+        this.fragments.setColorAt(
+          fragments++,
+          this.color.setHex(p.tint ?? 0xa69b81),
+        );
+      } else if (p.glow && chips < 100)
         this.chips.setMatrixAt(chips++, this.object.matrix);
       else if (dust < 180) {
         this.smoke.setMatrixAt(dust, this.object.matrix);
         this.color
-          .setRGB(0.47, 0.44, 0.38)
-          .multiplyScalar(1 - (p.age / p.life) * 0.3);
+          .setHex(p.tint ?? 0x858071)
+          .multiplyScalar(1 - (p.age / p.life) * 0.2);
         this.smoke.setColorAt(dust++, this.color);
       }
     }
+    this.fragments.count = fragments;
+    this.fragments.instanceMatrix.needsUpdate = true;
+    if (this.fragments.instanceColor)
+      this.fragments.instanceColor.needsUpdate = true;
     this.smoke.count = dust;
     this.chips.count = chips;
     this.smoke.instanceMatrix.needsUpdate = true;
@@ -658,8 +862,23 @@ export class TankScene {
     });
     this.renderer.render(this.scene, this.camera);
   }
+  /** Read-only renderer counters for the inspection route; no gameplay UI polling. */
+  metrics() {
+    return {
+      draws: this.renderer.info.render.calls,
+      triangles: this.renderer.info.render.triangles,
+      particles: this.particles.length,
+      marks: this.scars.count,
+      geometries: this.renderer.info.memory.geometries,
+      textures: this.renderer.info.memory.textures,
+    };
+  }
   reset() {
     this.particles = [];
+    this.collapses.clear();
+    this.scarOwners.clear();
+    this.scarSerial = 0;
+    this.scars.count = 0;
     this.last = 0;
     this.trackPhase = 0;
     this.markCount = 0;
