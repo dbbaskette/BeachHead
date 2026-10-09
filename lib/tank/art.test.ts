@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { consolidateTank } from './art';
+import { consolidateTank, makeCover, TankArt } from './art';
+import { village } from './map';
 void test('rounded and indexed geometry batch together without losing parts or doubling group transforms', () => {
   const parent = new T.Group(),
     root = new T.Group();
@@ -35,4 +36,36 @@ void test('rounded and indexed geometry batch together without losing parts or d
   rounded.dispose();
   sphere.dispose();
   mat.dispose();
+});
+
+void test('intact house stays batched while hidden fracture panels preserve the complete model', () => {
+  // Geometry fixture exercises production batching without loading browser textures.
+  const a = Object.create(TankArt.prototype) as TankArt;
+  a.geometries = new Set();
+  a.materials = new Set();
+  a.textures = new Set();
+  a.rounded = a.geo(new RoundedBoxGeometry(1, 1, 1, 2, 0.08));
+  a.box = a.geo(new T.BoxGeometry(1, 1, 1));
+  a.stone = a.mat('#aaa', 1);
+  a.roof = a.mat('#555', 1);
+  a.wood = a.mat('#765', 1);
+  a.dark = a.mat('#222', 1);
+  const c = village().find((c) => c.kind === 'house')!;
+  const model = makeCover(a, c);
+  assert.equal(model.fractured.visible, false);
+  assert.equal(model.collapseParts.length, 6);
+  assert.equal(model.intact.children.length, 4);
+  const count = (root: T.Group) => {
+    let n = 0;
+    root.traverse((o) => {
+      if (o instanceof T.Mesh) n += o.geometry.attributes.position.count;
+    });
+    return n;
+  };
+  assert.equal(count(model.intact), count(model.fractured));
+  const intactBox = new T.Box3().setFromObject(model.intact);
+  const fracturedBox = new T.Box3().setFromObject(model.fractured);
+  assert.ok(intactBox.min.distanceTo(fracturedBox.min) < 1e-5);
+  assert.ok(intactBox.max.distanceTo(fracturedBox.max) < 1e-5);
+  a.dispose();
 });

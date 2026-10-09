@@ -59,6 +59,9 @@ export type TankEvent = {
     | 'win';
   at: Point;
   strength: number;
+  surface?: 'masonry' | 'wood' | 'metal' | 'earth' | 'soft';
+  coverId?: number;
+  normal?: Point;
 };
 export type TankState = {
   status: 'ready' | 'playing' | 'paused' | 'won' | 'lost';
@@ -185,8 +188,31 @@ function coverHit(a: Point, b: Point, c: Cover) {
     ? segmentBox(a, b, c, { x: c.w / 2, y: c.h / 2, z: c.d / 2 })
     : null;
 }
-function event(s: TankState, kind: TankEvent['kind'], at: Point, strength = 1) {
-  s.events.push({ kind, at: { ...at }, strength });
+function event(
+  s: TankState,
+  kind: TankEvent['kind'],
+  at: Point,
+  strength = 1,
+  detail: Partial<TankEvent> = {},
+) {
+  s.events.push({ ...detail, kind, at: { ...at }, strength });
+}
+export function coverNormal(c: Cover, at: Point): Point {
+  const faces = [
+    {
+      distance: Math.abs(Math.abs(at.x - c.x) - c.w / 2),
+      normal: { x: Math.sign(at.x - c.x) || 1, y: 0, z: 0 },
+    },
+    {
+      distance: Math.abs(Math.abs(at.y - c.y) - c.h / 2),
+      normal: { x: 0, y: Math.sign(at.y - c.y) || 1, z: 0 },
+    },
+    {
+      distance: Math.abs(Math.abs(at.z - c.z) - c.d / 2),
+      normal: { x: 0, y: 0, z: Math.sign(at.z - c.z) || 1 },
+    },
+  ];
+  return faces.sort((a, b) => a.distance - b.distance)[0].normal;
 }
 function breakCover(s: TankState, c: Cover, damage: number, at: Point) {
   if (c.kind === 'hedge') return;
@@ -195,7 +221,12 @@ function breakCover(s: TankState, c: Cover, damage: number, at: Point) {
     s,
     c.health <= 0 ? 'destroy' : 'impact',
     at,
-    c.kind === 'house' ? 2 : 1,
+    damage <= 2 ? 0.12 : c.kind === 'house' ? 2 : 1,
+    {
+      surface: c.kind === 'fence' ? 'wood' : 'masonry',
+      coverId: c.id,
+      normal: coverNormal(c, at),
+    },
   );
 }
 export function damagePlayer(
@@ -246,7 +277,10 @@ function enemyHit(s: TankState, e: Enemy, r: Shell, at: Point) {
   let damage = r.damage;
   if (e.kind === 'tank') {
     if (r.mg) {
-      event(s, 'ricochet', at, 0.25);
+      event(s, 'ricochet', at, 0.25, {
+        surface: 'metal',
+        normal: { x: -r.vx / 410, y: 0, z: -r.vz / 410 },
+      });
       return;
     }
     const incoming = Math.atan2(-r.vx, r.vz),
@@ -254,7 +288,21 @@ function enemyHit(s: TankState, e: Enemy, r: Shell, at: Point) {
     damage *= front > 0.65 ? 0.65 : 1.3;
   } else if (e.kind === 'gun' && r.mg) damage *= 0.4;
   e.health -= damage;
-  event(s, e.health <= 0 ? 'destroy' : 'impact', at, e.kind === 'tank' ? 2 : 1);
+  event(
+    s,
+    e.health <= 0 ? 'destroy' : 'impact',
+    at,
+    r.mg ? 0.12 : e.kind === 'tank' ? 2 : 1,
+    {
+      surface:
+        e.kind === 'tank' || e.kind === 'gun'
+          ? 'metal'
+          : e.kind === 'demolition'
+            ? 'wood'
+            : 'soft',
+      normal: { x: -r.vx / 260, y: 0.2, z: -r.vz / 260 },
+    },
+  );
   if (e.health <= 0) {
     e.warning = 0;
     s.kills++;
@@ -430,7 +478,10 @@ function step(s: TankState, dt: number, input: TankInput) {
       else enemyHit(s, victim, r, at);
       r.age = 99;
     } else if (r.y <= 0) {
-      event(s, 'impact', { x: r.x, y: 0, z: r.z }, r.mg ? 0.12 : 0.7);
+      event(s, 'impact', { x: r.x, y: 0, z: r.z }, r.mg ? 0.12 : 0.7, {
+        surface: 'earth',
+        normal: { x: 0, y: 1, z: 0 },
+      });
       r.age = 99;
     }
   }

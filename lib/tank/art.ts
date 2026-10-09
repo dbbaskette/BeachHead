@@ -229,6 +229,10 @@ export function makeCover(a: TankArt, c: Cover) {
   const root = new T.Group(),
     intact = new T.Group(),
     ruin = new T.Group();
+  const collapseParts: T.Group[] = [];
+  const fractured = new T.Group();
+  fractured.visible = false;
+  root.add(fractured);
   root.position.set(c.x, 0, c.z);
   root.add(intact, ruin);
   ruin.visible = false;
@@ -239,23 +243,49 @@ export function makeCover(a: TankArt, c: Cover) {
       wall.bumpMap = a.stone.map;
       wall.bumpScale = 0.1;
     }
-    a.soft(intact, wall, [0, c.h / 2, 0], [c.w, c.h, c.d]);
+    // Separate wall shells allow individual masonry panels to lose support.
+    for (const side of [-1, 1]) {
+      a.soft(
+        intact,
+        wall,
+        [side * (c.w / 2 - 0.35), c.h / 2, 0],
+        [0.7, c.h, c.d],
+      );
+      a.soft(
+        intact,
+        wall,
+        [0, c.h / 2, side * (c.d / 2 - 0.35)],
+        [c.w, c.h, 0.7],
+      );
+    }
     const profile = new T.Shape();
     profile.moveTo(-c.w / 2 - 0.5, 0);
     profile.lineTo(0, 3.3);
     profile.lineTo(c.w / 2 + 0.5, 0);
     profile.closePath();
-    const roof = a.geo(
+    const gable = a.geo(
       new T.ExtrudeGeometry(profile, {
-        depth: c.d + 1,
-        bevelEnabled: true,
-        bevelSize: 0.08,
-        bevelThickness: 0.08,
-        bevelSegments: 1,
+        depth: 0.5,
+        bevelEnabled: false,
         steps: 1,
       }),
     );
-    a.mesh(intact, roof, a.roof, [0, c.h, -c.d / 2 - 0.5], [1, 1, 1]);
+    for (const side of [-1, 1]) {
+      a.mesh(
+        intact,
+        gable,
+        wall,
+        [0, c.h, (side * c.d) / 2 - (side > 0 ? 0.5 : 0)],
+        [1, 1, 1],
+      );
+      const roof = a.soft(
+        intact,
+        a.roof,
+        [side * (c.w / 4 + 0.25), c.h + 1.65, 0],
+        [Math.hypot(c.w / 2 + 0.5, 3.3), 0.23, c.d + 1],
+      );
+      roof.rotation.z = -side * Math.atan2(3.3, c.w / 2 + 0.5);
+    }
     a.soft(intact, a.stone, [c.w * 0.27, c.h + 2.5, 0], [1, 3, 1.1]);
     for (const side of [-1, 1]) {
       for (const z of [-c.d * 0.32, 0, c.d * 0.32])
@@ -335,10 +365,48 @@ export function makeCover(a: TankArt, c: Cover) {
         );
         beam.rotation.z = -side * Math.atan2(3.3, c.w / 2);
       }
-    // Broken wall stubs and exposed beams replace the destroyed structure.
-    for (const side of [-1, 1]) {
-      a.soft(ruin, wall, [side * c.w * 0.43, 1.5, 0], [1, 3, c.d]);
-      a.soft(ruin, wall, [0, 1, side * c.d * 0.44], [c.w, 2, 1]);
+    // Jagged masonry courses leave uneven openings, rather than a rectangular fence.
+    for (let side = 0; side < 4; side++) {
+      const width = side < 2 ? c.d : c.w;
+      const profile = new T.Shape();
+      profile.moveTo(-width / 2, 0);
+      profile.lineTo(width / 2, 0);
+      for (let j = 8; j >= 0; j--) {
+        const height =
+          0.35 + Math.abs(Math.sin(j * 2.7 + side * 1.9 + c.id)) * 2.5;
+        profile.lineTo((j / 8 - 0.5) * width, height);
+      }
+      profile.closePath();
+      const broken = a.geo(
+        new T.ExtrudeGeometry(profile, {
+          depth: 0.8,
+          bevelEnabled: false,
+          steps: 1,
+        }),
+      );
+      const stub = a.mesh(
+        ruin,
+        broken,
+        wall,
+        side < 2
+          ? [(side === 0 ? -1 : 1) * c.w * 0.43, 0, 0]
+          : [0, 0, (side === 2 ? -1 : 1) * c.d * 0.44],
+        [1, 1, 1],
+      );
+      if (side < 2) stub.rotation.y = Math.PI / 2;
+    }
+    for (let i = 0; i < 32; i++) {
+      const tile = a.block(
+        ruin,
+        a.roof,
+        [
+          Math.sin(i * 5.2) * c.w * 0.4,
+          0.17 + Math.abs(Math.sin(i * 3.1)) * 0.6,
+          Math.cos(i * 2.1) * c.d * 0.4,
+        ],
+        [0.55 + (i % 3) * 0.3, 0.09, 0.85],
+      );
+      tile.rotation.set(Math.sin(i) * 0.6, i * 1.7, Math.cos(i) * 0.35);
     }
     for (let i = 0; i < 18; i++) {
       const b = a.soft(
@@ -399,9 +467,48 @@ export function makeCover(a: TankArt, c: Cover) {
       b.rotation.y = i;
     }
   }
-  consolidateTank(intact, a);
+  if (c.kind === 'house') {
+    // Wall footings and two separate roof slopes retain their own rigid motion.
+    const pivots = [
+      [-c.w / 2, 0, 0],
+      [c.w / 2, 0, 0],
+      [0, 0, -c.d / 2],
+      [0, 0, c.d / 2],
+      [0, c.h, 0],
+      [0, c.h, 0],
+    ];
+    for (const p of pivots) {
+      const group = new T.Group();
+      group.position.set(...(p as [number, number, number]));
+      collapseParts.push(group);
+    }
+    for (const child of intact.children.slice()) {
+      const p = child.position;
+      const index =
+        p.y >= c.h - 0.3
+          ? p.x < 0
+            ? 4
+            : 5
+          : Math.abs(p.x) / (c.w / 2) > Math.abs(p.z) / (c.d / 2)
+            ? p.x < 0
+              ? 0
+              : 1
+            : p.z < 0
+              ? 2
+              : 3;
+      child.position.sub(collapseParts[index].position);
+      collapseParts[index].add(child);
+    }
+    for (const group of collapseParts) {
+      consolidateTank(group, a);
+      fractured.add(group);
+      intact.add(group.clone(true));
+    }
+    // Ordinary gameplay retains one draw per material; fracture batches render only during collapse.
+    consolidateTank(intact, a);
+  } else consolidateTank(intact, a);
   consolidateTank(ruin, a);
-  return { root, intact, ruin };
+  return { root, intact, ruin, collapseParts, fractured };
 }
 export function makeEnemy(a: TankArt, kind: EnemyKind) {
   const root = new T.Group(),
