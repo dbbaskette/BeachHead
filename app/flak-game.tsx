@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Volume2,
   VolumeX,
+  Waves,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { bindControlRelease, type ControlRole } from '@/lib/bunker/controls';
 import { FlakControls } from '@/lib/flak/controls';
 import { createFlak, stepFlak, aimFlak } from '@/lib/flak/simulation';
 import { PillboxAudio } from '@/lib/pillbox/audio';
+import { settings, useSettings } from '@/lib/settings';
 import type { FlakScene } from '@/lib/flak/scene';
 const snapshot = (s: ReturnType<typeof createFlak>) => ({
   status: s.status,
@@ -49,13 +51,14 @@ export default function FlakGame({
     audio = useRef<PillboxAudio | null>(null),
     controls = useRef(new FlakControls()),
     keys = useRef(new Set<string>()),
-    zoomRef = useRef(false);
+    zoomRef = useRef(false),
+    reduced = useRef(false);
   const [hud, setHud] = useState(() => snapshot(createFlak())),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
-    [muted, setMuted] = useState(false),
     [zoom, setZoom] = useState(false),
     [stick, setStick] = useState({ x: 0, y: 0 });
+  const { muted, reducedMotion: steady } = useSettings();
   const touch = useTouchLayout();
   const publish = () => setHud(snapshot(battle.current));
   const clear = () => {
@@ -98,8 +101,8 @@ export default function FlakGame({
       frame = 0,
       last = 0,
       publishClock = 0;
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     audio.current = new PillboxAudio();
+    audio.current.setEnabled(!settings.get().muted);
     void audio.current.preload();
     const keySet = keys.current;
     const release = bindControlRelease(window, controls.current, () =>
@@ -200,7 +203,7 @@ export default function FlakGame({
         audio.current?.setPaused(true);
         publish();
       }
-      scene.current?.render(s, zoomRef.current, reduced);
+      scene.current?.render(s, zoomRef.current, reduced.current);
       publishClock += dt;
       if (publishClock > 0.1) {
         publishClock = 0;
@@ -241,6 +244,12 @@ export default function FlakGame({
       audio.current?.dispose();
     };
   }, []);
+  useEffect(() => {
+    audio.current?.setEnabled(!muted);
+  }, [muted]);
+  useEffect(() => {
+    reduced.current = steady;
+  }, [steady]);
   const begin = (role: ControlRole, e: ReactPointerEvent<HTMLElement>) => {
     if (battle.current.status !== 'playing' || e.button !== 0) return;
     e.preventDefault();
@@ -287,12 +296,18 @@ export default function FlakGame({
         <nav aria-label="Antiaircraft options">
           <button
             aria-label={muted ? 'Enable sound' : 'Mute sound'}
-            onClick={() => {
-              audio.current?.setEnabled(muted);
-              setMuted(!muted);
-            }}
+            onClick={() => settings.set({ muted: !muted })}
           >
             {muted ? <VolumeX /> : <Volume2 />}
+          </button>
+          <button
+            aria-label={
+              steady ? 'Enable camera motion' : 'Reduce camera motion'
+            }
+            aria-pressed={steady}
+            onClick={() => settings.set({ reducedMotion: !steady })}
+          >
+            <Waves />
           </button>
           <button
             aria-label={zoom ? 'Wide sight' : 'Precision sight'}

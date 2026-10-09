@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Volume2,
   VolumeX,
+  Waves,
 } from 'lucide-react';
 import { useTouchLayout } from './touch-controls';
 import { BunkerFinaleView } from './bunker-finale';
@@ -51,6 +52,7 @@ import { assetUrl } from '@/lib/asset-url';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import { GuardVoiceDirector } from '@/lib/bunker/guard-voices';
 import { BunkerVoiceAudio } from '@/lib/bunker/voice-audio';
+import { settings, useSettings } from '@/lib/settings';
 import type { BunkerScene } from '@/lib/bunker/scene';
 
 const snapshot = (b: BunkerState) => ({
@@ -91,13 +93,14 @@ export default function BunkerGame({
   const keys = useRef(new Set<string>()),
     controls = useRef(new BunkerControls()),
     keyboard = useRef(new BunkerKeyboard()),
-    locked = useRef(false);
+    locked = useRef(false),
+    reduced = useRef(false);
   const [hud, setHud] = useState(() => snapshot(createBunker())),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
-    [muted, setMuted] = useState(false),
     [preview, setPreview] = useState(false),
     [mapOpen, setMapOpen] = useState(false);
+  const { muted, reducedMotion: steady } = useSettings();
   const [stick, setStick] = useState({ x: 0, y: 0 });
   const [aimStick, setAimStick] = useState({ x: 0, y: 0 });
   const updateSticks = () => {
@@ -168,17 +171,16 @@ export default function BunkerGame({
       frame = 0,
       last = 0,
       hudClock = 0;
-    const steady = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
     for (const file of ['before', 'blast', 'after']) {
       const image = new Image();
       image.src = assetUrl(`/cinematics/bunker-beach-${file}.jpg`);
     }
     audio.current = new PillboxAudio();
+    audio.current.setEnabled(!settings.get().muted);
     void audio.current.preload();
     const director = voiceDirector.current;
     voices.current = new BunkerVoiceAudio();
+    voices.current.setEnabled(!settings.get().muted);
     void voices.current.preload();
     const keydown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -300,7 +302,7 @@ export default function BunkerGame({
         publish();
       }
       if (battle.current.status !== 'cinematic')
-        scene.current?.render(battle.current, dt, events, steady);
+        scene.current?.render(battle.current, dt, events, reduced.current);
       hudClock += dt;
       if (hudClock > 0.1) {
         publish();
@@ -350,6 +352,13 @@ export default function BunkerGame({
       director.reset();
     };
   }, []);
+  useEffect(() => {
+    audio.current?.setEnabled(!muted);
+    voices.current?.setEnabled(!muted);
+  }, [muted]);
+  useEffect(() => {
+    reduced.current = steady;
+  }, [steady]);
   const beginPointer = (
     role: ControlRole,
     e: React.PointerEvent<HTMLElement>,
@@ -415,13 +424,18 @@ export default function BunkerGame({
           )}
           <button
             aria-label={muted ? 'Enable sound' : 'Mute sound'}
-            onClick={() => {
-              audio.current?.setEnabled(muted);
-              voices.current?.setEnabled(muted);
-              setMuted(!muted);
-            }}
+            onClick={() => settings.set({ muted: !muted })}
           >
             {muted ? <VolumeX /> : <Volume2 />}
+          </button>
+          <button
+            aria-label={
+              steady ? 'Enable camera motion' : 'Reduce camera motion'
+            }
+            aria-pressed={steady}
+            onClick={() => settings.set({ reducedMotion: !steady })}
+          >
+            <Waves />
           </button>
           <button aria-label="Return to main menu" onClick={leave}>
             <Home />
