@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Volume2,
   VolumeX,
+  Waves,
   ZoomIn,
   Move,
   Wrench,
@@ -34,6 +35,7 @@ import {
   type TankState,
 } from '@/lib/tank/simulation';
 import { TankAudio } from '@/lib/tank/audio';
+import { settings, useSettings } from '@/lib/settings';
 import type { TankScene } from '@/lib/tank/scene';
 import './tank.css';
 const read = (s: TankState) => ({
@@ -68,12 +70,12 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     controls = useRef(new FlakControls()),
     keys = useRef(new Set<string>()),
     zoomRef = useRef(false),
+    reduced = useRef(false),
     repairRef = useRef(false),
     mousePoint = useRef<{ x: number; y: number } | null>(null);
   const [hud, setHud] = useState(() => read(createTank())),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
-    [muted, setMuted] = useState(false),
     [zoom, setZoom] = useState(false),
     [map, setMap] = useState(false),
     [sticks, setSticks] = useState({
@@ -81,6 +83,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
       aim: { x: 0, y: 0 },
     }),
     [repairing, setRepairing] = useState(false);
+  const { muted, reducedMotion: steady } = useSettings();
   const touch = useTouchLayout();
   const publish = () => setHud(read(battle.current));
   const stick = () =>
@@ -156,10 +159,10 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
       frame = 0,
       last = 0,
       publishTime = 0;
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const controlSet = controls.current,
       keySet = keys.current;
     audio.current = new TankAudio();
+    audio.current.setEnabled(!settings.get().muted);
     audio.current.preload();
     const release = bindControlRelease(window, controls.current, stick, () =>
       bunkerBlurIsInterruption(
@@ -269,7 +272,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
         audio.current?.setPaused(true);
         publish();
       }
-      scene.current?.render(s, zoomRef.current, reduced);
+      scene.current?.render(s, zoomRef.current, reduced.current);
       publishTime += dt;
       if (publishTime > 0.1) {
         publishTime = 0;
@@ -313,6 +316,12 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     };
     // The loop reads mutable input refs; each mission owns one renderer and listener set.
   }, []);
+  useEffect(() => {
+    audio.current?.setEnabled(!muted);
+  }, [muted]);
+  useEffect(() => {
+    reduced.current = steady;
+  }, [steady]);
   const playing = hud.status === 'playing',
     finished = hud.status === 'won' || hud.status === 'lost';
   const routeMap = (
@@ -402,12 +411,23 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
           <button
             aria-label={muted ? 'Enable sound' : 'Mute sound'}
             onClick={() => {
-              audio.current?.setEnabled(muted);
-              setMuted(!muted);
+              settings.set({ muted: !muted });
               focus();
             }}
           >
             {muted ? <VolumeX /> : <Volume2 />}
+          </button>
+          <button
+            aria-label={
+              steady ? 'Enable camera motion' : 'Reduce camera motion'
+            }
+            aria-pressed={steady}
+            onClick={() => {
+              settings.set({ reducedMotion: !steady });
+              focus();
+            }}
+          >
+            <Waves />
           </button>
           <button
             aria-label="Show route map"

@@ -37,6 +37,7 @@ import {
 } from '@/lib/naval/simulation';
 import { NavalAudio } from '@/lib/naval/audio';
 import { registerNavalTools } from '@/lib/naval/webmcp';
+import { settings, useSettings } from '@/lib/settings';
 import { flushSync } from 'react-dom';
 import type { NavalScene } from '@/lib/naval/scene';
 
@@ -75,9 +76,9 @@ export default function NavalGame({
   const [scoped, setScoped] = useState(false);
   const [hud, setHud] = useState<Battle>(createBattle);
   const [loaded, setLoaded] = useState(false),
-    [error, setError] = useState(''),
-    [sound, setSound] = useState(true),
-    [steady, setSteady] = useState(false);
+    [error, setError] = useState('');
+  const { muted, reducedMotion: steady } = useSettings(),
+    sound = !muted;
   const singleStage = !campaign;
   const [selected, setSelected] = useState(0);
   const [resultsReady, setResultsReady] = useState(false);
@@ -173,9 +174,8 @@ export default function NavalGame({
       accumulator = 0,
       lastHud = 0,
       victoryTime = 0;
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    reduced.current = media.matches;
     audio.current = new NavalAudio();
+    audio.current.setEnabled(!settings.get().muted);
     void audio.current.preload();
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -295,7 +295,6 @@ export default function NavalGame({
             blur();
             setError(message);
           });
-          setSteady(media.matches);
           setLoaded(true);
         } catch {
           setError(
@@ -426,6 +425,12 @@ export default function NavalGame({
     // The simulation is deliberately held in refs; the loop must survive HUD updates.
   }, []);
   useEffect(() => {
+    audio.current?.setEnabled(sound);
+  }, [sound]);
+  useEffect(() => {
+    reduced.current = steady;
+  }, [steady]);
+  useEffect(() => {
     if (!loaded || error) return;
     return registerNavalTools({
       read: () => battle.current,
@@ -547,8 +552,7 @@ export default function NavalGame({
             className="icon-control"
             aria-label={sound ? 'Mute sound' : 'Enable sound'}
             onClick={() => {
-              setSound(!sound);
-              audio.current?.setEnabled(!sound);
+              settings.set({ muted: sound });
               if (!sound) void audio.current?.start();
             }}
           >
@@ -562,10 +566,7 @@ export default function NavalGame({
               steady ? 'Enable camera motion' : 'Reduce camera motion'
             }
             aria-pressed={steady}
-            onClick={() => {
-              setSteady(!steady);
-              reduced.current = !steady;
-            }}
+            onClick={() => settings.set({ reducedMotion: !steady })}
           >
             <Waves />
           </Button>

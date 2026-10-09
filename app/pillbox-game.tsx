@@ -27,6 +27,7 @@ import {
 import type { PillboxScene } from '@/lib/pillbox/scene';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import { registerPillboxTools } from '@/lib/pillbox/webmcp';
+import { settings, useSettings } from '@/lib/settings';
 import { PointerAim } from '@/lib/pillbox/pointer-aim';
 import {
   throwPlayerGrenade,
@@ -56,8 +57,8 @@ export default function PillboxGame({
   const [hud, setHud] = useState<PillboxBattle>(createPillboxBattle);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
-  const [sound, setSound] = useState(true);
-  const [steady, setSteady] = useState(false);
+  const { muted, reducedMotion: steady } = useSettings();
+  const sound = !muted;
   const reticleElement = useRef<HTMLDivElement>(null);
   const pointerAim = useRef(new PointerAim());
   const publish = () =>
@@ -121,11 +122,8 @@ export default function PillboxGame({
       last = 0,
       accumulator = 0,
       lastHud = 0;
-    reduced.current = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
-    setSteady(reduced.current);
     const soundEngine = new PillboxAudio();
+    soundEngine.setEnabled(!settings.get().muted);
     audio.current = soundEngine;
     void soundEngine.preload();
     const unregister = registerPillboxTools({
@@ -349,6 +347,12 @@ export default function PillboxGame({
     };
     // The animation and event listeners intentionally read the current battle through refs.
   }, []);
+  useEffect(() => {
+    audio.current?.setEnabled(sound);
+  }, [sound]);
+  useEffect(() => {
+    reduced.current = steady;
+  }, [steady]);
   const swipeAim = (delta: TouchAxis) => {
     if (battle.current.status !== 'playing' || !scene.current || !host.current)
       return;
@@ -433,9 +437,8 @@ export default function PillboxGame({
           <button
             aria-label={sound ? 'Mute sound' : 'Enable sound'}
             onClick={() => {
-              audio.current?.setEnabled(!sound);
               if (!sound) void audio.current?.start();
-              setSound(!sound);
+              settings.set({ muted: sound });
             }}
           >
             {sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
@@ -443,10 +446,7 @@ export default function PillboxGame({
           <button
             aria-label="Reduce camera motion"
             aria-pressed={steady}
-            onClick={() => {
-              reduced.current = !steady;
-              setSteady(!steady);
-            }}
+            onClick={() => settings.set({ reducedMotion: !steady })}
           >
             Steady
           </button>

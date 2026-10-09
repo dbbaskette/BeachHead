@@ -21,6 +21,7 @@ import { steerRelative, settleFlight } from '@/lib/air/flight';
 import type { AirBattle } from '@/lib/air/types';
 import type { AirScene } from '@/lib/air/scene';
 import type { AirAudio } from '@/lib/air/audio';
+import { settings, useSettings } from '@/lib/settings';
 
 const passes = ['Across the bay', 'Along the beach', 'Break the landing'];
 function snapshot(b: AirBattle) {
@@ -67,9 +68,8 @@ export default function AirGame({
   const [hud, setHud] = useState(() => snapshot(createAirBattle())),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
-    [muted, setMuted] = useState(false),
-    [steady, setSteady] = useState(false),
     [diagnostics, setDiagnostics] = useState('');
+  const { muted, reducedMotion: steady } = useSettings();
   const touch = useTouchLayout();
   const publish = () => setHud(snapshot(battle.current));
   const resetInput = () => {
@@ -109,11 +109,6 @@ export default function AirGame({
       hudTime = 0,
       accumulator = 0;
     const input = controls.current;
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    reduced.current = media.matches;
-    queueMicrotask(() => {
-      if (!cancelled) setSteady(media.matches);
-    });
     const debug = new URLSearchParams(window.location.search).has(
       'diagnostics',
     );
@@ -176,6 +171,7 @@ export default function AirGame({
             setError(message);
           });
           audio.current = new sound.AirAudio();
+          audio.current.setMuted(settings.get().muted);
           void audio.current.preload();
           setLoaded(true);
           const tick = (now: number) => {
@@ -268,6 +264,12 @@ export default function AirGame({
     };
     // Event listeners and the frame loop use stable refs; one owner disposes each mission.
   }, []);
+  useEffect(() => {
+    audio.current?.setMuted(muted);
+  }, [muted]);
+  useEffect(() => {
+    reduced.current = steady;
+  }, [steady]);
   const playing = hud.status === 'playing',
     ready = hud.status === 'ready',
     paused = hud.status === 'paused',
@@ -362,20 +364,14 @@ export default function AirGame({
         <nav aria-label="Flight options">
           <button
             aria-label={muted ? 'Enable sound' : 'Mute sound'}
-            onClick={() => {
-              setMuted(!muted);
-              audio.current?.setMuted(!muted);
-            }}
+            onClick={() => settings.set({ muted: !muted })}
           >
             {muted ? <VolumeX /> : <Volume2 />}
           </button>
           <button
             aria-label="Reduce camera motion"
             aria-pressed={steady}
-            onClick={() => {
-              reduced.current = !steady;
-              setSteady(!steady);
-            }}
+            onClick={() => settings.set({ reducedMotion: !steady })}
           >
             <Waves />
           </button>
