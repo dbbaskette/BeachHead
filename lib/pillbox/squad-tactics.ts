@@ -27,12 +27,13 @@ export function rallySquad(b: PillboxBattle, s: Infantry, delay = 1.8) {
     }
 }
 
-/** Returns true while a squad member is deliberately stationary. */
+/** Returns true while a squad member holds off advancing along its route. */
 export function updateInfantryTactics(
   b: PillboxBattle,
   s: Infantry,
   dt: number,
   events: PillboxEvent[],
+  masked = terrainBlocksShot,
 ): boolean {
   s.suppression = Math.max(0, (s.suppression ?? 0) - dt);
   s.attackTimer = Math.max(0, (s.attackTimer ?? 3) - dt);
@@ -43,6 +44,14 @@ export function updateInfantryTactics(
     s.role !== 'rifle' &&
     s.z > (s.role === 'mortar' ? -116 : -96)
   ) {
+    if (!s.emplacement && masked(s.x, s.z, 1.4)) {
+      // Crews need a line of fire, so the pillbox can always hit back: sidestep
+      // toward open mid-beach and, finding none, press on as riflemen.
+      const step = Math.min(Math.abs(s.x), s.speed * dt);
+      s.x -= Math.sign(s.x) * step;
+      if (!step) s.role = 'rifle';
+      return step > 0;
+    }
     if (!s.emplacement) {
       s.emplacement = 'setting-up';
       s.setupTimer = s.role === 'mortar' ? 7 : 4.5;
