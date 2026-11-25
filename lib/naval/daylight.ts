@@ -4,6 +4,42 @@ import { Sky } from 'three/addons/objects/Sky.js';
 /** All direct light and water highlights use the same world-space sun direction. */
 export const COASTAL_SUN = new THREE.Vector3(-0.52, 0.7, 0.48).normalize();
 
+const SUN_UP_AXIS = new THREE.Vector3(0, 1, 0);
+const SUN_RIGHT = new THREE.Vector3()
+  .crossVectors(SUN_UP_AXIS, COASTAL_SUN)
+  .normalize();
+const SUN_UP = new THREE.Vector3()
+  .crossVectors(COASTAL_SUN, SUN_RIGHT)
+  .normalize();
+const _snapPoint = new THREE.Vector3();
+
+/** Snap directional shadow targets to texel increments in light space to avoid shimmer. */
+export function snapDirectionalShadow(
+  sun: THREE.DirectionalLight,
+  x: number,
+  y: number,
+  z: number,
+  distance: number,
+) {
+  const cam = sun.shadow.camera;
+  const texelX = (cam.right - cam.left) / Math.max(1, sun.shadow.mapSize.x);
+  const texelY = (cam.top - cam.bottom) / Math.max(1, sun.shadow.mapSize.y);
+  _snapPoint.set(x, y, z);
+  const u = Math.round(_snapPoint.dot(SUN_RIGHT) / texelX) * texelX;
+  const v = Math.round(_snapPoint.dot(SUN_UP) / texelY) * texelY;
+  const w = _snapPoint.dot(COASTAL_SUN);
+  sun.target.position
+    .set(0, 0, 0)
+    .addScaledVector(SUN_RIGHT, u)
+    .addScaledVector(SUN_UP, v)
+    .addScaledVector(COASTAL_SUN, w);
+  sun.position
+    .copy(COASTAL_SUN)
+    .multiplyScalar(distance)
+    .add(sun.target.position);
+  sun.target.updateMatrixWorld();
+}
+
 export function makeDaylightSky() {
   const sky = new Sky();
   sky.name = 'coastal-daylight';

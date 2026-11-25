@@ -216,6 +216,7 @@ export class LandingCraftRenderer {
     this.materials.add(material);
     const wake = new THREE.Mesh(geometry, material);
     wake.rotation.x = -Math.PI / 2;
+    wake.renderOrder = 1;
     this.scene.add(wake, root);
     const instance = { root, ramp, wake, gunner };
     this.craft.set(id, instance);

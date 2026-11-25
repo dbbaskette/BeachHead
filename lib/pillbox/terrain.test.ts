@@ -56,14 +56,23 @@ void test('coastal water and wreck smoke release resources and reset between bat
   smoke.update(createPillboxBattle());
   assert.equal(scene.getObjectByName('jeep-smolder-1'), undefined);
   assert.ok(disposed);
-  let reflectionDisposed = false;
-  water.mesh.getRenderTarget().addEventListener('dispose', () => {
-    reflectionDisposed = true;
+  assert.ok(!('getRenderTarget' in water.mesh));
+  const waterMaterial = water.mesh.material as THREE.ShaderMaterial;
+  assert.equal(waterMaterial.depthWrite, false);
+  assert.equal(waterMaterial.fog, true);
+  assert.ok(water.mesh.renderOrder < 0);
+  let waterGeometryDisposed = false;
+  let waterMaterialDisposed = false;
+  water.mesh.geometry.addEventListener('dispose', () => {
+    waterGeometryDisposed = true;
+  });
+  waterMaterial.addEventListener('dispose', () => {
+    waterMaterialDisposed = true;
   });
   water.dispose();
   assert.ok(
-    reflectionDisposed,
-    'reflection framebuffer is released on stage exit',
+    waterGeometryDisposed && waterMaterialDisposed,
+    'coastal water geometry and shader material are released on stage exit',
   );
   smoke.dispose();
   assert.equal(scene.children.length, 0);

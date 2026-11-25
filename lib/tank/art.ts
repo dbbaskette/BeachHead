@@ -175,30 +175,33 @@ export function makeTank(a: TankArt, enemy = false) {
       [x, 2.07, 2],
       [0.24, 0.8, 0.24],
     ).rotation.z = Math.PI / 2;
-  const mark = document.createElement('canvas');
-  mark.width = 128;
-  mark.height = 128;
-  const c = mark.getContext('2d')!;
-  c.fillStyle = '#dadcc7';
-  if (enemy) {
-    c.fillRect(48, 17, 32, 94);
-    c.fillRect(17, 48, 94, 32);
-    c.fillStyle = '#293028';
-    c.fillRect(55, 17, 18, 94);
-    c.fillRect(17, 55, 94, 18);
-  } else {
-    c.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const r = i % 2 ? 22 : 51,
-        angle = (i * Math.PI) / 5 - Math.PI / 2;
-      c.lineTo(64 + Math.cos(angle) * r, 64 + Math.sin(angle) * r);
+  let texture: T.Texture | null = null;
+  if (typeof document !== 'undefined') {
+    const mark = document.createElement('canvas');
+    mark.width = 128;
+    mark.height = 128;
+    const c = mark.getContext('2d')!;
+    c.fillStyle = '#dadcc7';
+    if (enemy) {
+      c.fillRect(48, 17, 32, 94);
+      c.fillRect(17, 48, 94, 32);
+      c.fillStyle = '#293028';
+      c.fillRect(55, 17, 18, 94);
+      c.fillRect(17, 55, 94, 18);
+    } else {
+      c.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 ? 22 : 51,
+          angle = (i * Math.PI) / 5 - Math.PI / 2;
+        c.lineTo(64 + Math.cos(angle) * r, 64 + Math.sin(angle) * r);
+      }
+      c.closePath();
+      c.fill();
     }
-    c.closePath();
-    c.fill();
+    texture = new T.CanvasTexture(mark);
+    texture.colorSpace = T.SRGBColorSpace;
+    a.textures.add(texture);
   }
-  const texture = new T.CanvasTexture(mark);
-  texture.colorSpace = T.SRGBColorSpace;
-  a.textures.add(texture);
   const material = new T.MeshStandardMaterial({
     map: texture,
     transparent: true,
@@ -217,9 +220,22 @@ export function makeTank(a: TankArt, enemy = false) {
     m.rotation.y = (side * Math.PI) / 2;
   }
   consolidateTank(body, a);
+  turret.traverse((o) => {
+    if (o instanceof T.Mesh) {
+      const transparent = !Array.isArray(o.material) && o.material.transparent;
+      o.castShadow = !transparent;
+      o.receiveShadow = true;
+    }
+  });
+  for (const wheel of wheels) {
+    wheel.castShadow = true;
+    wheel.receiveShadow = true;
+  }
   // Keep barrel and turret independent from the static hull.
   root.add(body, turret);
   const tracks = new T.InstancedMesh(a.rounded, a.dark, 88);
+  tracks.castShadow = true;
+  tracks.receiveShadow = true;
   tracks.instanceMatrix.setUsage(T.DynamicDrawUsage);
   tracks.frustumCulled = false;
   root.add(tracks);

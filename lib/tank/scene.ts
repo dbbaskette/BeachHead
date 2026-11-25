@@ -2,7 +2,7 @@ import * as T from 'three';
 import { TankArt, makeTank, makeCover, makeEnemy } from './art';
 import { consolidateTank as consolidate } from './art';
 import { makeSky } from '../naval/ocean';
-import { COASTAL_SUN } from '../naval/daylight';
+import { snapDirectionalShadow } from '../naval/daylight';
 import { TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { type TankState, type TankEvent, tankMuzzle } from './simulation';
 import { SUPPLY } from './map';
@@ -61,6 +61,7 @@ export class TankScene {
   private supply = new T.Group();
   private bridge = new T.Group();
   private allies: T.Group[] = [];
+  private sun = new T.DirectionalLight('#ffe2b7', 3);
   private env: T.WebGLRenderTarget;
   private lost = (e: Event) => {
     e.preventDefault();
@@ -87,21 +88,22 @@ export class TankScene {
     this.scene.background = new T.Color('#c4d1cd');
     this.scene.fog = new T.FogExp2('#b9c5bd', 0.0032);
     this.scene.add(this.sky, new T.HemisphereLight('#d5e4e0', '#77735b', 1.7));
-    const sun = new T.DirectionalLight('#ffe2b7', 3);
-    sun.position.copy(COASTAL_SUN).multiplyScalar(200);
-    sun.castShadow = !touch;
-    sun.shadow.mapSize.set(1024, 1024);
-    Object.assign(sun.shadow.camera, {
-      left: -70,
-      right: 70,
-      top: 70,
-      bottom: -70,
+    this.sun.castShadow = !touch;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(this.sun.shadow.camera, {
+      left: -52,
+      right: 52,
+      top: 52,
+      bottom: -52,
       near: 1,
-      far: 550,
+      far: 420,
     });
-    sun.shadow.normalBias = 0.04;
-    sun.shadow.camera.updateProjectionMatrix();
-    this.scene.add(sun);
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.035;
+    this.sun.shadow.radius = 2;
+    this.sun.shadow.camera.updateProjectionMatrix();
+    this.scene.add(this.sun, this.sun.target);
+    snapDirectionalShadow(this.sun, s.x, 0, s.z - 14, 200);
     const pmrem = new T.PMREMGenerator(this.renderer),
       env = new T.Scene();
     env.add(this.sky.clone());
@@ -239,6 +241,7 @@ export class TankScene {
         [0.8, 0.65, 0.02],
       );
     }
+    consolidate(this.supply, this.art);
     this.supply.position.set(SUPPLY.x, 0, SUPPLY.z);
     this.scene.add(this.supply);
     for (let i = 0; i < 5; i++) {
@@ -286,6 +289,8 @@ export class TankScene {
       this.art.mat('#ffffff', 0.94),
       140,
     );
+    this.fragments.castShadow = true;
+    this.fragments.receiveShadow = true;
     this.fragments.setColorAt(0, new T.Color(0xffffff));
     this.smoke.setColorAt(0, new T.Color(0xffffff));
     this.fragments.frustumCulled = false;
@@ -633,6 +638,13 @@ export class TankScene {
           : Math.sin(s.distance * 3) *
             Math.min(0.05, Math.abs(s.speed) * 0.009)),
       s.z,
+    );
+    snapDirectionalShadow(
+      this.sun,
+      s.x + Math.sin(s.turret) * 14,
+      0,
+      s.z - Math.cos(s.turret) * 14,
+      200,
     );
     this.animateTank(
       this.player,
