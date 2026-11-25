@@ -82,3 +82,32 @@ void test('overlapping blasts stay bounded and reset removes smoke and camera mo
   );
   blast.dispose();
 });
+
+void test('shared grenade blast point light tracks the brightest active blast', () => {
+  const scene = new THREE.Scene(),
+    blast = new GrenadeBlast(scene);
+  const light = scene.children.find(
+    (o): o is THREE.PointLight => o instanceof THREE.PointLight,
+  )!;
+  assert.ok(light);
+
+  // Blast A ages into a dimmer flash before Blast B detonates; B must win.
+  blast.trigger(-14, -22);
+  blast.update(0.14, false);
+  blast.trigger(18, -35);
+  blast.update(0.02, false);
+  assert.equal(light.position.x, 18);
+  assert.equal(light.position.z, -35);
+  assert.ok(light.intensity > 140);
+
+  // Even when triggered with two simultaneous blasts capped at 4, the brightest owns the light.
+  for (let i = 0; i < 4; i++) {
+    blast.update(0.05, false);
+    blast.trigger(i + 1, -20 - i);
+  }
+  blast.update(0.01, false);
+  assert.equal(light.position.x, 4);
+  assert.equal(light.position.z, -23);
+
+  blast.dispose();
+});

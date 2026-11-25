@@ -1,7 +1,13 @@
 import { mobilePixelRatio, TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { LandingCraftRenderer, embarkedInfantry } from './landing-craft';
 import { CoastalAtmosphere } from '../naval/atmosphere';
-import { makeDaylightSky, COASTAL_SUN } from '../naval/daylight';
+import {
+  makeDaylightSky,
+  COASTAL_SUN,
+  bakeCoastalEnvironment,
+} from '../naval/daylight';
+import { createBloomComposer } from '../post-processing';
+import { BillboardPool, TracerPool, createBloodSplatMaterial } from '../vfx';
 import {
   beachHeight,
   createBeachGeometry,
@@ -33,16 +39,103 @@ import {
 
 export type PillboxScreenPoint = { x: number; y: number; visible: boolean };
 
-type Effect = {
-  mesh: THREE.Mesh;
-  velocity: THREE.Vector3;
+type FlashEffect = {
+  x: number;
+  y: number;
+  z: number;
+  size: number;
+  grow: number;
   age: number;
   life: number;
-  grow: number;
-  gravity?: number;
-  spin?: THREE.Vector3;
-  ground?: boolean;
+  r: number;
+  g: number;
+  b: number;
+  spin: number;
+  seed: number;
 };
+
+type DustEffect = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  size: number;
+  grow: number;
+  age: number;
+  life: number;
+  r: number;
+  g: number;
+  b: number;
+  spin: number;
+  seed: number;
+};
+
+type TracerEffect = {
+  sx: number;
+  sy: number;
+  sz: number;
+  ex: number;
+  ey: number;
+  ez: number;
+  width: number;
+  r: number;
+  g: number;
+  b: number;
+  age: number;
+  life: number;
+};
+
+type BloodDrop = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  scale: number;
+  age: number;
+  life: number;
+  r: number;
+  g: number;
+  b: number;
+};
+
+type BloodStain = {
+  x: number;
+  y: number;
+  z: number;
+  scale: number;
+  rotY: number;
+  seed: number;
+  age: number;
+  life: number;
+};
+
+type HelmetPiece = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  svx: number;
+  svy: number;
+  svz: number;
+  age: number;
+  life: number;
+};
+
+const MAX_FLASHES = 48;
+const MAX_DUSTS = 96;
+const MAX_TRACERS = 48;
+const MAX_BLOOD_DROPS = 96;
+const MAX_BLOOD_STAINS = 40;
+const MAX_HELMETS = 24;
 
 function seeded(seed: number) {
   let s = seed >>> 0;
@@ -102,7 +195,25 @@ export class PillboxScene {
   private barrel = new THREE.Group();
   private muzzle = new THREE.Object3D();
   private muzzleLight = new THREE.PointLight('#ffb253', 0, 32, 2);
-  private effects: Effect[] = [];
+  private post?: ReturnType<typeof createBloomComposer>;
+  private flashPool: BillboardPool;
+  private dustPool: BillboardPool;
+  private tracerPool: TracerPool;
+  private flashes: FlashEffect[] = [];
+  private dusts: DustEffect[] = [];
+  private tracers: TracerEffect[] = [];
+  private bloodDrops: BloodDrop[] = [];
+  private bloodStains: BloodStain[] = [];
+  private helmets: HelmetPiece[] = [];
+  private bloodDropMesh: THREE.InstancedMesh;
+  private bloodStainMesh: THREE.InstancedMesh;
+  private bloodStainAlpha: THREE.InstancedBufferAttribute;
+  private bloodStainSeed: THREE.InstancedBufferAttribute;
+  private helmetMesh: THREE.InstancedMesh;
+  private stainOrder = 0;
+  private scratchColor = new THREE.Color();
+  private scratchVec = new THREE.Vector3();
+  private scratchDummy = new THREE.Object3D();
   private visualTime = 0;
   private lastBattleTime = Number.POSITIVE_INFINITY;
   private recoil = 0;
@@ -117,11 +228,9 @@ export class PillboxScene {
       antialias: true,
       powerPreference: 'high-performance',
     });
+    const touch = window.matchMedia(TOUCH_LAYOUT_QUERY).matches;
     this.renderer.setPixelRatio(
-      mobilePixelRatio(
-        window.devicePixelRatio,
-        window.matchMedia(TOUCH_LAYOUT_QUERY).matches,
-      ),
+      mobilePixelRatio(window.devicePixelRatio, touch),
     );
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -129,6 +238,89 @@ export class PillboxScene {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
+
+    this.flashPool = new BillboardPool(this.scene, MAX_FLASHES, {
+      blending: 'additive',
+      kind: 'fire',
+      renderOrder: 6,
+    });
+    this.dustPool = new BillboardPool(this.scene, MAX_DUSTS, {
+      blending: 'normal',
+      kind: 'smoke',
+      renderOrder: 4,
+    });
+    this.tracerPool = new TracerPool(this.scene, MAX_TRACERS);
+
+    const dropGeo = new THREE.SphereGeometry(0.08, 6, 4);
+    const dropMat = new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      roughness: 0.45,
+      metalness: 0.05,
+    });
+    this.geometries.push(dropGeo);
+    this.materials.push(dropMat);
+    this.bloodDropMesh = new THREE.InstancedMesh(
+      dropGeo,
+      dropMat,
+      MAX_BLOOD_DROPS,
+    );
+    this.bloodDropMesh.setColorAt(0, new THREE.Color(1, 1, 1));
+    this.bloodDropMesh.count = 0;
+    this.bloodDropMesh.frustumCulled = false;
+
+    const stainGeo = new THREE.PlaneGeometry(1, 1);
+    stainGeo.rotateX(-Math.PI / 2);
+    this.bloodStainAlpha = new THREE.InstancedBufferAttribute(
+      new Float32Array(MAX_BLOOD_STAINS),
+      1,
+    );
+    this.bloodStainAlpha.setUsage(THREE.DynamicDrawUsage);
+    this.bloodStainSeed = new THREE.InstancedBufferAttribute(
+      new Float32Array(MAX_BLOOD_STAINS),
+      1,
+    );
+    this.bloodStainSeed.setUsage(THREE.DynamicDrawUsage);
+    stainGeo.setAttribute('aAlpha', this.bloodStainAlpha);
+    stainGeo.setAttribute('aSeed', this.bloodStainSeed);
+    const stainMat = createBloodSplatMaterial();
+    this.geometries.push(stainGeo);
+    this.materials.push(stainMat);
+    this.bloodStainMesh = new THREE.InstancedMesh(
+      stainGeo,
+      stainMat,
+      MAX_BLOOD_STAINS,
+    );
+    this.bloodStainMesh.count = 0;
+    this.bloodStainMesh.frustumCulled = false;
+    this.bloodStainMesh.renderOrder = 2;
+
+    const helmetGeo = new THREE.SphereGeometry(
+      0.245,
+      14,
+      8,
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI * 0.57,
+    );
+    helmetGeo.scale(1, 0.8, 1);
+    const helmetMat = new THREE.MeshStandardMaterial({
+      color: '#505a45',
+      roughness: 0.7,
+      metalness: 0.45,
+      side: THREE.DoubleSide,
+    });
+    this.geometries.push(helmetGeo);
+    this.materials.push(helmetMat);
+    this.helmetMesh = new THREE.InstancedMesh(
+      helmetGeo,
+      helmetMat,
+      MAX_HELMETS,
+    );
+    this.helmetMesh.count = 0;
+    this.helmetMesh.castShadow = true;
+    this.helmetMesh.frustumCulled = false;
+    this.scene.add(this.bloodDropMesh, this.bloodStainMesh, this.helmetMesh);
 
     this.scene.background = new THREE.Color('#abc0c1');
     this.scene.fog = new THREE.Fog('#a7b7b5', 180, 1100);
@@ -372,9 +564,7 @@ export class PillboxScene {
       .add(new THREE.Vector3(0, 0, -72));
     sun.target.position.set(0, 0, -72);
     sun.castShadow = true;
-    const shadowSize = window.matchMedia(TOUCH_LAYOUT_QUERY).matches
-      ? 1024
-      : 2048;
+    const shadowSize = touch ? 1024 : 2048;
     sun.shadow.mapSize.set(shadowSize, shadowSize);
     Object.assign(sun.shadow.camera, {
       left: -102,
@@ -388,6 +578,14 @@ export class PillboxScene {
     sun.shadow.normalBias = 0.05;
     sun.shadow.radius = 2;
     this.scene.add(sun, sun.target);
+
+    if (!touch) {
+      this.post = createBloomComposer(this.renderer, this.scene, this.camera, {
+        strength: 0.28,
+        radius: 0.4,
+        threshold: 1.15,
+      });
+    }
 
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
@@ -472,15 +670,14 @@ export class PillboxScene {
     this.materials.push(sky.material);
     this.geometries.push(sky.geometry);
     this.scene.add(sky);
-    const surroundings = new THREE.Scene();
-    surroundings.add(sky.clone());
-    const generator = new THREE.PMREMGenerator(this.renderer);
-    sky.material.uniforms.showSunDisc.value = false;
-    this.environment = generator.fromScene(surroundings, 0.08, 0.1, 18000);
-    sky.material.uniforms.showSunDisc.value = true;
+    this.environment = bakeCoastalEnvironment(
+      this.renderer,
+      sky,
+      '#695d47',
+      18000,
+    );
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.3;
-    generator.dispose();
+    this.scene.environmentIntensity = 0.36;
   }
 
   private makeGun(
@@ -727,6 +924,7 @@ export class PillboxScene {
         : THREE.MathUtils.clamp(55 / Math.sqrt(this.camera.aspect), 48, 75);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height, false);
+    this.post?.setSize(this.width, this.height);
   }
 
   aim(clientX: number, clientY: number): { x: number; z: number } | null {
@@ -779,96 +977,52 @@ export class PillboxScene {
         Math.hypot(event.x, event.z) < 25 ? 0.25 : 0,
       );
     if (event.type === 'enemy-fire') {
-      const start = new THREE.Vector3(
+      const sy = beachHeight(event.x, event.z) + 1.5;
+      this.spawnTracer(
         event.x,
-        beachHeight(event.x, event.z) + 1.5,
+        sy,
         event.z,
+        event.x * 0.1,
+        4,
+        -6,
+        event.heavy ? 0.14 : 0.1,
+        event.heavy ? '#ffa85a' : '#f4ca83',
+        0.095,
+        2.0,
       );
-      const end = new THREE.Vector3(event.x * 0.1, 4, -6);
-      const delta = end.clone().sub(start);
-      const tracer = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.025, 0.025, 1, 4),
-        new THREE.MeshBasicMaterial({
-          color: event.heavy ? '#ffa85a' : '#f4ca83',
-          transparent: true,
-          depthWrite: false,
-        }),
-      );
-      tracer.position.copy(start).addScaledVector(delta, 0.5);
-      tracer.scale.y = delta.length();
-      tracer.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        delta.normalize(),
-      );
-      if (this.effects.length < 140) {
-        this.scene.add(tracer);
-        this.effects.push({
-          mesh: tracer,
-          velocity: new THREE.Vector3(),
-          age: 0,
-          life: 0.09,
-          grow: 0,
-          gravity: 0,
-        });
-      } else {
-        tracer.geometry.dispose();
-        tracer.material.dispose();
-      }
-      this.spawnFlash(start, '#ffd280', 0.65, 0.1);
+      this.spawnFlash(event.x, sy, event.z, '#ffd280', 0.65, 0.1);
     }
     if (event.type === 'mortar-launch')
       this.spawnDust(event.x, event.z, '#b4a890');
     if (event.type === 'shot') {
       this.recoil = 1;
       this.muzzleLight.intensity = 45;
-      this.spawnFlash(
-        new THREE.Vector3().copy(
-          this.muzzle.getWorldPosition(new THREE.Vector3()),
-        ),
-        '#ffd27a',
-        1.8,
-        0.09,
+      this.muzzle.getWorldPosition(this.scratchVec);
+      const ox = this.scratchVec.x;
+      const oy = this.scratchVec.y;
+      const oz = this.scratchVec.z;
+      this.spawnFlash(ox, oy, oz, '#ffd27a', 1.8, 0.09);
+      this.spawnTracer(
+        ox,
+        oy,
+        oz,
+        event.x,
+        1.1,
+        event.z,
+        0.11,
+        '#ffd66d',
+        0.065,
+        2.2,
       );
-      const origin = this.muzzle.getWorldPosition(new THREE.Vector3());
-      const end = new THREE.Vector3(event.x, 1.1, event.z);
-      const tracer = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.025, 0.025, 1, 5),
-        new THREE.MeshBasicMaterial({ color: '#ffd66d', transparent: true }),
-      );
-      const delta = end.clone().sub(origin);
-      tracer.position.copy(origin).addScaledVector(delta, 0.52);
-      tracer.scale.y = delta.length();
-      tracer.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        delta.normalize(),
-      );
-      this.scene.add(tracer);
-      this.effects.push({
-        mesh: tracer,
-        velocity: new THREE.Vector3(),
-        age: 0,
-        life: 0.055,
-        grow: 0,
-      });
       if (event.vehicle)
-        this.spawnFlash(
-          new THREE.Vector3(event.x, 1.2, event.z),
-          '#ffd295',
-          0.8,
-          0.12,
-        );
+        this.spawnFlash(event.x, 1.2, event.z, '#ffd295', 0.8, 0.12);
       else if (event.hit) this.spawnBlood(event.x, event.z);
       else this.spawnDust(event.x, event.z, '#806a48');
     }
     if (event.type === 'grenade-impact')
       this.grenadeBlast.trigger(event.x, event.z);
     if (event.type === 'jeep-destroyed') {
-      this.spawnFlash(
-        new THREE.Vector3(event.x, 1, event.z),
-        '#ff9e42',
-        5,
-        0.3,
-      );
+      this.spawnFlash(event.x, 1, event.z, '#ff9e42', 5, 0.3);
       this.spawnDust(event.x, event.z, '#3d3933');
     }
     if (event.type === 'down') {
@@ -876,177 +1030,157 @@ export class PillboxScene {
       this.spawnHelmet(event.x, event.z, event.id);
     }
     if (event.type === 'breach') {
-      this.spawnFlash(
-        new THREE.Vector3(event.x, 1.5, event.z),
-        '#f0a24b',
-        3,
-        0.22,
-      );
+      this.spawnFlash(event.x, 1.5, event.z, '#f0a24b', 3, 0.22);
       this.spawnDust(event.x, event.z, '#4d4638');
     }
-    if (event.type === 'overheat') this.spawnDust(0, 2.7, '#c9c8bd');
+    if (event.type === 'overheat') this.spawnDust(0, 2.7, '#c9c8bd', 3.1);
   }
 
   private spawnFlash(
-    position: THREE.Vector3,
+    x: number,
+    y: number,
+    z: number,
     color: string,
     size: number,
     life: number,
   ) {
-    if (this.effects.length > 80) return;
-    const m = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.5, 1),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    );
-    m.position.copy(position);
-    m.scale.setScalar(size);
-    this.scene.add(m);
-    this.effects.push({
-      mesh: m,
-      velocity: new THREE.Vector3(),
+    if (this.flashes.length >= MAX_FLASHES) this.flashes.shift();
+    this.scratchColor.set(color);
+    this.flashes.push({
+      x,
+      y,
+      z,
+      size,
+      grow: 12,
       age: 0,
       life,
-      grow: 12,
+      r: this.scratchColor.r * 2.4,
+      g: this.scratchColor.g * 2.4,
+      b: this.scratchColor.b * 2.4,
+      spin: Math.random() * Math.PI * 2,
+      seed: Math.random(),
     });
   }
-  private spawnDust(x: number, z: number, color: string) {
-    for (let i = 0; i < 5 && this.effects.length < 80; i++) {
-      const m = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(0.4, 1),
-        new THREE.MeshBasicMaterial({
-          color,
-          transparent: true,
-          opacity: 0.42,
-          depthWrite: false,
-        }),
-      );
-      m.position.set(
-        x + (Math.random() - 0.5),
-        0.35 + Math.random(),
-        z + (Math.random() - 0.5),
-      );
-      this.scene.add(m);
-      this.effects.push({
-        mesh: m,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 2,
-          1 + Math.random() * 2,
-          (Math.random() - 0.5) * 2,
-        ),
+
+  private spawnTracer(
+    sx: number,
+    sy: number,
+    sz: number,
+    ex: number,
+    ey: number,
+    ez: number,
+    width: number,
+    color: string,
+    life: number,
+    boost: number,
+  ) {
+    if (this.tracers.length >= MAX_TRACERS) this.tracers.shift();
+    this.scratchColor.set(color);
+    this.tracers.push({
+      sx,
+      sy,
+      sz,
+      ex,
+      ey,
+      ez,
+      width,
+      r: this.scratchColor.r * boost,
+      g: this.scratchColor.g * boost,
+      b: this.scratchColor.b * boost,
+      age: 0,
+      life,
+    });
+  }
+
+  private spawnDust(x: number, z: number, color: string, baseY = 0.35) {
+    this.scratchColor.set(color);
+    for (let i = 0; i < 5; i++) {
+      if (this.dusts.length >= MAX_DUSTS) this.dusts.shift();
+      this.dusts.push({
+        x: x + (Math.random() - 0.5),
+        y: baseY + Math.random(),
+        z: z + (Math.random() - 0.5),
+        vx: (Math.random() - 0.5) * 2,
+        vy: 1 + Math.random() * 2,
+        vz: (Math.random() - 0.5) * 2,
+        size: 0.9 + Math.random() * 0.5,
+        grow: 2.0,
         age: 0,
         life: 0.8 + Math.random() * 0.5,
-        grow: 1.2,
+        r: this.scratchColor.r,
+        g: this.scratchColor.g,
+        b: this.scratchColor.b,
+        spin: Math.random() * Math.PI * 2,
+        seed: Math.random(),
       });
     }
   }
 
   private spawnBlood(x: number, z: number) {
-    for (let i = 0; i < 9 && this.effects.length < 140; i++) {
-      const drop = new THREE.Mesh(
-        new THREE.SphereGeometry(0.055 + Math.random() * 0.075, 5, 4),
-        new THREE.MeshStandardMaterial({
-          color: i % 2 ? '#6d1013' : '#a51c23',
-          roughness: 0.5,
-          transparent: true,
-        }),
-      );
-      drop.position.set(x, 1.35 + Math.random() * 0.5, z);
-      drop.scale.set(0.8, 1.5, 0.8);
-      this.scene.add(drop);
-      this.effects.push({
-        mesh: drop,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 5,
-          1.4 + Math.random() * 3,
-          -2 - Math.random() * 4,
-        ),
+    for (let i = 0; i < 9; i++) {
+      if (this.bloodDrops.length >= MAX_BLOOD_DROPS) this.bloodDrops.shift();
+      this.scratchColor.set(i % 2 ? '#6d1013' : '#a51c23');
+      this.bloodDrops.push({
+        x,
+        y: 1.35 + Math.random() * 0.5,
+        z,
+        vx: (Math.random() - 0.5) * 5,
+        vy: 1.4 + Math.random() * 3,
+        vz: -2 - Math.random() * 4,
+        scale: 0.75 + Math.random() * 0.8,
         age: 0,
         life: 1.2,
-        grow: 0,
-        gravity: 9.8,
-        ground: true,
+        r: this.scratchColor.r,
+        g: this.scratchColor.g,
+        b: this.scratchColor.b,
       });
     }
-    if (this.effects.length >= 140) return;
-    // An irregular, flat stain remains on the sand after the airborne spray.
-    const shape = new THREE.Shape();
-    for (let i = 0; i <= 18; i++) {
-      const angle = (i / 18) * Math.PI * 2,
-        radius = 0.35 + Math.random() * 0.4;
-      const px = Math.cos(angle) * radius,
-        py = Math.sin(angle) * radius;
-      if (i === 0) shape.moveTo(px, py);
-      else shape.lineTo(px, py);
-    }
-    shape.closePath();
-    const stain = new THREE.Mesh(
-      new THREE.ShapeGeometry(shape),
-      new THREE.MeshBasicMaterial({
-        color: '#641719',
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-      }),
-    );
-    stain.rotation.x = -Math.PI / 2;
-    stain.position.set(
+    if (this.bloodStains.length >= MAX_BLOOD_STAINS) this.bloodStains.shift();
+    this.bloodStains.push({
       x,
-      beachHeight(x, z - 0.5) + 0.025 + Math.random() * 0.005,
-      z - 0.5,
-    );
-    this.scene.add(stain);
-    this.effects.push({
-      mesh: stain,
-      velocity: new THREE.Vector3(),
+      y: beachHeight(x, z - 0.5) + 0.03 + (this.stainOrder++ % 8) * 0.002,
+      z: z - 0.5,
+      scale: 0.95 + Math.random() * 0.65,
+      rotY: Math.random() * Math.PI * 2,
+      seed: Math.random(),
       age: 0,
       life: 18,
-      grow: 0,
-      gravity: 0,
     });
   }
 
   private spawnHelmet(x: number, z: number, id: number) {
-    if (this.effects.length >= 140) return;
-    const helmet = new THREE.Mesh(
-      new THREE.SphereGeometry(0.245, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.57),
-      new THREE.MeshStandardMaterial({
-        color: '#505a45',
-        roughness: 0.7,
-        metalness: 0.45,
-        side: THREE.DoubleSide,
-        transparent: true,
-      }),
-    );
-    helmet.scale.y = 0.8;
-    helmet.position.set(x, 2.05, z);
-    helmet.castShadow = true;
-    this.scene.add(helmet);
-    this.effects.push({
-      mesh: helmet,
-      velocity: new THREE.Vector3(id % 2 ? 2.5 : -2.5, 4.2, -2.8),
+    if (this.helmets.length >= MAX_HELMETS) this.helmets.shift();
+    this.helmets.push({
+      x,
+      y: 2.05,
+      z,
+      vx: id % 2 ? 2.5 : -2.5,
+      vy: 4.2,
+      vz: -2.8,
+      rx: 0,
+      ry: 0,
+      rz: 0,
+      svx: 5,
+      svy: 3,
+      svz: 2,
       age: 0,
       life: 10,
-      grow: 0,
-      gravity: 9.8,
-      ground: true,
-      spin: new THREE.Vector3(5, 3, 2),
     });
   }
 
   private clearEffects() {
-    for (const effect of this.effects) {
-      effect.mesh.removeFromParent();
-      effect.mesh.geometry.dispose();
-      (effect.mesh.material as THREE.Material).dispose();
-    }
-    this.effects = [];
+    this.flashes.length = 0;
+    this.dusts.length = 0;
+    this.tracers.length = 0;
+    this.bloodDrops.length = 0;
+    this.bloodStains.length = 0;
+    this.helmets.length = 0;
+    this.flashPool.clear();
+    this.dustPool.clear();
+    this.tracerPool.clear();
+    this.bloodDropMesh.count = 0;
+    this.bloodStainMesh.count = 0;
+    this.helmetMesh.count = 0;
     this.recoil = 0;
     this.muzzleLight.intensity = 0;
     this.grenadeBlast.clear();
@@ -1064,6 +1198,7 @@ export class PillboxScene {
         : Math.min(dt, 0.1);
     this.visualTime += activeDt;
     this.coast.update(this.visualTime);
+    this.detail.update(this.visualTime, this.renderer.getPixelRatio());
     this.sky.material.uniforms.time.value = this.visualTime;
     this.atmosphere.update(battle.time);
     this.wreckSmoke.update(battle);
@@ -1113,40 +1248,206 @@ export class PillboxScene {
     );
     this.vehicles.render(battle, activeDt);
     this.tactical.render(battle);
-    for (let i = this.effects.length - 1; i >= 0; i--) {
-      const e = this.effects[i];
-      e.age += activeDt;
-      if (e.age >= e.life) {
-        e.mesh.removeFromParent();
-        e.mesh.geometry.dispose();
-        (e.mesh.material as THREE.Material).dispose();
-        this.effects.splice(i, 1);
-        continue;
-      }
-      e.mesh.position.addScaledVector(e.velocity, activeDt);
-      e.velocity.y -= activeDt * (e.gravity ?? 0.8);
-      if (e.spin) {
-        e.mesh.rotation.x += e.spin.x * activeDt;
-        e.mesh.rotation.y += e.spin.y * activeDt;
-        e.mesh.rotation.z += e.spin.z * activeDt;
-      }
-      const ground = beachHeight(e.mesh.position.x, e.mesh.position.z) + 0.12;
-      if (e.ground && e.mesh.position.y < ground) {
-        e.mesh.position.y = ground;
-        if (e.velocity.y < -1) {
-          e.velocity.y *= -0.28;
-          e.velocity.x *= 0.5;
-          e.velocity.z *= 0.5;
-          e.spin?.multiplyScalar(0.45);
+    this.updateEffects(activeDt);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  private updateEffects(activeDt: number) {
+    let flashWrite = 0;
+    for (let i = 0; i < this.flashes.length; i++) {
+      const f = this.flashes[i];
+      f.age += activeDt;
+      if (f.age >= f.life) continue;
+      const u = f.age / f.life;
+      const s = f.size + f.grow * f.age;
+      this.flashPool.set(
+        flashWrite,
+        f.x,
+        f.y,
+        f.z,
+        s,
+        s,
+        f.r,
+        f.g,
+        f.b,
+        1 - u,
+        f.spin + f.age * 3,
+        f.seed,
+      );
+      this.flashes[flashWrite++] = f;
+    }
+    this.flashes.length = flashWrite;
+    this.flashPool.commit(flashWrite, this.visualTime);
+
+    let tracerWrite = 0;
+    for (let i = 0; i < this.tracers.length; i++) {
+      const tr = this.tracers[i];
+      tr.age += activeDt;
+      if (tr.age >= tr.life) continue;
+      this.tracerPool.set(
+        tracerWrite,
+        tr.sx,
+        tr.sy,
+        tr.sz,
+        tr.ex,
+        tr.ey,
+        tr.ez,
+        tr.width,
+        tr.r,
+        tr.g,
+        tr.b,
+        1 - tr.age / tr.life,
+      );
+      this.tracers[tracerWrite++] = tr;
+    }
+    this.tracers.length = tracerWrite;
+    this.tracerPool.commit(tracerWrite);
+
+    let dustWrite = 0;
+    for (let i = 0; i < this.dusts.length; i++) {
+      const d = this.dusts[i];
+      d.age += activeDt;
+      if (d.age >= d.life) continue;
+      d.x += d.vx * activeDt;
+      d.y += d.vy * activeDt;
+      d.z += d.vz * activeDt;
+      d.vy -= activeDt * 0.45;
+      const u = d.age / d.life;
+      const s = d.size + d.grow * d.age;
+      this.dustPool.set(
+        dustWrite,
+        d.x,
+        d.y,
+        d.z,
+        s,
+        s,
+        d.r,
+        d.g,
+        d.b,
+        0.42 * (1 - u),
+        d.spin + d.age * 0.3,
+        d.seed,
+      );
+      this.dusts[dustWrite++] = d;
+    }
+    this.dusts.length = dustWrite;
+    this.dustPool.commit(dustWrite, this.visualTime);
+
+    let dropWrite = 0;
+    const prevDrops = this.bloodDropMesh.count;
+    for (let i = 0; i < this.bloodDrops.length; i++) {
+      const drop = this.bloodDrops[i];
+      drop.age += activeDt;
+      if (drop.age >= drop.life) continue;
+      drop.x += drop.vx * activeDt;
+      drop.y += drop.vy * activeDt;
+      drop.z += drop.vz * activeDt;
+      drop.vy -= activeDt * 9.8;
+      const ground = beachHeight(drop.x, drop.z) + 0.08;
+      if (drop.y < ground) {
+        drop.y = ground;
+        if (drop.vy < -1) {
+          drop.vy *= -0.25;
+          drop.vx *= 0.45;
+          drop.vz *= 0.45;
         } else {
-          e.velocity.set(0, 0, 0);
-          e.spin?.set(0, 0, 0);
+          drop.vx = 0;
+          drop.vy = 0;
+          drop.vz = 0;
         }
       }
-      e.mesh.scale.addScalar(e.grow * activeDt);
-      (e.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - e.age / e.life;
+      const u = drop.age / drop.life;
+      const s = drop.scale * Math.max(0.01, 1 - u * u);
+      this.scratchDummy.position.set(drop.x, drop.y, drop.z);
+      this.scratchDummy.rotation.set(0, 0, 0);
+      this.scratchDummy.scale.set(0.8 * s, 1.5 * s, 0.8 * s);
+      this.scratchDummy.updateMatrix();
+      this.bloodDropMesh.setMatrixAt(dropWrite, this.scratchDummy.matrix);
+      this.scratchColor.setRGB(drop.r, drop.g, drop.b);
+      this.bloodDropMesh.setColorAt(dropWrite, this.scratchColor);
+      this.bloodDrops[dropWrite++] = drop;
     }
-    this.renderer.render(this.scene, this.camera);
+    this.bloodDrops.length = dropWrite;
+    this.bloodDropMesh.count = dropWrite;
+    if (dropWrite > 0 || prevDrops > 0) {
+      this.bloodDropMesh.instanceMatrix.needsUpdate = true;
+      if (this.bloodDropMesh.instanceColor)
+        this.bloodDropMesh.instanceColor.needsUpdate = true;
+    }
+
+    let stainWrite = 0;
+    const prevStains = this.bloodStainMesh.count;
+    for (let i = 0; i < this.bloodStains.length; i++) {
+      const stain = this.bloodStains[i];
+      stain.age += activeDt;
+      if (stain.age >= stain.life) continue;
+      const s = stain.scale * (0.9 + Math.min(1, stain.age * 4) * 0.15);
+      this.scratchDummy.position.set(stain.x, stain.y, stain.z);
+      this.scratchDummy.rotation.set(0, stain.rotY, 0);
+      this.scratchDummy.scale.setScalar(s);
+      this.scratchDummy.updateMatrix();
+      this.bloodStainMesh.setMatrixAt(stainWrite, this.scratchDummy.matrix);
+      this.bloodStainAlpha.setX(
+        stainWrite,
+        0.85 * Math.min(1, (stain.life - stain.age) / 2.5),
+      );
+      this.bloodStainSeed.setX(stainWrite, stain.seed);
+      this.bloodStains[stainWrite++] = stain;
+    }
+    this.bloodStains.length = stainWrite;
+    this.bloodStainMesh.count = stainWrite;
+    if (stainWrite > 0 || prevStains > 0) {
+      this.bloodStainMesh.instanceMatrix.needsUpdate = true;
+      this.bloodStainAlpha.needsUpdate = true;
+      this.bloodStainSeed.needsUpdate = true;
+    }
+
+    let helmetWrite = 0;
+    const prevHelmets = this.helmetMesh.count;
+    for (let i = 0; i < this.helmets.length; i++) {
+      const h = this.helmets[i];
+      h.age += activeDt;
+      if (h.age >= h.life) continue;
+      h.x += h.vx * activeDt;
+      h.y += h.vy * activeDt;
+      h.z += h.vz * activeDt;
+      h.vy -= activeDt * 9.8;
+      h.rx += h.svx * activeDt;
+      h.ry += h.svy * activeDt;
+      h.rz += h.svz * activeDt;
+      const ground = beachHeight(h.x, h.z) + 0.12;
+      if (h.y < ground) {
+        h.y = ground;
+        if (h.vy < -1) {
+          h.vy *= -0.28;
+          h.vx *= 0.5;
+          h.vz *= 0.5;
+          h.svx *= 0.45;
+          h.svy *= 0.45;
+          h.svz *= 0.45;
+        } else {
+          h.vx = 0;
+          h.vy = 0;
+          h.vz = 0;
+          h.svx = 0;
+          h.svy = 0;
+          h.svz = 0;
+        }
+      }
+      const s = Math.min(1, (h.life - h.age) / 0.8);
+      this.scratchDummy.position.set(h.x, h.y, h.z);
+      this.scratchDummy.rotation.set(h.rx, h.ry, h.rz);
+      this.scratchDummy.scale.setScalar(s);
+      this.scratchDummy.updateMatrix();
+      this.helmetMesh.setMatrixAt(helmetWrite, this.scratchDummy.matrix);
+      this.helmets[helmetWrite++] = h;
+    }
+    this.helmets.length = helmetWrite;
+    this.helmetMesh.count = helmetWrite;
+    if (helmetWrite > 0 || prevHelmets > 0) {
+      this.helmetMesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   dispose() {
@@ -1166,10 +1467,13 @@ export class PillboxScene {
     this.detail.dispose();
     this.surfaceMaps?.dispose();
     this.environment?.dispose();
-    for (const e of this.effects) {
-      e.mesh.geometry.dispose();
-      (e.mesh.material as THREE.Material).dispose();
-    }
+    this.post?.dispose();
+    this.flashPool.dispose();
+    this.dustPool.dispose();
+    this.tracerPool.dispose();
+    this.bloodDropMesh.dispose();
+    this.bloodStainMesh.dispose();
+    this.helmetMesh.dispose();
     this.scene.traverse((o) => {
       if (o instanceof THREE.DirectionalLight) o.shadow.dispose();
     });

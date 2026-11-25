@@ -89,6 +89,7 @@ export class BeachDetail {
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.Material[] = [];
   private textures: THREE.Texture[] = [];
+  private dustMaterial?: THREE.ShaderMaterial;
 
   constructor(scene: THREE.Scene) {
     this.root.name = 'beach-battlefield-detail';
@@ -340,16 +341,58 @@ export class BeachDetail {
       'position',
       new THREE.BufferAttribute(positions, 3),
     );
-    const pointsMaterial = new THREE.PointsMaterial({
-      color: '#d0b985',
-      size: 0.16,
+    const pointsMaterial = new THREE.ShaderMaterial({
+      fog: true,
       transparent: true,
-      opacity: 0.22,
       depthWrite: false,
-      sizeAttenuation: true,
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        {
+          uTime: { value: 0 },
+          uPixelRatio: { value: 1 },
+        },
+      ]),
+      vertexShader: /* glsl */ `
+        uniform float uTime;
+        uniform float uPixelRatio;
+        varying float vAlpha;
+        #include <fog_pars_vertex>
+        void main() {
+          float seed = position.x * 0.37 + position.z * 0.53;
+          vec3 drifted = position;
+          drifted.x += sin(uTime * 0.45 + seed) * 1.4;
+          drifted.y += sin(uTime * 0.75 + seed * 1.7) * 0.22;
+          drifted.z += cos(uTime * 0.35 + seed * 1.3) * 0.9;
+          vec4 mvPosition = modelViewMatrix * vec4(drifted, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          gl_PointSize = clamp((0.28 * uPixelRatio * 420.0) / max(1.0, -mvPosition.z), 1.5, 16.0);
+          vAlpha = 0.75 + 0.25 * sin(uTime * 1.1 + seed * 2.1);
+          #include <fog_vertex>
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying float vAlpha;
+        #include <fog_pars_fragment>
+        void main() {
+          float dist = length(gl_PointCoord - 0.5);
+          if (dist > 0.5) discard;
+          float soft = smoothstep(0.5, 0.08, dist);
+          gl_FragColor = vec4(vec3(0.816, 0.725, 0.522), soft * 0.24 * vAlpha);
+          #include <fog_fragment>
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
     });
+    this.dustMaterial = pointsMaterial;
     this.materials.push(pointsMaterial);
     this.root.add(new THREE.Points(pointsGeometry, pointsMaterial));
+  }
+
+  update(time: number, pixelRatio = 1) {
+    if (!this.dustMaterial) return;
+    this.dustMaterial.uniforms.uTime.value = time;
+    this.dustMaterial.uniforms.uPixelRatio.value = pixelRatio;
   }
 
   dispose() {

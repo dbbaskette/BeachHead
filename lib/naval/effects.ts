@@ -1,109 +1,102 @@
 import * as THREE from 'three';
-type Kind = 'smoke' | 'flame' | 'spray' | 'flash' | 'ring';
+import { BillboardPool } from '../vfx';
+
+type Kind = 'smoke' | 'flame' | 'spray' | 'flash';
+
 type Particle = {
-  sprite: THREE.Sprite | THREE.Mesh;
-  kind: Kind;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
   age: number;
   life: number;
   size: number;
-  velocity: THREE.Vector3;
-  spin: number;
   growth: number;
+  spin: number;
+  rot: number;
+  seed: number;
+  r: number;
+  g: number;
+  b: number;
+  baseOpacity: number;
+  aspectY: number;
 };
-function spriteTexture(kind: Kind) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 128;
-  const c = canvas.getContext('2d')!;
-  if (kind === 'smoke') {
-    for (let i = 0; i < 25; i++) {
-      const x = 40 + Math.sin(i * 7.23) * 25,
-        y = 40 + Math.cos(i * 4.83) * 25,
-        r = 24 + (i % 5) * 5;
-      const g = c.createRadialGradient(x + 24, y + 24, 0, x + 24, y + 24, r);
-      g.addColorStop(0, 'rgba(235,235,235,.09)');
-      g.addColorStop(0.5, 'rgba(225,225,225,.05)');
-      g.addColorStop(1, 'rgba(225,225,225,0)');
-      c.fillStyle = g;
-      c.fillRect(0, 0, 128, 128);
-    }
-  } else {
-    const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,255,255,1)');
-    g.addColorStop(kind === 'flash' ? 0.12 : 0.25, 'rgba(255,255,255,.9)');
-    g.addColorStop(0.55, 'rgba(255,255,255,.24)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    c.fillStyle = g;
-    c.fillRect(0, 0, 128, 128);
-  }
-  const t = new THREE.CanvasTexture(canvas);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
+
+const MAX_SMOKE = 180;
+const MAX_FIRE = 120;
+
 export class NavalEffects {
-  private particles: Particle[] = [];
-  private textures = {
-    smoke: spriteTexture('smoke'),
-    flame: spriteTexture('flame'),
-    spray: spriteTexture('spray'),
-    flash: spriteTexture('flash'),
-  };
-  private ringGeo = new THREE.RingGeometry(0.8, 1, 64);
-  constructor(private scene: THREE.Scene) {}
+  private smokeParticles: Particle[] = [];
+  private fireParticles: Particle[] = [];
+  private smokePool: BillboardPool;
+  private firePool: BillboardPool;
+  private color = new THREE.Color();
+  private serial = 0;
+  private visualTime = 0;
+  private disposed = false;
+
+  constructor(scene: THREE.Scene) {
+    this.smokePool = new BillboardPool(scene, MAX_SMOKE, {
+      blending: 'normal',
+      kind: 'smoke',
+    });
+    this.firePool = new BillboardPool(scene, MAX_FIRE, {
+      blending: 'additive',
+      kind: 'fire',
+    });
+  }
+
   private add(
     kind: Kind,
     p: THREE.Vector3,
     v: THREE.Vector3,
     size: number,
     life: number,
-    color: string,
+    colorHex: string,
     growth: number,
   ) {
-    if (this.particles.length >= 240) return;
-    let sprite: THREE.Sprite | THREE.Mesh;
-    if (kind === 'ring') {
-      sprite = new THREE.Mesh(
-        this.ringGeo,
-        new THREE.MeshBasicMaterial({
-          color,
-          transparent: true,
-          opacity: 0.55,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        }),
-      );
-      sprite.rotation.x = -Math.PI / 2;
-    } else
-      sprite = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map: this.textures[kind],
-          color,
-          transparent: true,
-          opacity: 1,
-          depthWrite: false,
-          blending:
-            kind === 'flame' || kind === 'flash'
-              ? THREE.AdditiveBlending
-              : THREE.NormalBlending,
-          rotation: Math.random() * Math.PI,
-        }),
-      );
-    sprite.position.copy(p);
-    sprite.scale.setScalar(size);
-    this.scene.add(sprite);
-    this.particles.push({
-      sprite,
-      kind,
+    const additive = kind === 'flame' || kind === 'flash';
+    const list = additive ? this.fireParticles : this.smokeParticles;
+    const cap = additive ? MAX_FIRE : MAX_SMOKE;
+    if (list.length >= cap) list.shift();
+
+    this.color.set(colorHex);
+    const boost = kind === 'flash' ? 2.8 : kind === 'flame' ? 2.2 : 1;
+    const seed = (++this.serial * 0.6180339887) % 1;
+    list.push({
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      vx: v.x,
+      vy: v.y,
+      vz: v.z,
       age: 0,
       life,
       size,
-      velocity: v,
       growth,
-      spin: (Math.random() - 0.5) * 0.4,
+      spin: ((this.serial % 11) - 5) * 0.08,
+      rot: seed * Math.PI * 2,
+      seed,
+      r: this.color.r * boost,
+      g: this.color.g * boost,
+      b: this.color.b * boost,
+      baseOpacity:
+        kind === 'smoke'
+          ? 0.42
+          : kind === 'spray'
+            ? 0.78
+            : kind === 'flash'
+              ? 0.95
+              : 0.8,
+      aspectY: kind === 'spray' ? 2.3 : 1,
     });
   }
+
   muzzle(p: THREE.Vector3, direction: THREE.Vector3) {
-    this.add('flash', p.clone(), new THREE.Vector3(), 5, 0.11, '#ffefb2', 28);
-    for (let i = 0; i < 6; i++)
+    this.add('flash', p, new THREE.Vector3(), 5, 0.11, '#ffefb2', 28);
+    for (let i = 0; i < 6; i++) {
       this.add(
         'flame',
         p.clone().addScaledVector(direction, i * 0.7),
@@ -113,10 +106,11 @@ export class NavalEffects {
         '#ffa64a',
         9,
       );
-    for (let i = 0; i < 8; i++)
+    }
+    for (let i = 0; i < 8; i++) {
       this.add(
         'smoke',
-        p.clone(),
+        p,
         direction
           .clone()
           .multiplyScalar(5 + Math.random() * 8)
@@ -126,7 +120,9 @@ export class NavalEffects {
         '#b8b6a9',
         5,
       );
+    }
   }
+
   smoke(p: THREE.Vector3, damaged = false) {
     this.add(
       'smoke',
@@ -138,9 +134,10 @@ export class NavalEffects {
       damaged ? 3 : 0.8,
     );
   }
+
   burn(p: THREE.Vector3) {
-    this.smoke(p.clone(), true);
-    for (let i = 0; i < 2; i++)
+    this.smoke(p, true);
+    for (let i = 0; i < 2; i++) {
       this.add(
         'flame',
         p.clone().add(new THREE.Vector3((i - 0.5) * 1.8, 0.5, 0)),
@@ -150,11 +147,13 @@ export class NavalEffects {
         '#ff9d39',
         4,
       );
+    }
   }
+
   explosion(p: THREE.Vector3, large = false) {
     this.add(
       'flash',
-      p.clone(),
+      p,
       new THREE.Vector3(),
       large ? 25 : 12,
       0.2,
@@ -162,17 +161,17 @@ export class NavalEffects {
       80,
     );
     for (let i = 0; i < (large ? 22 : 10); i++) {
-      const a = Math.random() * Math.PI * 2,
-        r = Math.random() * (large ? 18 : 8),
-        q = p
-          .clone()
-          .add(
-            new THREE.Vector3(
-              Math.cos(a) * r,
-              Math.random() * 9,
-              Math.sin(a) * r,
-            ),
-          );
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * (large ? 18 : 8);
+      const q = p
+        .clone()
+        .add(
+          new THREE.Vector3(
+            Math.cos(a) * r,
+            Math.random() * 9,
+            Math.sin(a) * r,
+          ),
+        );
       this.add(
         'flame',
         q,
@@ -188,7 +187,7 @@ export class NavalEffects {
       );
       this.add(
         'smoke',
-        q.clone(),
+        q,
         new THREE.Vector3(
           Math.cos(a) * 4,
           5 + Math.random() * 12,
@@ -201,12 +200,13 @@ export class NavalEffects {
       );
     }
   }
+
   splash(x: number, z: number) {
     const p = new THREE.Vector3(x, 0.3, z);
     // Spray marks the impact without a large, artificial expanding ring.
     for (let i = 0; i < 14; i++) {
-      const a = Math.random() * Math.PI * 2,
-        r = Math.random() * 5;
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 5;
       const v = new THREE.Vector3(
         Math.cos(a) * r,
         14 + Math.random() * 23,
@@ -214,7 +214,7 @@ export class NavalEffects {
       );
       this.add(
         'spray',
-        p.clone(),
+        p,
         v,
         1.4 + Math.random() * 1.6,
         1.2 + Math.random() * 0.5,
@@ -222,10 +222,10 @@ export class NavalEffects {
         1.2,
       );
     }
-    for (let i = 0; i < 6; i++)
+    for (let i = 0; i < 6; i++) {
       this.add(
         'smoke',
-        p.clone(),
+        p,
         new THREE.Vector3(
           (Math.random() - 0.5) * 6,
           3,
@@ -236,43 +236,74 @@ export class NavalEffects {
         '#d1e6e2',
         5,
       );
+    }
   }
-  update(dt: number) {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
+
+  private stepPool(
+    list: Particle[],
+    pool: BillboardPool,
+    dt: number,
+    smokeStyle: boolean,
+  ) {
+    let write = 0;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
       p.age += dt;
-      if (p.age >= p.life) {
-        this.scene.remove(p.sprite);
-        (p.sprite.material as THREE.Material).dispose();
-        this.particles.splice(i, 1);
-        continue;
-      }
-      p.sprite.position.addScaledVector(p.velocity, dt);
-      if (p.kind === 'spray') p.velocity.y -= dt * 19;
-      if (p.kind === 'spray' && p.sprite.position.y < 0) {
-        p.age = p.life;
-        continue;
-      }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      if (p.aspectY > 1.5) p.vy -= dt * 19;
+      if (p.age >= p.life || (p.aspectY > 1.5 && p.y < 0)) continue;
+      p.rot += p.spin * dt;
       const progress = p.age / p.life;
-      let opacity = (1 - progress) * (p.kind === 'smoke' ? 0.35 : 0.75);
-      if (p.kind === 'smoke') opacity *= Math.min(1, progress * 7);
-      (p.sprite.material as THREE.SpriteMaterial).opacity = opacity;
+      let alpha = (1 - progress) * p.baseOpacity;
+      if (smokeStyle && p.aspectY <= 1.5) {
+        alpha *= Math.min(1, progress * 7);
+      }
       const size = p.size + p.age * p.growth;
-      p.sprite.scale.set(size, p.kind === 'spray' ? size * 2.3 : size, size);
-      if (p.sprite instanceof THREE.Sprite)
-        (p.sprite.material as THREE.SpriteMaterial).rotation += p.spin * dt;
+      pool.set(
+        write,
+        p.x,
+        p.y,
+        p.z,
+        size,
+        size * p.aspectY,
+        p.r,
+        p.g,
+        p.b,
+        alpha,
+        p.rot,
+        p.seed,
+      );
+      list[write++] = p;
     }
+    list.length = write;
+    pool.commit(write, this.visualTime);
   }
+
+  update(dt: number) {
+    const activeDt = Math.max(0, dt);
+    this.visualTime += activeDt;
+    this.stepPool(this.smokeParticles, this.smokePool, activeDt, true);
+    this.stepPool(this.fireParticles, this.firePool, activeDt, false);
+  }
+
+  get count() {
+    return this.smokeParticles.length + this.fireParticles.length;
+  }
+
   reset() {
-    for (const p of this.particles) {
-      this.scene.remove(p.sprite);
-      (p.sprite.material as THREE.Material).dispose();
-    }
-    this.particles = [];
+    this.smokeParticles.length = 0;
+    this.fireParticles.length = 0;
+    this.smokePool.clear();
+    this.firePool.clear();
   }
+
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     this.reset();
-    Object.values(this.textures).forEach((t) => t.dispose());
-    this.ringGeo.dispose();
+    this.smokePool.dispose();
+    this.firePool.dispose();
   }
 }

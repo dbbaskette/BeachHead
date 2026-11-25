@@ -46,6 +46,17 @@ for (const setting of ['beach', 'naval'] as const) {
       bank.material.uniforms.density.value >= 0.2 &&
         bank.material.uniforms.density.value <= 0.56,
     );
+    assert.equal(bank.material.fog, true);
+    const fogIdx = bank.material.fragmentShader.indexOf(
+      '#include <fog_fragment>',
+    );
+    const toneIdx = bank.material.fragmentShader.indexOf(
+      '#include <tonemapping_fragment>',
+    );
+    const colorIdx = bank.material.fragmentShader.indexOf(
+      '#include <colorspace_fragment>',
+    );
+    assert.ok(fogIdx > 0 && toneIdx > fogIdx && colorIdx > toneIdx);
     weather.dispose();
     other.dispose();
   });

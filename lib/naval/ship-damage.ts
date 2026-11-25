@@ -20,14 +20,34 @@ type DamageState = {
 /** Owns deck scars, flooding presentation and a bounded field of floating debris. */
 export class ShipDamageVisuals {
   private states = new Map<string, DamageState>();
-  private scars = new THREE.CircleGeometry(3.4, 9);
-  private scarMaterial = new THREE.MeshBasicMaterial({
-    color: '#141611',
+  private scars = new THREE.PlaneGeometry(7.6, 7.6);
+  private scarMaterial = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {}]),
+    vertexShader: `varying vec2 vUv;
+      #include <common>
+      #include <fog_pars_vertex>
+      void main(){vUv=uv;vec4 mvPosition=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mvPosition;#include <fog_vertex>}`,
+    fragmentShader: `varying vec2 vUv;
+      #include <common>
+      #include <fog_pars_fragment>
+      void main(){
+        vec2 p=vUv*2.-1.;
+        float a=atan(p.y,p.x),r=length(p);
+        float edge=.64+.15*sin(a*6.)+.09*cos(a*11.+1.2);
+        float mask=1.-smoothstep(edge-.22,edge,r);
+        if(mask<.01)discard;
+        float core=smoothstep(edge,0.12,r);
+        vec3 color=mix(vec3(.13,.11,.09),vec3(.04,.04,.035),core);
+        gl_FragColor=vec4(color,mask*.86);
+        #include <fog_fragment>
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
     transparent: true,
-    opacity: 0.76,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -2,
+    fog: true,
   });
   private debrisGeometry = new THREE.BoxGeometry(1, 1, 1);
   private debrisMaterial = new THREE.MeshStandardMaterial({

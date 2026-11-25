@@ -205,25 +205,38 @@ void test('effects stay bounded through sustained battle and retries, then relea
   const scene = new THREE.Scene(),
     fx = new AirEffects(scene);
   let disposed = 0;
-  fx.mesh.geometry.addEventListener('dispose', () => disposed++);
-  fx.mesh.material.addEventListener('dispose', () => disposed++);
+  fx.smokePool.mesh.geometry.addEventListener('dispose', () => disposed++);
+  fx.smokePool.material.addEventListener('dispose', () => disposed++);
+  fx.firePool.mesh.geometry.addEventListener('dispose', () => disposed++);
+  fx.firePool.material.addEventListener('dispose', () => disposed++);
   for (let retry = 0; retry < 10; retry++) {
     for (let i = 0; i < 100; i++) {
       fx.emit({ x: i, y: 0, z: 0 }, 2, 38);
       fx.update(1 / 60, 720, 64, 1.5);
       assert.ok(fx.count <= 512);
     }
-    const position = Array.from(fx.mesh.geometry.attributes.position.array);
+    const smokeCenters = Array.from(
+      fx.smokePool.mesh.geometry.attributes.aCenter.array,
+    );
+    const fireCenters = Array.from(
+      fx.firePool.mesh.geometry.attributes.aCenter.array,
+    );
     fx.update(0, 720, 64, 1.5);
     assert.deepEqual(
-      Array.from(fx.mesh.geometry.attributes.position.array),
-      position,
+      Array.from(fx.smokePool.mesh.geometry.attributes.aCenter.array),
+      smokeCenters,
+    );
+    assert.deepEqual(
+      Array.from(fx.firePool.mesh.geometry.attributes.aCenter.array),
+      fireCenters,
     );
     fx.reset();
     assert.equal(fx.count, 0);
+    assert.equal(fx.smokePool.mesh.count, 0);
+    assert.equal(fx.firePool.mesh.count, 0);
   }
   fx.dispose();
   fx.dispose();
-  assert.equal(disposed, 2);
+  assert.equal(disposed, 4);
   assert.equal(scene.children.length, 0);
 });

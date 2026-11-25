@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { COASTAL_SUN, snapDirectionalShadow } from './daylight';
+import {
+  buildCoastalEnvironmentScene,
+  COASTAL_SUN,
+  makeDaylightSky,
+  snapDirectionalShadow,
+} from './daylight';
 import {
   enableWaterReflection,
   makeOcean,
@@ -124,4 +129,29 @@ void test('snapDirectionalShadow offsets sun along COASTAL_SUN and quantizes tar
     .cross(COASTAL_SUN)
     .length();
   assert.ok(lateralShift < 1e-9);
+});
+
+void test('buildCoastalEnvironmentScene adds cloned sky and ground bounce without disposing caller sky', () => {
+  const sky = makeDaylightSky();
+  let skyDisposed = 0;
+  sky.geometry.addEventListener('dispose', () => skyDisposed++);
+  sky.material.addEventListener('dispose', () => skyDisposed++);
+
+  const env = buildCoastalEnvironmentScene(sky, '#344a50');
+  assert.equal(env.scene.children.length, 2);
+  const ground = env.scene.children[1] as THREE.Mesh;
+  assert.equal(ground.position.y, -20);
+
+  let envDisposed = 0;
+  ground.geometry.addEventListener('dispose', () => envDisposed++);
+  (ground.material as THREE.Material).addEventListener(
+    'dispose',
+    () => envDisposed++,
+  );
+
+  env.dispose();
+  assert.equal(envDisposed, 2);
+  assert.equal(skyDisposed, 0);
+  sky.geometry.dispose();
+  sky.material.dispose();
 });

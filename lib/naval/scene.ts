@@ -1,6 +1,6 @@
 import { mobilePixelRatio, TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { CoastalAtmosphere } from './atmosphere';
-import { COASTAL_SUN } from './daylight';
+import { bakeCoastalEnvironment, COASTAL_SUN } from './daylight';
 import * as THREE from 'three';
 import { makeShip, makePlayerDeck, makeIsland, aimPlayerDeck } from './models';
 import { createNavalMaterials } from './materials';
@@ -9,6 +9,8 @@ import { NavalEffects } from './effects';
 import { ShipDamageVisuals } from './ship-damage';
 import { ShellSplashVisuals, shellVisualScale } from './shell-splashes';
 import { shellPosition, type Battle, type BattleEvent } from './simulation';
+import { createBloomComposer } from '../post-processing';
+import { TracerPool } from '../vfx';
 
 export type ScreenPoint = { x: number; y: number; visible: boolean };
 export class NavalScene {
@@ -30,11 +32,20 @@ export class NavalScene {
   private ships = new Map<string, THREE.Group>();
   private shells = new Map<string, THREE.Group>();
   private shellGeo = new THREE.CapsuleGeometry(0.36, 4, 3, 8);
-  private shellMaterial = new THREE.MeshBasicMaterial({ color: '#ffdf98' });
-  private enemyMaterial = new THREE.MeshBasicMaterial({ color: '#ff9e54' });
+  private shellMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(1.9, 1.55, 0.85),
+    toneMapped: false,
+  });
+  private enemyMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(1.9, 0.9, 0.42),
+    toneMapped: false,
+  });
+  private shellTrails: TracerPool;
   private reticle: THREE.Mesh;
   private environment: THREE.WebGLRenderTarget;
-  private muzzleLight = new THREE.PointLight('#ffbb62', 0, 70, 1.7);
+  private muzzleLight = new THREE.PointLight('#ffbb62', 0, 90, 1.4);
+  private blastLight = new THREE.PointLight('#ff9d42', 0, 240, 1.4);
+  private post?: ReturnType<typeof createBloomComposer>;
   private width = 1;
   private height = 1;
   private recoil = 0;
@@ -77,15 +88,14 @@ export class NavalScene {
     const sky = this.sky;
     enableWaterReflection(sky);
     this.scene.add(sky, this.ocean.mesh, this.player.root);
-    const environmentScene = new THREE.Scene();
-    environmentScene.add(sky.clone());
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    sky.material.uniforms.showSunDisc.value = false;
-    this.environment = pmrem.fromScene(environmentScene, 0.08, 0.1, 18000);
-    sky.material.uniforms.showSunDisc.value = true;
-    pmrem.dispose();
+    this.environment = bakeCoastalEnvironment(
+      this.renderer,
+      sky,
+      '#243d45',
+      18000,
+    );
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.28;
+    this.scene.environmentIntensity = 0.52;
     const hemi = new THREE.HemisphereLight('#c7e0e6', '#344a50', 0.8);
     enableWaterReflection(hemi);
     this.scene.add(hemi);
@@ -112,7 +122,15 @@ export class NavalScene {
     sun.shadow.normalBias = 0.025;
     sun.shadow.radius = 2;
     enableWaterReflection(sun);
-    this.scene.add(sun, sun.target, this.muzzleLight);
+    this.scene.add(sun, sun.target, this.muzzleLight, this.blastLight);
+    this.shellTrails = new TracerPool(this.scene, 32);
+    if (!this.touch.matches) {
+      this.post = createBloomComposer(this.renderer, this.scene, this.camera, {
+        strength: 0.25,
+        radius: 0.4,
+        threshold: 1.15,
+      });
+    }
     this.scene.add(
       makeIsland(-1700, -2700, 1300, 350, 3),
       makeIsland(1900, -3400, 1700, 470, 9),
@@ -140,6 +158,7 @@ export class NavalScene {
     this.camera.aspect = this.width / Math.max(1, this.height);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
+    this.post?.setSize(this.width, this.height);
   }
   project(x: number, y: number, z: number): ScreenPoint {
     const p = new THREE.Vector3(x, y, z).project(this.camera);
@@ -163,7 +182,7 @@ export class NavalScene {
       for (const muzzle of shell.muzzles)
         this.effects.muzzle(new THREE.Vector3(muzzle.x, muzzle.y, muzzle.z), d);
       this.muzzleLight.position.copy(shell.muzzles[0]);
-      this.muzzleLight.intensity = 90;
+      this.muzzleLight.intensity = 380;
     }
     if (event.type === 'hit' || event.type === 'sunk') {
       const ship = battle.ships.find((s) => s.id === event.shipId);
@@ -174,10 +193,10 @@ export class NavalScene {
         mesh.rotation.y = -ship.heading;
         mesh.updateWorldMatrix(true, false);
         const p = event.localPoint;
-        this.effects.explosion(
-          mesh.localToWorld(new THREE.Vector3(p.x, p.y, p.z)),
-          event.type === 'sunk',
-        );
+        const worldHit = mesh.localToWorld(new THREE.Vector3(p.x, p.y, p.z));
+        this.effects.explosion(worldHit, event.type === 'sunk');
+        this.blastLight.position.copy(worldHit).setY(worldHit.y + 4);
+        this.blastLight.intensity = event.type === 'sunk' ? 900 : 420;
       }
     }
     if (event.type === 'enemy-fired') {
@@ -210,6 +229,8 @@ export class NavalScene {
     this.recoil = 0;
     this.damage = 0;
     this.muzzleLight.intensity = 0;
+    this.blastLight.intensity = 0;
+    this.shellTrails.clear();
   }
   render(battle: Battle, dt: number, reducedMotion: boolean, scope = false) {
     const activeDt = battle.status === 'paused' ? 0 : dt;
@@ -228,7 +249,11 @@ export class NavalScene {
     this.damage = Math.max(0, this.damage - activeDt * 2);
     this.muzzleLight.intensity = Math.max(
       0,
-      this.muzzleLight.intensity - activeDt * 800,
+      this.muzzleLight.intensity - activeDt * 3400,
+    );
+    this.blastLight.intensity = Math.max(
+      0,
+      this.blastLight.intensity - activeDt * 2400,
     );
     const angle = THREE.MathUtils.degToRad(battle.heading),
       bob = reducedMotion ? 0 : Math.sin(t * 0.8) * 0.11;
@@ -286,6 +311,7 @@ export class NavalScene {
         this.scene.remove(mesh);
         this.shells.delete(id);
       }
+    let trailCount = 0;
     for (const shell of battle.shells) {
       let salvo = this.shells.get(shell.id);
       if (!salvo) {
@@ -332,8 +358,46 @@ export class NavalScene {
           this.touch.matches && !shell.enemy,
         );
         mesh.scale.set(scale.width, scale.length, scale.width);
+        if (trailCount < this.shellTrails.capacity) {
+          const behind = shellPosition(
+            { ...shell, age: Math.max(0, shell.age - 0.045) },
+            barrel,
+          );
+          if (shell.enemy) {
+            this.shellTrails.set(
+              trailCount++,
+              behind.x,
+              behind.y,
+              behind.z,
+              p.x,
+              p.y,
+              p.z,
+              0.38,
+              1.9,
+              0.85,
+              0.38,
+              0.85,
+            );
+          } else {
+            this.shellTrails.set(
+              trailCount++,
+              behind.x,
+              behind.y,
+              behind.z,
+              p.x,
+              p.y,
+              p.z,
+              0.42,
+              1.85,
+              1.45,
+              0.78,
+              0.9,
+            );
+          }
+        }
       }
     }
+    this.shellTrails.commit(trailCount);
     this.effects.update(activeDt);
     this.shellSplashes.update(
       activeDt,
@@ -365,7 +429,8 @@ export class NavalScene {
       this.lastShadowRange = battle.range;
       this.lastShadowScope = scope;
     }
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
   }
   dispose() {
     this.observer.disconnect();
@@ -373,6 +438,8 @@ export class NavalScene {
       'webglcontextlost',
       this.onLost,
     );
+    this.post?.dispose();
+    this.shellTrails.dispose();
     this.shipDamage.dispose();
     this.effects.dispose();
     this.shellSplashes.dispose();

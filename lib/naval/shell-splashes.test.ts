@@ -94,8 +94,29 @@ void test('repeated salvo splashes stay bounded and release shared graphics once
     });
   }
   assert.equal(visual.root.children.length, 4);
+  visual.root.traverse((o) => {
+    if (
+      (o instanceof THREE.Mesh || o instanceof THREE.Points) &&
+      o.material instanceof THREE.ShaderMaterial
+    ) {
+      assert.equal(o.material.fog, true);
+      const frag = o.material.fragmentShader;
+      const fogIdx = frag.indexOf('#include <fog_fragment>');
+      const toneIdx = frag.indexOf('#include <tonemapping_fragment>');
+      const colorIdx = frag.indexOf('#include <colorspace_fragment>');
+      assert.ok(fogIdx > 0 && toneIdx > fogIdx && colorIdx > toneIdx);
+    }
+  });
   visual.reset();
   assert.equal(visual.root.children.length, 0);
+  // Subsequent impacts reuse pre-allocated pooled slots instead of creating new resources.
+  visual.impact(40, -680);
+  visual.root.traverse((o) => {
+    if (o instanceof THREE.Mesh || o instanceof THREE.Points) {
+      assert.ok(resources.has(o.geometry));
+      assert.ok(resources.has(o.material));
+    }
+  });
   visual.dispose();
   visual.dispose();
   assert.equal(disposed, resources.size);
