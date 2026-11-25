@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { worldUV } from './detail';
+import { worldCylinderUV, worldLatheUV, worldTubeUV, worldUV } from './detail';
 
 type Point = [number, number, number];
 
@@ -132,10 +132,15 @@ export class BunkerEquipment {
   ) {
     const start = new T.Vector3(...a),
       end = new T.Vector3(...b),
-      delta = end.clone().sub(start);
+      delta = end.clone().sub(start),
+      len = delta.length();
     const m = this.mesh(
       g,
-      new T.CylinderGeometry(endRadius, radius, delta.length(), segments),
+      worldCylinderUV(
+        new T.CylinderGeometry(endRadius, radius, len, segments),
+        (radius + endRadius) * 0.5,
+        len,
+      ),
       mat,
       start.add(end).multiplyScalar(0.5).toArray() as Point,
     );
@@ -143,14 +148,21 @@ export class BunkerEquipment {
     return m;
   }
   tube(g: T.Group, points: Point[], radius: number, mat: T.Material) {
+    const curve = new T.CatmullRomCurve3(
+      points.map((p) => new T.Vector3(...p)),
+    );
     return this.mesh(
       g,
-      new T.TubeGeometry(
-        new T.CatmullRomCurve3(points.map((p) => new T.Vector3(...p))),
-        Math.max(16, points.length * 6),
+      worldTubeUV(
+        new T.TubeGeometry(
+          curve,
+          Math.max(16, points.length * 6),
+          radius,
+          8,
+          false,
+        ),
+        curve.getLength(),
         radius,
-        8,
-        false,
       ),
       mat,
       [0, 0, 0],
@@ -535,7 +547,12 @@ export class BunkerEquipment {
       [0.41, 1.3],
       [0, 1.3],
     ].map(([x, y]) => new T.Vector2(x, y));
-    this.mesh(g, new T.LatheGeometry(profile, 40), this.enamel, [0, 0, 0]);
+    this.mesh(
+      g,
+      worldLatheUV(new T.LatheGeometry(profile, 40), profile),
+      this.enamel,
+      [0, 0, 0],
+    );
     for (const y of [0.05, 1.28])
       this.ring(g, [0, y, 0], 0.411, 0.012, this.metal).rotation.x =
         Math.PI / 2;

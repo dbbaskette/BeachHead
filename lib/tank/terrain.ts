@@ -13,7 +13,7 @@ export function terrainHeight(x: number, z: number) {
     smooth(0, 70, outside) *
     (7 + 5 * Math.sin(x * 0.019 + z * 0.012) + 3 * Math.cos(z * 0.031));
   const bank = 1 - smooth(10, 17, Math.abs(z + 322));
-  return -0.08 + hills - bank * 2.4;
+  return hills - bank * 2.4 || 0;
 }
 export const ROADS = [
   [0, -133, 15, 322],
@@ -129,13 +129,25 @@ export function buildTerrain(
       base*=mix(vec3(.8),soil*1.6,.55);
       base=mix(base,stones*.73,cobble);
       float ruts=exp(-pow((abs(p.x+44.0)-1.65)*2.0,2.0));
-      base*=1.0-ruts*(1.0-smoothstep(-1.0,1.0,lane))*.30;
+      float rutMask=ruts*(1.0-smoothstep(-1.0,1.0,lane));
+      base*=1.0-rutMask*.30;
       float scars=0.0;
       scars+=exp(-dot((p-vec2(10,-66))/vec2(2.5,4),(p-vec2(10,-66))/vec2(2.5,4)));
       scars+=exp(-dot((p-vec2(-10,-159))/vec2(3,4),(p-vec2(-10,-159))/vec2(3,4)));
       scars+=exp(-dot((p-vec2(16,-287))/vec2(4,3),(p-vec2(16,-287))/vec2(4,3)));
       base=mix(base,vec3(.065,.057,.044),clamp(scars*(.6+grain*.3),0.0,.8));
       diffuseColor.rgb*=base*(.94+fine*.12);
+    `,
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `
+      #include <roughnessmap_fragment>
+      float grassRough=0.95;
+      float earthRough=mix(0.88,0.38,rutMask);
+      float stoneLuma=dot(stones,vec3(0.333));
+      float cobbleRough=mix(0.92,0.66,smoothstep(0.32,0.62,stoneLuma))*mix(0.88,1.04,broad);
+      roughnessFactor=clamp(mix(mix(grassRough,earthRough,road),cobbleRough,cobble),0.28,1.0);
     `,
     );
     // Per-fragment relief follows the same world-space cobbles as the albedo.
@@ -151,7 +163,7 @@ export function buildTerrain(
     `,
     );
   };
-  ground.customProgramCacheKey = () => 'breakout-terrain-v1';
+  ground.customProgramCacheKey = () => 'breakout-terrain-v2';
   const geometry = a.geo(
     new T.PlaneGeometry(1200, 1200, touch ? 120 : 200, 300),
   );
@@ -273,6 +285,9 @@ export function buildTerrain(
   // Shallow irregular puddles and damp margins lie in orchard wheel ruts.
   const wet = a.mat('#454c42', 0.17);
   wet.metalness = 0.12;
+  wet.polygonOffset = true;
+  wet.polygonOffsetFactor = -2;
+  wet.polygonOffsetUnits = -2;
   const puddles = new T.Group();
   for (let i = 0; i < 20; i++) {
     const shape = new T.Shape();
@@ -287,7 +302,7 @@ export function buildTerrain(
     const g = a.geo(new T.ShapeGeometry(shape));
     g.rotateX(-Math.PI / 2);
     const m = new T.Mesh(g, wet);
-    m.position.set(-44 + (i % 2 ? 1.6 : -1.6), -0.055, -27 - i * 12.4);
+    m.position.set(-44 + (i % 2 ? 1.6 : -1.6), 0.012, -27 - i * 12.4);
     m.scale.set(0.45 + random(i + 1) * 0.4, 1, 1.1 + random(i + 2) * 1.5);
     puddles.add(m);
   }

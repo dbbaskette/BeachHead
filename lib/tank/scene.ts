@@ -1,6 +1,7 @@
 import * as T from 'three';
-import { TankArt, makeTank, makeCover, makeEnemy } from './art';
+import { TankArt, makeTank, makeCover, makeEnemy, makeAlly } from './art';
 import { consolidateTank as consolidate } from './art';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeSky } from '../naval/ocean';
 import {
   bakeCoastalEnvironment,
@@ -108,9 +109,10 @@ export class TankScene {
   private disposed = false;
   private smokeClock = 0;
   private river: T.Mesh;
+  private riverUniforms = { uTime: { value: 0 } };
   private supply = new T.Group();
   private bridge = new T.Group();
-  private allies: T.Group[] = [];
+  private allies: ReturnType<typeof makeAlly>[] = [];
   private sun = new T.DirectionalLight('#ffe2b7', 3);
   private flashLight = new T.PointLight('#ffbe66', 0, 32, 1.5);
   private env: T.WebGLRenderTarget;
@@ -214,6 +216,9 @@ export class TankScene {
       `,
       transparent: true,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
       fog: true,
     });
     this.art.materials.add(treadMat);
@@ -224,17 +229,62 @@ export class TankScene {
     this.scene.add(this.trackMarks);
     const water = this.art.mat('#596d60', 0.22);
     water.normalMap = this.art.texture('water-normal.jpg');
-    water.normalMap.repeat.set(12, 1);
-    water.normalScale.set(0.3, 0.3);
+    water.normalMap.repeat.set(18, 2);
+    water.normalScale.set(0.35, 0.35);
     water.metalness = 0.08;
+    water.transparent = true;
+    water.depthWrite = false;
+    water.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.riverUniforms.uTime;
+      shader.vertexShader = 'varying vec2 vRiverXZ;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvRiverXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
+      );
+      shader.fragmentShader =
+        'varying vec2 vRiverXZ;\nuniform float uTime;\n' +
+        shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+         float bankDist = abs(vRiverXZ.y + 322.0);
+         float bankFactor = 1.0 - smoothstep(10.0, 17.0, bankDist);
+         float waterDepth = max(0.0, bankFactor * 2.4 - 0.95);
+         float shallow = smoothstep(0.0, 0.55, waterDepth);
+         vec3 shallowCol = vec3(0.21, 0.23, 0.16);
+         vec3 deepCol = vec3(0.08, 0.15, 0.13);
+         float ripple = texture2D(normalMap, vRiverXZ * vec2(0.08, 0.14) + vec2(uTime * 0.045, uTime * 0.018)).r;
+         float shoreFoam = (1.0 - smoothstep(0.03, 0.36, waterDepth)) * smoothstep(0.48, 0.78, ripple);
+         diffuseColor.rgb = mix(shallowCol, deepCol, shallow) + vec3(0.32, 0.34, 0.29) * shoreFoam * 0.45;
+         diffuseColor.a *= smoothstep(0.0, 0.22, waterDepth);`,
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+         roughnessFactor = mix(0.45, 0.14, shallow);`,
+      );
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#ifdef USE_NORMALMAP_TANGENTSPACE
+           vec2 flowUvA = vNormalMapUv + vec2(uTime * 0.035, uTime * 0.012);
+           vec2 flowUvB = vNormalMapUv * 1.65 + vec2(-uTime * 0.022, uTime * 0.028);
+           vec3 mapN1 = texture2D(normalMap, flowUvA).xyz * 2.0 - 1.0;
+           vec3 mapN2 = texture2D(normalMap, flowUvB).xyz * 2.0 - 1.0;
+           vec3 mapN = normalize(vec3((mapN1.xy + mapN2.xy) * 0.55 * normalScale, 1.0));
+           normal = normalize(tbn * mapN);
+         #endif`,
+      );
+    };
+    water.customProgramCacheKey = () => 'normandy-river-v1';
     this.river = this.art.mesh(
       this.scene,
-      this.art.geo(new T.PlaneGeometry(900, 26, 1, 1)),
+      this.art.geo(new T.PlaneGeometry(900, 28, 32, 8)),
       water,
-      [0, -1.05, -322],
+      [0, -0.95, -322],
       [1, 1, 1],
     );
     this.river.rotation.x = -Math.PI / 2;
+    this.river.receiveShadow = true;
     this.buildBridge();
     this.scene.add(this.bridge);
     for (const c of s.cover) {
@@ -331,10 +381,10 @@ export class TankScene {
     this.supply.position.set(SUPPLY.x, 0, SUPPLY.z);
     this.scene.add(this.supply);
     for (let i = 0; i < 5; i++) {
-      const ally = makeEnemy(this.art, 'rocket').root;
-      ally.position.set((i % 2 ? 1 : -1) * 2, 0, 35 + i * 2);
+      const ally = makeAlly(this.art);
+      ally.root.position.set((i % 2 ? 1 : -1) * 2, 0, 35 + i * 2);
       this.allies.push(ally);
-      this.scene.add(ally);
+      this.scene.add(ally.root);
     }
     this.smokePool = new BillboardPool(this.scene, MAX_SMOKE, {
       blending: 'normal',
@@ -431,21 +481,39 @@ export class TankScene {
       [x, 3 * scale, z],
       [0.27 * scale, 6 * scale, 0.27 * scale],
     );
+    const leafCards: T.BufferGeometry[] = [];
+    const cardMatrix = new T.Matrix4();
+    const cardQuat = new T.Quaternion();
+    const cardEuler = new T.Euler();
+    const cardPos = new T.Vector3();
+    const cardScale = new T.Vector3();
     for (let j = 0; j < 34; j++) {
       const angle = j * 2.399,
         radius = 1.6 + Math.sin(j * 4) * 0.9;
-      const leaf = a.mesh(
-        root,
-        a.foliage,
-        a.leaves,
-        [
-          x + Math.sin(angle) * radius * scale,
-          (5 + (j % 5) * 0.55) * scale,
-          z + Math.cos(angle) * radius * scale,
-        ],
-        [3.5 * scale, 3.5 * scale, 1],
+      cardPos.set(
+        x + Math.sin(angle) * radius * scale,
+        (5 + (j % 5) * 0.55) * scale,
+        z + Math.cos(angle) * radius * scale,
       );
-      leaf.rotation.set((j % 3) * 0.65, angle, (j % 2) * 0.5);
+      cardEuler.set((j % 3) * 0.65, angle, (j % 2) * 0.5);
+      cardQuat.setFromEuler(cardEuler);
+      cardScale.set(3.5 * scale, 3.5 * scale, 1);
+      cardMatrix.compose(cardPos, cardQuat, cardScale);
+      const cardGeo = a.foliage.clone();
+      cardGeo.applyMatrix4(cardMatrix);
+      // Bend leaf card normals radially outward from crown center so sunlight shades smoothly.
+      const pAttr = cardGeo.getAttribute('position');
+      const nAttr = cardGeo.getAttribute('normal');
+      const cy = 5.35 * scale;
+      for (let v = 0; v < pAttr.count; v++) {
+        const dx = pAttr.getX(v) - x;
+        const dy = pAttr.getY(v) - cy;
+        const dz = pAttr.getZ(v) - z;
+        const len = Math.hypot(dx, dy, dz) || 1;
+        nAttr.setXYZ(v, dx / len, dy / len, dz / len);
+      }
+      nAttr.needsUpdate = true;
+      leafCards.push(cardGeo);
       if (j < 5) {
         const branch = a.mesh(
           root,
@@ -460,6 +528,11 @@ export class TankScene {
         );
         branch.rotation.set(Math.cos(angle) * 0.5, 0, Math.sin(angle) * 0.5);
       }
+    }
+    const mergedLeaves = mergeGeometries(leafCards, false);
+    leafCards.forEach((g) => g.dispose());
+    if (mergedLeaves) {
+      a.mesh(root, a.geo(mergedLeaves), a.leaves, [0, 0, 0], [1, 1, 1]);
     }
   }
   private buildBridge() {
@@ -668,6 +741,8 @@ export class TankScene {
     model.barrel.rotation.x = pitch;
     model.barrel.position.z = -1.03 + recoil * 0.3;
     for (const wheel of model.wheels) wheel.rotation.x = distance * 1.5;
+    for (const sprocket of model.sprockets)
+      sprocket.rotation.x = distance * 1.5;
     let i = 0;
     for (const side of [-1, 1])
       for (let j = 0; j < 44; j++) {
@@ -726,7 +801,7 @@ export class TankScene {
       for (const side of [-1, 1]) {
         this.object.position.set(
           s.x + Math.cos(s.yaw) * side * 1.43,
-          -0.043,
+          0.015,
           s.z + Math.sin(s.yaw) * side * 1.43,
         );
         this.object.rotation.set(0, -s.yaw, 0);
@@ -753,7 +828,7 @@ export class TankScene {
 
     this.player.root.position.set(
       s.x,
-      0.045 +
+      0.005 +
         (reduced
           ? 0
           : Math.sin(s.distance * 3) *
@@ -827,7 +902,7 @@ export class TankScene {
     for (const e of s.enemies) {
       if (e.kind === 'tank') {
         this.enemyTank.root.visible = e.active;
-        this.enemyTank.root.position.set(e.x, 0, e.z);
+        this.enemyTank.root.position.set(e.x, 0.005, e.z);
         this.animateTank(
           this.enemyTank,
           s.time * (e.alerted && e.health > 0 ? 1.6 : 0),
@@ -1035,16 +1110,24 @@ export class TankScene {
       this.shells.setMatrixAt(i, this.object.matrix);
     }
     this.shells.instanceMatrix.needsUpdate = true;
-    (this.river.material as T.MeshStandardMaterial).normalMap!.offset.x =
-      s.time * 0.008;
-    this.allies.forEach((a, i) => {
-      a.visible = s.phase === 'hold' || s.status === 'won';
-      a.position.set(
+    this.riverUniforms.uTime.value = s.time;
+    this.allies.forEach((ally, i) => {
+      ally.root.visible = s.phase === 'hold' || s.status === 'won';
+      const walking = s.phase === 'hold' && s.status !== 'won';
+      const stride = walking ? Math.sin(s.time * 6.5 + i * 1.3) * 0.42 : 0;
+      const bob = walking
+        ? Math.abs(Math.sin(s.time * 6.5 + i * 1.3)) * 0.045
+        : 0;
+      ally.root.position.set(
         (i % 2 ? 1 : -1) * (2 + i * 0.3),
-        0,
+        bob,
         s.z + Math.max(8, 65 - s.hold * 1.3) + i * 2,
       );
-      a.rotation.y = Math.PI;
+      ally.root.rotation.y = Math.PI;
+      ally.leftLeg.rotation.x = stride;
+      ally.rightLeg.rotation.x = -stride;
+      ally.leftArm.rotation.x = -stride * 0.55;
+      ally.rightArm.rotation.x = stride * 0.35;
     });
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);

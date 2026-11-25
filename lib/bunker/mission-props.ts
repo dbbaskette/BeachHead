@@ -75,6 +75,9 @@ export function addMissionProps(
   held.scale.setScalar(0.7);
   held.position.set(0.23, -0.32, -0.65);
   held.rotation.y = -0.12;
+  held.traverse((o) => {
+    if (o instanceof T.Mesh) o.castShadow = false;
+  });
   for (const site of chargeSites) {
     const rack = equipment.radioRack();
     rack.position.set(site.x, 0, -54.8);

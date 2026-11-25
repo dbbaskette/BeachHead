@@ -1,6 +1,6 @@
 import * as T from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { worldUV } from './detail';
+import { worldCylinderUV, worldUV } from './detail';
 import { doorLayouts } from './simulation';
 import type { BunkerEquipment } from './equipment';
 
@@ -50,7 +50,10 @@ export function addExpansion(
     mat: T.Material,
     axis = 'y',
   ) => {
-    const mesh = new T.Mesh(new T.CylinderGeometry(r, r, h, 16), mat);
+    const mesh = new T.Mesh(
+      worldCylinderUV(new T.CylinderGeometry(r, r, h, 16), r, h),
+      mat,
+    );
     mesh.position.set(x, y, z);
     if (axis === 'z') mesh.rotation.x = Math.PI / 2;
     mesh.castShadow = true;

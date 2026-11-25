@@ -6,17 +6,17 @@ void test('terrain keeps the drivable village and building foundations aligned w
   for (let x = -83; x <= 65; x += 2)
     for (let z = -375; z <= 30; z += 2) {
       if (Math.abs(z + 322) < 17) continue;
-      assert.equal(terrainHeight(x, z), -0.08);
+      assert.equal(terrainHeight(x, z), 0);
     }
   for (const c of village().filter((c) => c.kind === 'house')) {
     for (const x of [c.x - c.w / 2, c.x + c.w / 2])
       for (const z of [c.z - c.d / 2, c.z + c.d / 2])
-        assert.equal(terrainHeight(x, z), -0.08);
+        assert.equal(terrainHeight(x, z), 0);
   }
 });
 void test('river is recessed beneath water with continuous banks and hills outside combat space', () => {
   assert.ok(terrainHeight(30, -322) < -2);
-  assert.equal(terrainHeight(30, -302), -0.08);
+  assert.equal(terrainHeight(30, -302), 0);
   for (let z = -345; z < -300; z += 0.1)
     assert.ok(
       Math.abs(terrainHeight(30, z + 0.1) - terrainHeight(30, z)) < 0.06,

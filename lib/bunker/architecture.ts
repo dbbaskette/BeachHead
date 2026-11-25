@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { worldUV } from './detail';
+import { worldArchUV, worldCylinderUV, worldTubeUV, worldUV } from './detail';
 import { rooms, solids, doorLayouts } from './simulation';
 
 /** Real silhouette and shadow geometry; no flat decals stand in for these fixtures. */
@@ -45,14 +45,20 @@ export function addBunkerArchitecture(
       y,
       z,
     );
-  const tube = (points: T.Vector3[], radius: number, material: T.Material) =>
-    mesh(
-      new T.TubeGeometry(new T.CatmullRomCurve3(points), 32, radius, 12, false),
+  const tube = (points: T.Vector3[], radius: number, material: T.Material) => {
+    const curve = new T.CatmullRomCurve3(points);
+    return mesh(
+      worldTubeUV(
+        new T.TubeGeometry(curve, 32, radius, 12, false),
+        curve.getLength(),
+        radius,
+      ),
       material,
       0,
       0,
       0,
     );
+  };
   // Barrel vault: an actual curved intrados, plus proud ribs and haunches. The
   // geometry stays above head height and within the corridor's existing walls.
   function arch(
@@ -80,7 +86,7 @@ export function addBunkerArchitecture(
     }
     shape.closePath();
     mesh(
-      worldUV(
+      worldArchUV(
         new T.ExtrudeGeometry(shape, {
           depth,
           bevelEnabled: true,
@@ -90,6 +96,8 @@ export function addBunkerArchitecture(
           bevelThickness: 0.015,
           curveSegments: 24,
         }),
+        spring,
+        (outerX + innerX) * 0.5,
       ),
       mat,
       centerX,
@@ -190,7 +198,11 @@ export function addBunkerArchitecture(
     );
     for (const height of [0.48, 1.1, 1.53]) {
       const collar = mesh(
-        new T.CylinderGeometry(0.125, 0.125, 0.075, 20),
+        worldCylinderUV(
+          new T.CylinderGeometry(0.125, 0.125, 0.075, 20),
+          0.125,
+          0.075,
+        ),
         dark,
         x,
         height,
@@ -207,7 +219,11 @@ export function addBunkerArchitecture(
     );
     wheel.rotation.y = Math.PI / 2;
     const hub = mesh(
-      new T.CylinderGeometry(0.065, 0.065, 0.2, 16),
+      worldCylinderUV(
+        new T.CylinderGeometry(0.065, 0.065, 0.2, 16),
+        0.065,
+        0.2,
+      ),
       dark,
       x - 0.05,
       1.12,
@@ -224,7 +240,11 @@ export function addBunkerArchitecture(
     const x = r.x + r.w / 2 - 0.65,
       y = r.h - 1.0;
     const duct = mesh(
-      new T.CylinderGeometry(0.24, 0.24, r.d - 1, 24, 1),
+      worldCylinderUV(
+        new T.CylinderGeometry(0.24, 0.24, r.d - 1, 24, 1),
+        0.24,
+        r.d - 1,
+      ),
       steel,
       x,
       y,
