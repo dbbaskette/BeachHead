@@ -2,11 +2,6 @@ import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Sky } from 'three/addons/objects/Sky.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
 import { PELVIS_HEIGHT } from './reactions';
 import { GuardMotion, loadGuardMotions } from './guard-motion';
@@ -25,6 +20,12 @@ import { addMissionProps } from './mission-props';
 import { BunkerEquipment } from './equipment';
 import { batchBunkerScenery } from './static-batches';
 import { BunkerMobileLights } from './mobile-lights';
+import { bakeBunkerEnvironment, createBunkerComposer } from './post-processing';
+import {
+  BillboardPool,
+  createBloodSplatMaterial,
+  createMuzzleFlashMesh,
+} from '../vfx';
 import {
   rooms,
   solids,
@@ -36,39 +37,119 @@ import {
   type Effect,
 } from './simulation';
 
-type Particle = {
-  mesh: T.Mesh;
-  velocity: T.Vector3;
+type DustEffect = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  size: number;
   life: number;
   duration: number;
-  blood?: boolean;
-  dust?: boolean;
+  spin: number;
+  seed: number;
 };
+
+type FireEffect = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  size: number;
+  life: number;
+  duration: number;
+  spin: number;
+  seed: number;
+};
+
+type DebrisPiece = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  life: number;
+  duration: number;
+  blood: boolean;
+  r: number;
+  g: number;
+  b: number;
+  scale: number;
+};
+
+type BloodStain = {
+  x: number;
+  y: number;
+  z: number;
+  nx: number;
+  ny: number;
+  nz: number;
+  hasNormal: boolean;
+  seed: number;
+  scale: number;
+  life: number;
+};
+
+const MAX_DUST = 80;
+const MAX_FIRE = 24;
+const MAX_DEBRIS = 160;
+const MAX_STAINS = 32;
+
 export class BunkerScene {
   private scene = new T.Scene();
   private camera = new T.PerspectiveCamera(68, 1, 0.05, 180);
   private renderer: T.WebGLRenderer;
-  private composer?: EffectComposer;
-  private ao?: SSAOPass;
-  private output?: OutputPass;
+  private post?: ReturnType<typeof createBunkerComposer>;
   private observer: ResizeObserver;
   private weapon = new T.Group();
   private muzzle: T.Mesh;
   private muzzleLight = new T.PointLight('#ffc57a', 0, 4);
   private guards: GuardActor[] = [];
-  private particles: Particle[] = [];
+  private dustPool: BillboardPool;
+  private firePool: BillboardPool;
+  private dusts: DustEffect[] = [];
+  private fires: FireEffect[] = [];
+  private debris: DebrisPiece[] = [];
+  private stains: BloodStain[] = [];
+  private debrisGeo: T.SphereGeometry;
+  private debrisMat: T.MeshStandardMaterial;
+  private debrisMesh: T.InstancedMesh;
+  private stainGeo: T.PlaneGeometry;
+  private stainMat: T.ShaderMaterial;
+  private stainMesh: T.InstancedMesh;
+  private stainAlpha: T.InstancedBufferAttribute;
+  private stainSeed: T.InstancedBufferAttribute;
   private doors: T.Group[] = [];
   private missionProps: ReturnType<typeof addMissionProps>;
   private grenades = new Map<number, T.Group>();
+  private grenadeBodyGeo = new T.SphereGeometry(0.085, 12, 8);
+  private grenadeBodyMat = new T.MeshStandardMaterial({
+    color: '#485043',
+    metalness: 0.65,
+    roughness: 0.55,
+  });
+  private grenadeCapGeo = new T.CylinderGeometry(0.035, 0.035, 0.05, 8);
+  private grenadeCapMat = new T.MeshStandardMaterial({
+    color: '#696d60',
+    metalness: 0.8,
+    roughness: 0.4,
+  });
+  private bulbGeo = new T.SphereGeometry(0.09, 10, 8);
+  private bulbMat = new T.MeshBasicMaterial({
+    color: new T.Color(2.4, 1.85, 0.95),
+    toneMapped: false,
+  });
   private blastLight = new T.PointLight('#ffba70', 0, 12, 2);
   private blastAge = 0;
-  private dustTexture?: T.CanvasTexture;
-  private stains: { mesh: T.Mesh; life: number }[] = [];
   private medkit = new T.Group();
   private exitLight = new T.MeshStandardMaterial({
     color: '#745b34',
     emissive: '#cf7e2c',
-    emissiveIntensity: 0.7,
+    emissiveIntensity: 1.8,
   });
   private sea: T.Mesh;
   private disposed = false;
@@ -79,6 +160,17 @@ export class BunkerScene {
   private guardFrustum = new T.Frustum();
   private viewProjection = new T.Matrix4();
   private guardBounds = new T.Sphere();
+  private prevMuzzle = false;
+  private visualTime = 0;
+  private dustColor = new T.Color('#756952');
+  private scratchColor = new T.Color();
+  private scratchDummy = new T.Object3D();
+  private scratchPrev = new T.Vector3();
+  private scratchTravel = new T.Vector3();
+  private scratchUp = new T.Vector3(0, 1, 0);
+  private scratchZ = new T.Vector3(0, 0, 1);
+  private scratchNormal = new T.Vector3();
+  private scratchMuzzleWorld = new T.Vector3();
   private metal = new T.MeshStandardMaterial({
     color: '#434b49',
     roughness: 0.58,
@@ -114,13 +206,9 @@ export class BunkerScene {
     this.renderer.shadowMap.enabled = !touch;
     this.renderer.shadowMap.type = T.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
-    const environment = new RoomEnvironment();
-    const pmrem = new T.PMREMGenerator(this.renderer);
-    this.environment = pmrem.fromScene(environment, 0.05);
+    this.environment = bakeBunkerEnvironment(this.renderer);
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.22;
-    environment.dispose();
-    pmrem.dispose();
+    this.scene.environmentIntensity = 0.35;
     this.scene.background = new T.Color('#6f8991');
     this.scene.fog = new T.FogExp2('#33332f', 0.012);
     this.scene.add(new T.HemisphereLight('#c5d5d4', '#484035', 0.42));
@@ -503,18 +591,10 @@ export class BunkerScene {
       [-0.025, -0.085, -0.23],
     );
     addWeaponDetail(this.weapon, this.metal, this.dark, this.wood);
-    this.muzzle = this.part(
-      this.weapon,
-      new T.ConeGeometry(0.06, 0.23, 7),
-      new T.MeshBasicMaterial({
-        color: '#ffe0a0',
-        transparent: true,
-        opacity: 0.9,
-      }),
-      [0, 0.009, -0.72],
-      [-Math.PI / 2, 0, 0],
-    );
+    this.muzzle = createMuzzleFlashMesh(0.75);
+    this.muzzle.position.set(0, 0.009, -0.72);
     this.muzzle.visible = false;
+    this.weapon.add(this.muzzle);
     this.muzzleLight.position.set(0.1, -0.1, -0.7);
     this.camera.add(this.muzzleLight);
     // Shadow and ambient-occlusion passes resubmit the scene, so desktop gains most from batching.
@@ -528,29 +608,73 @@ export class BunkerScene {
     ]);
     for (const door of this.doors) batchBunkerScenery(door, []);
     batchBunkerScenery(this.weapon, [this.muzzle]);
+
+    this.dustPool = new BillboardPool(this.scene, MAX_DUST, {
+      blending: 'normal',
+      kind: 'smoke',
+      renderOrder: 4,
+    });
+    this.firePool = new BillboardPool(this.scene, MAX_FIRE, {
+      blending: 'additive',
+      kind: 'fire',
+      renderOrder: 5,
+    });
+    this.debrisGeo = new T.SphereGeometry(0.015, 5, 4);
+    this.debrisMat = new T.MeshStandardMaterial({
+      color: '#ffffff',
+      roughness: 0.85,
+    });
+    this.debrisMesh = new T.InstancedMesh(
+      this.debrisGeo,
+      this.debrisMat,
+      MAX_DEBRIS,
+    );
+    this.debrisMesh.setColorAt(0, new T.Color(1, 1, 1));
+    this.debrisMesh.count = 0;
+    this.debrisMesh.frustumCulled = false;
+
+    this.stainGeo = new T.PlaneGeometry(1, 1);
+    this.stainAlpha = new T.InstancedBufferAttribute(
+      new Float32Array(MAX_STAINS),
+      1,
+    );
+    this.stainAlpha.setUsage(T.DynamicDrawUsage);
+    this.stainSeed = new T.InstancedBufferAttribute(
+      new Float32Array(MAX_STAINS),
+      1,
+    );
+    this.stainSeed.setUsage(T.DynamicDrawUsage);
+    this.stainGeo.setAttribute('aAlpha', this.stainAlpha);
+    this.stainGeo.setAttribute('aSeed', this.stainSeed);
+    this.stainMat = createBloodSplatMaterial();
+    this.stainMat.side = T.DoubleSide;
+    this.stainMesh = new T.InstancedMesh(
+      this.stainGeo,
+      this.stainMat,
+      MAX_STAINS,
+    );
+    this.stainMesh.count = 0;
+    this.stainMesh.frustumCulled = false;
+    this.stainMesh.renderOrder = 2;
+    this.scene.add(this.debrisMesh, this.stainMesh);
+
     if (touch) {
       this.mobileLights = new BunkerMobileLights(this.scene, [
         this.camera,
         this.blastLight,
       ]);
-    }
-    if (!touch) {
-      this.composer = new EffectComposer(this.renderer);
-      this.ao = new SSAOPass(this.scene, this.camera, 1, 1, 16);
-      this.ao.kernelRadius = 0.65;
-      this.ao.minDistance = 0.001;
-      this.ao.maxDistance = 0.08;
-      this.output = new OutputPass();
-      this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.composer.addPass(this.ao);
-      this.composer.addPass(this.output);
+    } else {
+      this.post = createBunkerComposer(this.renderer, this.scene, this.camera, [
+        this.weapon,
+        this.missionProps.held,
+      ]);
     }
     const resize = () => {
       if (this.disposed) return;
       this.camera.aspect = host.clientWidth / Math.max(1, host.clientHeight);
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(host.clientWidth, host.clientHeight);
-      this.composer?.setSize(host.clientWidth, host.clientHeight);
+      this.post?.setSize(host.clientWidth, host.clientHeight);
     };
     this.observer = new ResizeObserver(resize);
     this.observer.observe(host);
@@ -654,12 +778,7 @@ export class BunkerScene {
       this.dark,
       [x, y, z],
     );
-    this.part(
-      this.scene,
-      new T.SphereGeometry(0.09, 10, 8),
-      new T.MeshBasicMaterial({ color: '#ffda8c' }),
-      [x, y - 0.09, z],
-    );
+    this.part(this.scene, this.bulbGeo, this.bulbMat, [x, y - 0.09, z]);
     const light = new T.SpotLight('#ffd7a1', 75, 12, 1.15, 0.7, 2);
     light.target.position.set(x, 0, z);
     light.castShadow = this.detailShadows && (z === 4 || z === -1);
@@ -870,13 +989,10 @@ export class BunkerScene {
         }
       });
       const helmet = model.getObjectByName('Helmet');
-      const flash = this.part(
-        body,
-        new T.SphereGeometry(0.09, 8, 6),
-        new T.MeshBasicMaterial({ color: '#ffd087' }),
-        [0.2, 1.28, -0.65],
-      );
+      const flash = createMuzzleFlashMesh(0.65);
+      flash.position.set(0.2, 1.28, -0.65);
       flash.visible = false;
+      body.add(flash);
       const mixer = new T.AnimationMixer(model),
         idle = mixer.clipAction(idleClip),
         walk = mixer.clipAction(walkClip);
@@ -960,30 +1076,21 @@ export class BunkerScene {
   }
   reset() {
     for (const grenade of this.grenades.values()) {
-      grenade.traverse((o) => {
-        if (o instanceof T.Mesh) {
-          o.geometry.dispose();
-          (o.material as T.Material).dispose();
-        }
-      });
       grenade.removeFromParent();
     }
     this.grenades.clear();
     this.blastAge = 0;
     this.blastLight.intensity = 0;
+    this.prevMuzzle = false;
     this.doors.forEach((d, i) => (d.position.x = doorLayouts[i].x));
-    for (const p of this.particles) {
-      p.mesh.removeFromParent();
-      p.mesh.geometry.dispose();
-      (p.mesh.material as T.Material).dispose();
-    }
-    this.particles = [];
-    for (const stain of this.stains) {
-      stain.mesh.removeFromParent();
-      stain.mesh.geometry.dispose();
-      (stain.mesh.material as T.Material).dispose();
-    }
-    this.stains = [];
+    this.dusts.length = 0;
+    this.fires.length = 0;
+    this.debris.length = 0;
+    this.stains.length = 0;
+    this.dustPool.clear();
+    this.firePool.clear();
+    this.debrisMesh.count = 0;
+    this.stainMesh.count = 0;
     this.guards.forEach(resetGuardActor);
   }
   private stain(
@@ -993,86 +1100,42 @@ export class BunkerScene {
     y = 0.016,
     normal?: T.Vector3,
   ) {
-    if (this.stains.length >= 32) {
-      const old = this.stains.shift()!;
-      old.mesh.removeFromParent();
-      old.mesh.geometry.dispose();
-      (old.mesh.material as T.Material).dispose();
-    }
-    const shape = new T.Shape();
-    for (let i = 0; i <= 16; i++) {
-      const angle = (i / 16) * Math.PI * 2,
-        r = 0.035 + (1 + Math.sin(i * 19 + seed)) * 0.025;
-      const px = Math.cos(angle) * r,
-        pz = Math.sin(angle) * r;
-      if (i === 0) shape.moveTo(px, pz);
-      else shape.lineTo(px, pz);
-    }
-    const mesh = new T.Mesh(
-      new T.ShapeGeometry(shape),
-      new T.MeshStandardMaterial({
-        color: '#4e100b',
-        roughness: 0.7,
-        transparent: true,
-        opacity: 0.7,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-      }),
-    );
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(x, y, z);
-    if (normal) {
-      mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), normal);
-      mesh.position.addScaledVector(normal, 0.012);
-    }
-    this.scene.add(mesh);
-    this.stains.push({ mesh, life: 18 });
+    if (this.stains.length >= MAX_STAINS) this.stains.shift();
+    const hasNormal = Boolean(normal);
+    const sx = normal ? x + normal.x * 0.012 : x;
+    const sy = normal ? y + normal.y * 0.012 : y;
+    const sz = normal ? z + normal.z * 0.012 : z;
+    this.stains.push({
+      x: sx,
+      y: sy,
+      z: sz,
+      nx: normal?.x ?? 0,
+      ny: normal?.y ?? 1,
+      nz: normal?.z ?? 0,
+      hasNormal,
+      seed: Math.abs((seed * 0.6180339887) % 1),
+      scale: 0.14 + Math.abs(Math.sin(seed * 19.7)) * 0.06,
+      life: 18,
+    });
   }
   private impactDust(x: number, y: number, z: number, ground: boolean) {
-    if (!this.dustTexture) {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = 64;
-      const ctx = canvas.getContext('2d')!;
-      const gradient = ctx.createRadialGradient(32, 32, 1, 32, 32, 32);
-      gradient.addColorStop(0, 'rgba(190,178,153,0.28)');
-      gradient.addColorStop(0.35, 'rgba(159,147,124,0.15)');
-      gradient.addColorStop(1, 'rgba(130,119,103,0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, 64, 64);
-      this.dustTexture = new T.CanvasTexture(canvas);
-      this.resources.add(this.dustTexture);
-    }
-    for (let i = 0; i < (ground ? 7 : 3); i++) {
-      if (this.particles.length >= 160) break;
-      const mesh = new T.Mesh(
-        new T.PlaneGeometry(1, 1),
-        new T.MeshBasicMaterial({
-          color: '#756952',
-          map: this.dustTexture,
-          transparent: true,
-          depthWrite: false,
-          opacity: 0.7,
-        }),
-      );
+    const count = ground ? 7 : 3;
+    for (let i = 0; i < count; i++) {
+      if (this.dusts.length >= MAX_DUST) this.dusts.shift();
       const angle = i * 2.4;
-      mesh.position.set(
-        x + Math.sin(angle) * 0.1,
+      const life = ground ? 0.85 : 0.35;
+      this.dusts.push({
+        x: x + Math.sin(angle) * 0.1,
         y,
-        z + Math.cos(angle) * 0.1,
-      );
-      mesh.scale.setScalar(ground ? 0.28 : 0.12);
-      this.scene.add(mesh);
-      this.particles.push({
-        mesh,
-        velocity: new T.Vector3(
-          Math.sin(angle) * (ground ? 0.4 : 0.12),
-          ground ? 0.12 : 0.05,
-          Math.cos(angle) * 0.28,
-        ),
-        life: ground ? 0.85 : 0.35,
-        duration: ground ? 0.85 : 0.35,
-        dust: true,
+        z: z + Math.cos(angle) * 0.1,
+        vx: Math.sin(angle) * (ground ? 0.4 : 0.12),
+        vy: ground ? 0.12 : 0.05,
+        vz: Math.cos(angle) * 0.28,
+        size: ground ? 0.34 : 0.15,
+        life,
+        duration: life,
+        spin: angle,
+        seed: ((i + x * 3.1 + z * 5.7) * 0.6180339887) % 1,
       });
     }
   }
@@ -1081,6 +1144,24 @@ export class BunkerScene {
       if (e.kind === 'blast') {
         this.blastLight.position.set(e.x, e.y + 0.3, e.z);
         this.blastAge = 0.24;
+        for (let j = 0; j < 5; j++) {
+          if (this.fires.length >= MAX_FIRE) this.fires.shift();
+          const angle = j * 1.256 + e.x;
+          const life = 0.22 + (j % 3) * 0.06;
+          this.fires.push({
+            x: e.x + Math.sin(angle) * 0.2,
+            y: e.y + 0.18,
+            z: e.z + Math.cos(angle) * 0.2,
+            vx: Math.sin(angle) * 1.35,
+            vy: 0.75 + (j % 2) * 0.55,
+            vz: Math.cos(angle) * 1.35,
+            size: 0.48 + (j % 3) * 0.22,
+            life,
+            duration: life,
+            spin: angle,
+            seed: (j * 0.6180339887) % 1,
+          });
+        }
         for (let j = 0; j < 4; j++)
           this.impactDust(
             e.x + Math.sin(j * 2.4) * 0.5,
@@ -1088,13 +1169,13 @@ export class BunkerScene {
             e.z + Math.cos(j * 2.4) * 0.5,
             true,
           );
-        for (const p of this.particles.slice(-28))
-          if (p.dust) {
-            p.life = p.duration = 2.8;
-            p.velocity.multiplyScalar(2.2);
-            p.velocity.y = 0.3;
-            p.mesh.scale.setScalar(0.65);
-          }
+        for (const p of this.dusts.slice(-28)) {
+          p.life = p.duration = 2.8;
+          p.vx *= 2.2;
+          p.vz *= 2.2;
+          p.vy = 0.3;
+          p.size = 0.65;
+        }
       }
       if (!['stone', 'hit', 'blast'].includes(e.kind)) continue;
       const blood = e.kind === 'hit',
@@ -1102,44 +1183,36 @@ export class BunkerScene {
         direction = e.direction ?? [0, 0, 1];
       if (!blood) this.impactDust(e.x, e.y, e.z, false);
       for (let i = 0; i < count; i++) {
-        if (this.particles.length >= 160) {
-          const old = this.particles.shift()!;
-          old.mesh.removeFromParent();
-          old.mesh.geometry.dispose();
-          (old.mesh.material as T.Material).dispose();
-        }
-        const mat = new T.MeshStandardMaterial({
-          color: blood
+        if (this.debris.length >= MAX_DEBRIS) this.debris.shift();
+        this.scratchColor.set(
+          blood
             ? i % 3
               ? '#792116'
               : '#38251f'
             : i % 2
               ? '#9d9584'
               : '#c1ac86',
-          roughness: 0.9,
-          transparent: true,
-        });
-        const mesh = new T.Mesh(
-          new T.SphereGeometry(blood ? 0.013 : 0.015, 5, 4),
-          mat,
         );
-        mesh.position.set(e.x, e.y, e.z);
-        mesh.scale.set(blood ? 0.6 : 1, blood ? 1.65 : 1, blood ? 0.6 : 1);
-        this.scene.add(mesh);
         const speed =
           (e.kind === 'blast' ? 4 : e.fatal ? 2.1 : 1.1) + (i % 7) * 0.27;
-        this.particles.push({
-          mesh,
-          velocity: new T.Vector3(
+        this.debris.push({
+          x: e.x,
+          y: e.y,
+          z: e.z,
+          vx:
             (e.kind === 'blast' ? Math.sin(i * 2.4) : direction[0]) * speed +
-              Math.sin(i * 7.2) * 0.9,
-            0.15 + direction[1] * speed + Math.sin(i * 2.3) * 0.55,
+            Math.sin(i * 7.2) * 0.9,
+          vy: 0.15 + direction[1] * speed + Math.sin(i * 2.3) * 0.55,
+          vz:
             (e.kind === 'blast' ? Math.cos(i * 2.4) : direction[2]) * speed +
-              Math.cos(i * 4.1) * 0.9,
-          ),
+            Math.cos(i * 4.1) * 0.9,
           life: blood ? 1.1 : 0.45,
           duration: blood ? 1.1 : 0.45,
           blood: blood && i % 3 !== 0,
+          r: this.scratchColor.r,
+          g: this.scratchColor.g,
+          b: this.scratchColor.b,
+          scale: blood ? 0.9 : 1,
         });
       }
     }
@@ -1148,6 +1221,7 @@ export class BunkerScene {
     if (this.disposed) return;
     const active = b.status === 'playing',
       frame = active ? dt : 0;
+    this.visualTime += frame;
     this.effects(events);
     const obstacles = worldSolids(b);
     this.doors.forEach(
@@ -1159,24 +1233,10 @@ export class BunkerScene {
       let group = this.grenades.get(p.id);
       if (!group) {
         group = new T.Group();
-        const body = new T.Mesh(
-          new T.SphereGeometry(0.085, 12, 8),
-          new T.MeshStandardMaterial({
-            color: '#485043',
-            metalness: 0.65,
-            roughness: 0.55,
-          }),
-        );
+        const body = new T.Mesh(this.grenadeBodyGeo, this.grenadeBodyMat);
         body.scale.y = 1.25;
         group.add(body);
-        const cap = new T.Mesh(
-          new T.CylinderGeometry(0.035, 0.035, 0.05, 8),
-          new T.MeshStandardMaterial({
-            color: '#696d60',
-            metalness: 0.8,
-            roughness: 0.4,
-          }),
-        );
+        const cap = new T.Mesh(this.grenadeCapGeo, this.grenadeCapMat);
         cap.position.y = 0.115;
         group.add(cap);
         this.scene.add(group);
@@ -1187,12 +1247,6 @@ export class BunkerScene {
     }
     for (const [id, group] of this.grenades)
       if (!b.activeGrenades.some((p) => p.id === id)) {
-        group.traverse((o) => {
-          if (o instanceof T.Mesh) {
-            o.geometry.dispose();
-            (o.material as T.Material).dispose();
-          }
-        });
         group.removeFromParent();
         this.grenades.delete(id);
       }
@@ -1230,13 +1284,32 @@ export class BunkerScene {
     this.missionProps.supplies.forEach(
       (supply, i) => (supply.visible = b.supplies[i]),
     );
-    this.muzzle.visible = active && b.weapon === 'mp40' && b.recoil > 0.7;
-    this.muzzle.rotation.y = b.time * 37;
-    this.muzzleLight.intensity = this.muzzle.visible ? 9 : 0;
+    this.camera.updateMatrixWorld();
+    const muzzleOn = active && b.weapon === 'mp40' && b.recoil > 0.7;
+    this.muzzle.visible = muzzleOn;
+    this.muzzle.rotation.z = b.time * 37;
+    if (muzzleOn && !this.prevMuzzle) {
+      this.muzzle.getWorldPosition(this.scratchMuzzleWorld);
+      if (this.dusts.length >= MAX_DUST) this.dusts.shift();
+      this.dusts.push({
+        x: this.scratchMuzzleWorld.x,
+        y: this.scratchMuzzleWorld.y,
+        z: this.scratchMuzzleWorld.z,
+        vx: (Math.random() - 0.5) * 0.15,
+        vy: 0.28,
+        vz: -0.5,
+        size: 0.18,
+        life: 0.45,
+        duration: 0.45,
+        spin: b.time * 5,
+        seed: Math.abs((b.time * 0.6180339887) % 1),
+      });
+    }
+    this.prevMuzzle = muzzleOn;
+    this.muzzleLight.intensity = muzzleOn ? 9 : 0;
     this.medkit.visible = b.medkit;
     const cleared = b.mission === 'escape';
     this.exitLight.emissive.set(cleared ? '#5cce97' : '#cf7e2c');
-    this.camera.updateMatrixWorld();
     this.viewProjection.multiplyMatrices(
       this.camera.projectionMatrix,
       this.camera.matrixWorldInverse,
@@ -1267,74 +1340,184 @@ export class BunkerScene {
         this.impactDust(torso?.p.x ?? g.x, 0.09, torso?.p.z ?? g.z, true);
       }
     });
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
+
+    let dustWrite = 0;
+    for (let i = 0; i < this.dusts.length; i++) {
+      const d = this.dusts[i];
+      d.life -= frame;
+      if (d.life <= 0) continue;
+      d.x += d.vx * frame;
+      d.y += d.vy * frame;
+      d.z += d.vz * frame;
+      d.size += frame * 0.6;
+      this.dustPool.set(
+        dustWrite,
+        d.x,
+        d.y,
+        d.z,
+        d.size,
+        d.size,
+        this.dustColor.r,
+        this.dustColor.g,
+        this.dustColor.b,
+        0.52 * (d.life / d.duration),
+        d.spin + (d.duration - d.life) * 0.4,
+        d.seed,
+      );
+      this.dusts[dustWrite++] = d;
+    }
+    this.dusts.length = dustWrite;
+    this.dustPool.commit(dustWrite, this.visualTime);
+
+    let fireWrite = 0;
+    for (let i = 0; i < this.fires.length; i++) {
+      const f = this.fires[i];
+      f.life -= frame;
+      if (f.life <= 0) continue;
+      f.x += f.vx * frame;
+      f.y += f.vy * frame;
+      f.z += f.vz * frame;
+      f.size += frame * 2.2;
+      this.firePool.set(
+        fireWrite,
+        f.x,
+        f.y,
+        f.z,
+        f.size,
+        f.size,
+        2.8,
+        1.45,
+        0.45,
+        f.life / f.duration,
+        f.spin + (f.duration - f.life) * 2.4,
+        f.seed,
+      );
+      this.fires[fireWrite++] = f;
+    }
+    this.fires.length = fireWrite;
+    this.firePool.commit(fireWrite, this.visualTime);
+
+    let debrisWrite = 0;
+    const prevDebris = this.debrisMesh.count;
+    for (let i = 0; i < this.debris.length; i++) {
+      const p = this.debris[i];
       p.life -= frame;
-      if (!p.dust) p.velocity.y -= frame * 7.5;
-      else {
-        p.mesh.quaternion.copy(this.camera.quaternion);
-        p.mesh.scale.addScalar(frame * 0.6);
-      }
-      const previous = p.mesh.position.clone();
-      p.mesh.position.addScaledVector(p.velocity, frame);
+      if (p.life <= 0) continue;
+      p.vy -= frame * 7.5;
+      this.scratchPrev.set(p.x, p.y, p.z);
+      p.x += p.vx * frame;
+      p.y += p.vy * frame;
+      p.z += p.vz * frame;
       if (p.blood && frame > 0) {
-        const travel = p.mesh.position.clone().sub(previous),
-          distance = travel.length();
+        this.scratchTravel.set(p.x, p.y, p.z).sub(this.scratchPrev);
+        const distance = this.scratchTravel.length();
         if (distance > 0) {
-          travel.divideScalar(distance);
+          this.scratchTravel.divideScalar(distance);
           for (const wall of obstacles) {
-            const hit = rayBox(previous.toArray(), travel.toArray(), wall);
-            if (hit > distance) continue;
-            const point = previous.clone().addScaledVector(travel, hit);
-            const faces = [
-              Math.abs(Math.abs(point.x - wall.x) - wall.w / 2),
-              Math.abs(Math.abs(point.y - wall.y) - wall.h / 2),
-              Math.abs(Math.abs(point.z - wall.z) - wall.d / 2),
-            ];
-            const axis = faces.indexOf(Math.min(...faces));
-            const normal = new T.Vector3(
-              axis === 0 ? Math.sign(point.x - wall.x) : 0,
-              axis === 1 ? Math.sign(point.y - wall.y) : 0,
-              axis === 2 ? Math.sign(point.z - wall.z) : 0,
+            const hit = rayBox(
+              [this.scratchPrev.x, this.scratchPrev.y, this.scratchPrev.z],
+              [
+                this.scratchTravel.x,
+                this.scratchTravel.y,
+                this.scratchTravel.z,
+              ],
+              wall,
             );
-            this.stain(point.x, point.z, i, point.y, normal);
+            if (hit > distance) continue;
+            const hx = this.scratchPrev.x + this.scratchTravel.x * hit;
+            const hy = this.scratchPrev.y + this.scratchTravel.y * hit;
+            const hz = this.scratchPrev.z + this.scratchTravel.z * hit;
+            const d0 = Math.abs(Math.abs(hx - wall.x) - wall.w / 2);
+            const d1 = Math.abs(Math.abs(hy - wall.y) - wall.h / 2);
+            const d2 = Math.abs(Math.abs(hz - wall.z) - wall.d / 2);
+            if (d0 <= d1 && d0 <= d2)
+              this.scratchNormal.set(Math.sign(hx - wall.x), 0, 0);
+            else if (d1 <= d2)
+              this.scratchNormal.set(0, Math.sign(hy - wall.y), 0);
+            else this.scratchNormal.set(0, 0, Math.sign(hz - wall.z));
+            this.stain(
+              hx,
+              hz,
+              i + this.visualTime * 13,
+              hy,
+              this.scratchNormal,
+            );
             p.life = 0;
             break;
           }
         }
-        p.mesh.quaternion.setFromUnitVectors(
-          new T.Vector3(0, 1, 0),
-          p.velocity.clone().normalize(),
-        );
       }
-      (p.mesh.material as T.MeshBasicMaterial).opacity = p.life / p.duration;
-      if (p.blood && p.mesh.position.y <= 0.022) {
-        this.stain(p.mesh.position.x, p.mesh.position.z, i);
+      if (p.blood && p.y <= 0.022 && p.life > 0) {
+        this.stain(p.x, p.z, i + this.visualTime * 13);
         p.life = 0;
       }
-      if (p.life <= 0) {
-        this.scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
-        (p.mesh.material as T.Material).dispose();
-        this.particles.splice(i, 1);
+      if (p.life <= 0) continue;
+      const ratio = p.life / p.duration;
+      const s = p.scale * Math.max(0.15, ratio);
+      this.scratchDummy.position.set(p.x, p.y, p.z);
+      if (p.blood) {
+        this.scratchTravel.set(p.vx, p.vy, p.vz);
+        if (this.scratchTravel.lengthSq() > 1e-6) {
+          this.scratchTravel.normalize();
+          this.scratchDummy.quaternion.setFromUnitVectors(
+            this.scratchUp,
+            this.scratchTravel,
+          );
+        }
+        this.scratchDummy.scale.set(0.6 * s, 1.65 * s, 0.6 * s);
+      } else {
+        this.scratchDummy.rotation.set(0, 0, 0);
+        this.scratchDummy.scale.setScalar(s);
       }
+      this.scratchDummy.updateMatrix();
+      this.debrisMesh.setMatrixAt(debrisWrite, this.scratchDummy.matrix);
+      this.scratchColor.setRGB(p.r, p.g, p.b);
+      this.debrisMesh.setColorAt(debrisWrite, this.scratchColor);
+      this.debris[debrisWrite++] = p;
     }
-    for (let i = this.stains.length - 1; i >= 0; i--) {
+    this.debris.length = debrisWrite;
+    this.debrisMesh.count = debrisWrite;
+    if (debrisWrite > 0 || prevDebris > 0) {
+      this.debrisMesh.instanceMatrix.needsUpdate = true;
+      if (this.debrisMesh.instanceColor)
+        this.debrisMesh.instanceColor.needsUpdate = true;
+    }
+
+    let stainWrite = 0;
+    const prevStains = this.stainMesh.count;
+    for (let i = 0; i < this.stains.length; i++) {
       const s = this.stains[i];
       s.life -= frame;
-      (s.mesh.material as T.MeshStandardMaterial).opacity =
-        0.7 * Math.min(1, s.life / 3);
-      if (s.life <= 0) {
-        s.mesh.removeFromParent();
-        s.mesh.geometry.dispose();
-        (s.mesh.material as T.Material).dispose();
-        this.stains.splice(i, 1);
+      if (s.life <= 0) continue;
+      this.scratchDummy.position.set(s.x, s.y, s.z);
+      if (s.hasNormal) {
+        this.scratchNormal.set(s.nx, s.ny, s.nz);
+        this.scratchDummy.quaternion.setFromUnitVectors(
+          this.scratchZ,
+          this.scratchNormal,
+        );
+      } else {
+        this.scratchDummy.rotation.set(-Math.PI / 2, 0, s.seed * Math.PI * 2);
       }
+      this.scratchDummy.scale.setScalar(s.scale);
+      this.scratchDummy.updateMatrix();
+      this.stainMesh.setMatrixAt(stainWrite, this.scratchDummy.matrix);
+      this.stainAlpha.setX(stainWrite, 0.72 * Math.min(1, s.life / 3));
+      this.stainSeed.setX(stainWrite, s.seed);
+      this.stains[stainWrite++] = s;
     }
+    this.stains.length = stainWrite;
+    this.stainMesh.count = stainWrite;
+    if (stainWrite > 0 || prevStains > 0) {
+      this.stainMesh.instanceMatrix.needsUpdate = true;
+      this.stainAlpha.needsUpdate = true;
+      this.stainSeed.needsUpdate = true;
+    }
+
     this.sea.position.y = -3 + Math.sin(b.time * 0.45) * 0.07;
     const seaNormal = (this.sea.material as T.MeshStandardMaterial).normalMap;
     if (seaNormal) seaNormal.offset.set(b.time * 0.009, b.time * 0.004);
-    if (this.composer) this.composer.render();
+    if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
   }
   private release(root: T.Object3D) {
@@ -1357,18 +1540,42 @@ export class BunkerScene {
     textures.forEach((t) => t.dispose());
   }
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
     this.observer.disconnect();
     this.guards.forEach((g) => {
       g.mixer.stopAllAction();
       g.mixer.uncacheRoot(g.model);
     });
+    this.dustPool.dispose();
+    this.firePool.dispose();
+    this.debrisMesh.removeFromParent();
+    this.debrisMesh.dispose();
+    this.stainMesh.removeFromParent();
+    this.stainMesh.dispose();
+    this.scene.traverse((o) => {
+      if (
+        (o instanceof T.DirectionalLight || o instanceof T.SpotLight) &&
+        o.shadow
+      ) {
+        o.shadow.dispose();
+      }
+    });
     this.release(this.scene);
-    this.ao?.dispose();
-    this.output?.dispose();
-    this.composer?.dispose();
+    this.debrisGeo.dispose();
+    this.debrisMat.dispose();
+    this.stainGeo.dispose();
+    this.stainMat.dispose();
+    this.grenadeBodyGeo.dispose();
+    this.grenadeBodyMat.dispose();
+    this.grenadeCapGeo.dispose();
+    this.grenadeCapMat.dispose();
+    this.bulbGeo.dispose();
+    this.bulbMat.dispose();
+    this.post?.dispose();
     this.environment.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
   }
 }

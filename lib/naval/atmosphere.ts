@@ -175,21 +175,32 @@ export class CoastalAtmosphere {
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
-        uniforms: {
-          time: { value: 0 },
-          phase: { value: phase },
-          density: { value: 0 },
-        },
-        vertexShader:
-          'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+        fog: true,
+        uniforms: THREE.UniformsUtils.merge([
+          THREE.UniformsLib.fog,
+          {
+            time: { value: 0 },
+            phase: { value: phase },
+            density: { value: 0 },
+          },
+        ]),
+        vertexShader: `varying vec2 vUv;
+          #include <common>
+          #include <fog_pars_vertex>
+          void main(){vUv=uv;vec4 mvPosition=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mvPosition;#include <fog_vertex>}`,
         fragmentShader: `varying vec2 vUv;uniform float time;uniform float phase;uniform float density;
+          #include <common>
+          #include <fog_pars_fragment>
           float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
           float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
           void main(){vec2 p=vUv*vec2(5.,3.)+vec2(-time*.015+phase,time*.004);
             float n=noise(p)*.57+noise(p*2.03)*.28+noise(p*4.07)*.15;
-            vec2 edge=abs(vUv*2.-1.);float falloff=(1.-smoothstep(.35,1.,edge.x))*(1.-smoothstep(.15,1.,edge.y));
+            vec2 edge=abs(vUv*2.-1.);
+            float bottomFade=smoothstep(0.,0.35,vUv.y)*(1.-smoothstep(.55,1.,vUv.y));
+            float falloff=(1.-smoothstep(.35,1.,edge.x))*bottomFade;
             float alpha=(1.-exp(-max(0.,n-.23)*density))*falloff;
             gl_FragColor=vec4(mix(vec3(.55,.63,.65),vec3(.81,.83,.79),n),alpha);
+            #include <fog_fragment>
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
           }`,

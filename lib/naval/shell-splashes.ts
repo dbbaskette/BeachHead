@@ -44,20 +44,25 @@ const sprayVertex = `
   uniform float focal;
   uniform float minPixels;
   varying float aboveWater;
+  #include <common>
+  #include <fog_pars_vertex>
   void main() {
     // Ballistic droplets fall back into the sea under gravity.
     vec3 p = position + velocity * age;
     p.y -= 4.905 * age * age;
     aboveWater = step(0.0, p.y);
-    vec4 view = modelViewMatrix * vec4(p, 1.0);
-    gl_Position = projectionMatrix * view;
+    vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
     float size = dropSize * length(modelMatrix[0].xyz);
-    gl_PointSize = clamp(size * focal / max(1.0, -view.z), minPixels, 14.0);
+    gl_PointSize = clamp(size * focal / max(1.0, -mvPosition.z), minPixels, 14.0);
+    #include <fog_vertex>
   }
 `;
 const sprayFragment = `
   uniform float age;
   varying float aboveWater;
+  #include <common>
+  #include <fog_pars_fragment>
   void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
     float r = dot(p, p);
@@ -66,18 +71,27 @@ const sprayFragment = `
     float alpha = soft * fade * 0.86;
     if (alpha < 0.01) discard;
     gl_FragColor = vec4(mix(vec3(0.64,0.78,0.8),vec3(1.0,0.99,0.94),soft), alpha);
+    #include <fog_fragment>
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 const foamVertex = `
   varying vec2 vUv;
+  #include <common>
+  #include <fog_pars_vertex>
   void main() {
     vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+    vec4 mvPosition = modelViewMatrix * vec4(position,1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
   }
 `;
 const foamFragment = `
   uniform float age;
   varying vec2 vUv;
+  #include <common>
+  #include <fog_pars_fragment>
   void main() {
     vec2 p = vUv * 2.0 - 1.0;
     float radius = length(p);
@@ -89,11 +103,16 @@ const foamFragment = `
     float alpha = foam * fade * 0.8;
     if (alpha < 0.01) discard;
     gl_FragColor = vec4(0.85,0.94,0.93,alpha);
+    #include <fog_fragment>
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 const columnFragment = `
   uniform float age;
   varying vec2 vUv;
+  #include <common>
+  #include <fog_pars_fragment>
   void main() {
     float y=vUv.y;
     float x=vUv.x*2.0-1.0 + sin(y*24.0-age*3.0)*0.07;
@@ -104,22 +123,29 @@ const columnFragment = `
     float alpha=body*(1.0-smoothstep(0.84,1.0,y))*grain*fade*0.94;
     if(alpha<0.01)discard;
     gl_FragColor=vec4(mix(vec3(0.55,0.72,0.75),vec3(0.96,0.99,0.97),body),alpha);
+    #include <fog_fragment>
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
-/** Dedicated capacity: smoke and sinking churn cannot crowd out a player's splash. */
+type SplashBurst = {
+  group: THREE.Group;
+  spray: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  foam: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  column: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  age: number;
+  active: boolean;
+};
+
+/** Dedicated pooled capacity: smoke and sinking churn cannot crowd out a player's splash. */
 export class ShellSplashVisuals {
   readonly root = new THREE.Group();
   private sprayGeometry = new THREE.BufferGeometry();
   private foamGeometry = new THREE.PlaneGeometry(28, 28);
   private columnGeometry = new THREE.PlaneGeometry(22, 1).translate(0, 0.5, 0);
-  private bursts: Array<{
-    group: THREE.Group;
-    spray: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
-    foam: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-    column: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-    age: number;
-  }> = [];
+  private pool: SplashBurst[] = [];
+  private active: SplashBurst[] = [];
   private disposed = false;
 
   constructor(scene: THREE.Scene) {
@@ -155,58 +181,94 @@ export class ShellSplashVisuals {
       'dropSize',
       new THREE.Float32BufferAttribute(size, 1),
     );
+
+    for (let i = 0; i < MAX_SPLASHES; i++) {
+      const group = new THREE.Group();
+      const spray = new THREE.Points(
+        this.sprayGeometry,
+        new THREE.ShaderMaterial({
+          uniforms: THREE.UniformsUtils.merge([
+            THREE.UniformsLib.fog,
+            {
+              age: { value: 0 },
+              focal: { value: 1 },
+              minPixels: { value: 1.4 },
+            },
+          ]),
+          vertexShader: sprayVertex,
+          fragmentShader: sprayFragment,
+          transparent: true,
+          depthWrite: false,
+          fog: true,
+        }),
+      );
+      spray.name = 'shell-water-plume';
+      spray.frustumCulled = false;
+
+      const foam = new THREE.Mesh(
+        this.foamGeometry,
+        new THREE.ShaderMaterial({
+          uniforms: THREE.UniformsUtils.merge([
+            THREE.UniformsLib.fog,
+            { age: { value: 0 } },
+          ]),
+          vertexShader: foamVertex,
+          fragmentShader: foamFragment,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          fog: true,
+        }),
+      );
+      foam.name = 'shell-impact-foam';
+      foam.rotation.x = -Math.PI / 2;
+
+      const column = new THREE.Mesh(
+        this.columnGeometry,
+        new THREE.ShaderMaterial({
+          uniforms: THREE.UniformsUtils.merge([
+            THREE.UniformsLib.fog,
+            { age: { value: 0 } },
+          ]),
+          vertexShader: foamVertex,
+          fragmentShader: columnFragment,
+          transparent: true,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          fog: true,
+        }),
+      );
+      column.name = 'shell-water-column';
+      group.add(spray, foam, column);
+      this.pool.push({
+        group,
+        spray,
+        foam,
+        column,
+        age: 0,
+        active: false,
+      });
+    }
   }
 
   impact(x: number, z: number) {
     if (this.disposed) return;
-    if (this.bursts.length === MAX_SPLASHES) this.remove(this.bursts.shift()!);
-    const group = new THREE.Group();
-    group.position.set(x, 0.25, z);
-    const spray = new THREE.Points(
-      this.sprayGeometry,
-      new THREE.ShaderMaterial({
-        uniforms: {
-          age: { value: 0 },
-          focal: { value: 1 },
-          minPixels: { value: 1.4 },
-        },
-        vertexShader: sprayVertex,
-        fragmentShader: sprayFragment,
-        transparent: true,
-        depthWrite: false,
-      }),
-    );
-    spray.name = 'shell-water-plume';
-    // The shader moves droplets beyond the static geometry bounds.
-    spray.frustumCulled = false;
-    const foam = new THREE.Mesh(
-      this.foamGeometry,
-      new THREE.ShaderMaterial({
-        uniforms: { age: { value: 0 } },
-        vertexShader: foamVertex,
-        fragmentShader: foamFragment,
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    );
-    foam.name = 'shell-impact-foam';
-    foam.rotation.x = -Math.PI / 2;
-    const column = new THREE.Mesh(
-      this.columnGeometry,
-      new THREE.ShaderMaterial({
-        uniforms: { age: { value: 0 } },
-        vertexShader: foamVertex,
-        fragmentShader: columnFragment,
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    );
-    column.name = 'shell-water-column';
-    group.add(spray, foam, column);
-    this.root.add(group);
-    this.bursts.push({ group, spray, foam, column, age: 0 });
+    let slot = this.pool.find((s) => !s.active);
+    if (!slot) {
+      slot = this.active.shift()!;
+      slot.group.removeFromParent();
+    }
+    slot.active = true;
+    slot.age = 0;
+    slot.group.position.set(x, 0.25, z);
+    slot.group.scale.setScalar(1);
+    slot.foam.scale.setScalar(0.55);
+    slot.column.scale.y = 0.01;
+    slot.spray.material.uniforms.age.value = 0;
+    slot.foam.material.uniforms.age.value = 0;
+    slot.column.material.uniforms.age.value = 0;
+    this.root.add(slot.group);
+    this.active.push(slot);
   }
 
   update(
@@ -219,12 +281,13 @@ export class ShellSplashVisuals {
     const focal =
       Math.max(1, height) /
       (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
-    for (let i = this.bursts.length - 1; i >= 0; i--) {
-      const b = this.bursts[i];
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const b = this.active[i];
       b.age += Math.max(0, dt);
       if (b.age >= LIFE) {
-        this.remove(b);
-        this.bursts.splice(i, 1);
+        b.active = false;
+        b.group.removeFromParent();
+        this.active.splice(i, 1);
         continue;
       }
       const scale = splashScale(
@@ -249,20 +312,22 @@ export class ShellSplashVisuals {
     }
   }
 
-  private remove(b: (typeof this.bursts)[number]) {
-    b.group.removeFromParent();
-    b.spray.material.dispose();
-    b.foam.material.dispose();
-    b.column.material.dispose();
-  }
   reset() {
-    this.bursts.forEach((b) => this.remove(b));
-    this.bursts = [];
+    for (const b of this.active) {
+      b.active = false;
+      b.group.removeFromParent();
+    }
+    this.active = [];
   }
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
     this.reset();
+    for (const b of this.pool) {
+      b.spray.material.dispose();
+      b.foam.material.dispose();
+      b.column.material.dispose();
+    }
     this.root.removeFromParent();
     this.sprayGeometry.dispose();
     this.foamGeometry.dispose();

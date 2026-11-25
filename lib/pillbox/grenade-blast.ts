@@ -79,6 +79,7 @@ export class GrenadeBlast {
     this.shake.set(0, 0, 0);
     this.roll = 0;
     this.light.intensity = 0;
+    let brightest = 0;
     for (const blast of this.blasts) {
       blast.age += step;
       const { root, age } = blast;
@@ -87,11 +88,12 @@ export class GrenadeBlast {
       flash.scale.setScalar(2 + age * 25);
       flash.material.opacity = Math.max(0, 1 - age / 0.24);
       if (flash.visible) {
-        this.light.position.copy(root.position).y += 1.5;
-        this.light.intensity = Math.max(
-          this.light.intensity,
-          180 * Math.pow(1 - age / 0.24, 2),
-        );
+        const intensity = 180 * Math.pow(1 - age / 0.24, 2);
+        if (intensity > brightest) {
+          brightest = intensity;
+          this.light.position.copy(root.position).y += 1.5;
+          this.light.intensity = intensity;
+        }
       }
       const decay = Math.exp(-age * 5.5) * blast.force;
       if (!reducedMotion) {

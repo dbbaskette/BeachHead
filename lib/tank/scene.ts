@@ -2,13 +2,19 @@ import * as T from 'three';
 import { TankArt, makeTank, makeCover, makeEnemy } from './art';
 import { consolidateTank as consolidate } from './art';
 import { makeSky } from '../naval/ocean';
-import { snapDirectionalShadow } from '../naval/daylight';
+import {
+  bakeCoastalEnvironment,
+  snapDirectionalShadow,
+} from '../naval/daylight';
+import { createBloomComposer } from '../post-processing';
+import { BillboardPool } from '../vfx';
 import { TOUCH_LAYOUT_QUERY } from '../touch-input';
 import { type TankState, type TankEvent, tankMuzzle } from './simulation';
 import { SUPPLY } from './map';
 import { buildTerrain, terrainHeight } from './terrain';
 import { collapsePose, stepFragment } from './impact';
-type Particle = {
+
+type SmokeParticle = {
   x: number;
   y: number;
   z: number;
@@ -18,12 +24,46 @@ type Particle = {
   age: number;
   life: number;
   size: number;
-  glow: boolean;
-  solid?: boolean;
-  wood?: boolean;
-  tint?: number;
-  spin?: number;
+  tint: number;
+  spin: number;
+  seed: number;
 };
+
+type FireParticle = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  age: number;
+  life: number;
+  size: number;
+  spin: number;
+  seed: number;
+};
+
+type SolidParticle = {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  age: number;
+  life: number;
+  size: number;
+  wood: boolean;
+  tint: number;
+  spin: number;
+};
+
+const MAX_SMOKE = 180;
+const MAX_FIRE = 96;
+const MAX_FRAGMENTS = 140;
+const MAX_TRACK_MARKS = 900;
+const TRACK_FADE_WINDOW = 120;
+
 export class TankScene {
   private renderer: T.WebGLRenderer;
   private scene = new T.Scene();
@@ -34,9 +74,12 @@ export class TankScene {
   private enemyTank = makeTank(this.art, true);
   private covers = new Map<number, ReturnType<typeof makeCover>>();
   private enemies = new Map<number, ReturnType<typeof makeEnemy>>();
-  private particles: Particle[] = [];
-  private smoke: T.InstancedMesh;
-  private chips: T.InstancedMesh;
+  private smokeParticles: SmokeParticle[] = [];
+  private fireParticles: FireParticle[] = [];
+  private solidParticles: SolidParticle[] = [];
+  private smokePool: BillboardPool;
+  private firePool: BillboardPool;
+  private post?: ReturnType<typeof createBloomComposer>;
   private fragments: T.InstancedMesh;
   private scars: T.InstancedMesh;
   private scarSerial = 0;
@@ -45,10 +88,17 @@ export class TankScene {
   private shells: T.InstancedMesh;
   private object = new T.Object3D();
   private color = new T.Color();
+  private scratchZ = new T.Vector3(0, 0, 1);
+  private scratchVec = new T.Vector3();
+  private scratchEye = new T.Vector3();
   private last = 0;
+  private visualTime = 0;
+  private particleSerial = 0;
   private shake = 0;
   private trackPhase = 0;
   private trackMarks: T.InstancedMesh;
+  private markSerials = new Int32Array(MAX_TRACK_MARKS);
+  private markAlphaAttr: T.InstancedBufferAttribute;
   private markCount = 0;
   private markDistance = 0;
   private markX = 0;
@@ -62,6 +112,7 @@ export class TankScene {
   private bridge = new T.Group();
   private allies: T.Group[] = [];
   private sun = new T.DirectionalLight('#ffe2b7', 3);
+  private flashLight = new T.PointLight('#ffbe66', 0, 32, 1.5);
   private env: T.WebGLRenderTarget;
   private lost = (e: Event) => {
     e.preventDefault();
@@ -102,15 +153,11 @@ export class TankScene {
     this.sun.shadow.normalBias = 0.035;
     this.sun.shadow.radius = 2;
     this.sun.shadow.camera.updateProjectionMatrix();
-    this.scene.add(this.sun, this.sun.target);
+    this.scene.add(this.sun, this.sun.target, this.flashLight);
     snapDirectionalShadow(this.sun, s.x, 0, s.z - 14, 200);
-    const pmrem = new T.PMREMGenerator(this.renderer),
-      env = new T.Scene();
-    env.add(this.sky.clone());
-    this.env = pmrem.fromScene(env, 0.15, 0.1, 1800);
+    this.env = bakeCoastalEnvironment(this.renderer, this.sky, '#5c5947', 1800);
     this.scene.environment = this.env.texture;
-    this.scene.environmentIntensity = 0.3;
-    pmrem.dispose();
+    this.scene.environmentIntensity = 0.36;
     buildTerrain(this.art, this.scene, s.cover, touch);
     const treadCanvas = document.createElement('canvas');
     treadCanvas.width = 64;
@@ -121,17 +168,56 @@ export class TankScene {
       tread.fillRect(3, i * 16 + 2, 58, 10);
     }
     const treadMap = new T.CanvasTexture(treadCanvas);
+    treadMap.colorSpace = T.SRGBColorSpace;
     this.art.textures.add(treadMap);
-    const treadMat = new T.MeshBasicMaterial({
-      map: treadMap,
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.34,
-    });
-    this.art.materials.add(treadMat);
+    this.markAlphaAttr = new T.InstancedBufferAttribute(
+      new Float32Array(MAX_TRACK_MARKS),
+      1,
+    ).setUsage(T.DynamicDrawUsage);
     const treadGeo = this.art.geo(new T.PlaneGeometry(0.5, 0.72));
     treadGeo.rotateX(-Math.PI / 2);
-    this.trackMarks = new T.InstancedMesh(treadGeo, treadMat, 900);
+    treadGeo.setAttribute('aAlpha', this.markAlphaAttr);
+    const treadMat = new T.ShaderMaterial({
+      uniforms: T.UniformsUtils.merge([
+        T.UniformsLib.fog,
+        { uMap: { value: treadMap } },
+      ]),
+      vertexShader: /* glsl */ `
+        attribute float aAlpha;
+        varying vec2 vUv;
+        varying float vAlpha;
+        #include <common>
+        #include <fog_pars_vertex>
+        void main() {
+          vUv = uv;
+          vAlpha = aAlpha;
+          vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4( position, 1.0 );
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D uMap;
+        varying vec2 vUv;
+        varying float vAlpha;
+        #include <common>
+        #include <fog_pars_fragment>
+        void main() {
+          vec4 tex = texture2D( uMap, vUv );
+          float alpha = tex.a * 0.34 * vAlpha;
+          if ( alpha < 0.005 ) discard;
+          gl_FragColor = vec4( tex.rgb, alpha );
+          #include <fog_fragment>
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      fog: true,
+    });
+    this.art.materials.add(treadMat);
+    this.trackMarks = new T.InstancedMesh(treadGeo, treadMat, MAX_TRACK_MARKS);
     this.trackMarks.count = 0;
     this.trackMarks.frustumCulled = false;
     this.trackMarks.instanceMatrix.setUsage(T.DynamicDrawUsage);
@@ -250,49 +336,31 @@ export class TankScene {
       this.allies.push(ally);
       this.scene.add(ally);
     }
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 64;
-    const ctx = canvas.getContext('2d')!,
-      gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gradient.addColorStop(0, 'rgba(255,255,255,.75)');
-    gradient.addColorStop(0.5, 'rgba(255,255,255,.35)');
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 64, 64);
-    const smokeTexture = new T.CanvasTexture(canvas);
-    this.art.textures.add(smokeTexture);
-    const smokeMat = new T.MeshBasicMaterial({
-      map: smokeTexture,
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.65,
+    this.smokePool = new BillboardPool(this.scene, MAX_SMOKE, {
+      blending: 'normal',
+      kind: 'smoke',
+      renderOrder: 4,
     });
-    this.art.materials.add(smokeMat);
-    this.smoke = new T.InstancedMesh(
-      this.art.geo(new T.PlaneGeometry(1, 1)),
-      smokeMat,
-      180,
-    );
-    this.smoke.frustumCulled = false;
-    this.smoke.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    this.firePool = new BillboardPool(this.scene, MAX_FIRE, {
+      blending: 'additive',
+      kind: 'fire',
+      renderOrder: 5,
+    });
     const glow = new T.MeshBasicMaterial({
-      color: '#ffd1a0',
+      color: new T.Color(2.4, 1.85, 0.75),
       toneMapped: false,
     });
     this.art.materials.add(glow);
-    this.chips = new T.InstancedMesh(this.art.sphere, glow, 100);
-    this.chips.frustumCulled = false;
     this.shells = new T.InstancedMesh(this.art.sphere, glow, 80);
     this.shells.frustumCulled = false;
     this.fragments = new T.InstancedMesh(
       this.art.geo(new T.IcosahedronGeometry(1, 0)),
       this.art.mat('#ffffff', 0.94),
-      140,
+      MAX_FRAGMENTS,
     );
     this.fragments.castShadow = true;
     this.fragments.receiveShadow = true;
     this.fragments.setColorAt(0, new T.Color(0xffffff));
-    this.smoke.setColorAt(0, new T.Color(0xffffff));
     this.fragments.frustumCulled = false;
     this.fragments.instanceMatrix.setUsage(T.DynamicDrawUsage);
     const scarCanvas = document.createElement('canvas');
@@ -336,13 +404,14 @@ export class TankScene {
     );
     this.scars.count = 0;
     this.scars.frustumCulled = false;
-    this.scene.add(
-      this.smoke,
-      this.chips,
-      this.shells,
-      this.fragments,
-      this.scars,
-    );
+    this.scene.add(this.shells, this.fragments, this.scars);
+    if (!touch) {
+      this.post = createBloomComposer(this.renderer, this.scene, this.camera, {
+        strength: 0.26,
+        radius: 0.4,
+        threshold: 1.15,
+      });
+    }
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
@@ -427,6 +496,7 @@ export class TankScene {
     const { width, height } = this.host.getBoundingClientRect();
     if (width && height) {
       this.renderer.setSize(width, height, false);
+      this.post?.setSize(width, height);
       this.camera.aspect = width / height;
       this.camera.updateProjectionMatrix();
     }
@@ -448,6 +518,18 @@ export class TankScene {
         : metal
           ? 0x5b605a
           : 0xa69b81;
+    if (
+      e.kind === 'cannon' ||
+      big ||
+      (!small && !muzzle && e.strength >= 0.7)
+    ) {
+      this.flashLight.position.set(
+        e.at.x + normal.x * 0.5,
+        e.at.y + Math.max(0.8, normal.y * 0.6),
+        e.at.z + normal.z * 0.5,
+      );
+      this.flashLight.intensity = big ? 95 : e.kind === 'cannon' ? 60 : 40;
+    }
     if (e.kind === 'destroy' && e.coverId !== undefined) {
       this.collapses.set(e.coverId, { start: this.last, pulse: -1 });
       for (const [slot, owner] of this.scarOwners)
@@ -469,10 +551,8 @@ export class TankScene {
         e.at.y + normal.y * 0.025,
         e.at.z + normal.z * 0.025,
       );
-      this.object.quaternion.setFromUnitVectors(
-        new T.Vector3(0, 0, 1),
-        new T.Vector3(normal.x, normal.y, normal.z).normalize(),
-      );
+      this.scratchVec.set(normal.x, normal.y, normal.z).normalize();
+      this.object.quaternion.setFromUnitVectors(this.scratchZ, this.scratchVec);
       this.object.rotateZ(this.scarSerial * 2.399);
       this.object.scale.setScalar(
         small ? 0.23 : material === 'earth' ? 2.4 : 1.6,
@@ -496,48 +576,72 @@ export class TankScene {
     for (let i = 0; i < count; i++) {
       const n = e.at.x + e.at.z + i * 8.7 + this.last;
       const solid = solidImpact && i % 3 === 0;
-      const spark = (metal || muzzle) && i % 2 === 0;
+      const spark = (metal || muzzle || (big && i % 5 === 0)) && i % 2 === 0;
       const speed = small ? 1.5 : big ? 7 : 4;
-      this.particles.push({
-        x: e.at.x + normal.x * 0.06,
-        y: e.at.y + normal.y * 0.06,
-        z: e.at.z + normal.z * 0.06,
-        vx: normal.x * speed + Math.sin(n * 3) * speed * 0.75,
-        vy:
-          Math.max(0.5, normal.y * speed) + Math.abs(Math.cos(n)) * speed * 0.7,
-        vz: normal.z * speed + Math.cos(n * 7) * speed * 0.75,
-        age: 0,
-        life: solid
-          ? 4 + Math.abs(Math.sin(n)) * 2
-          : spark
-            ? 0.15 + (i % 4) * 0.055
-            : big
-              ? 3.8
-              : small
-                ? 0.8
-                : 2.2,
-        size: solid
-          ? small
-            ? 0.045
-            : 0.12 + (i % 4) * 0.075
-          : spark
-            ? muzzle && e.kind === 'cannon'
-              ? 0.38
-              : 0.045
-            : small
-              ? 0.2
-              : 0.6 + (i % 4) * 0.19,
-        glow: spark && !solid,
-        solid,
-        wood,
-        tint: solid
-          ? tint
-          : material === 'masonry'
-            ? 0xb5ab96
-            : material === 'earth'
-              ? 0x998770
-              : 0x74766b,
-      });
+      const px = e.at.x + normal.x * 0.06;
+      const py = e.at.y + normal.y * 0.06;
+      const pz = e.at.z + normal.z * 0.06;
+      const vx = normal.x * speed + Math.sin(n * 3) * speed * 0.75;
+      const vy =
+        Math.max(0.5, normal.y * speed) + Math.abs(Math.cos(n)) * speed * 0.7;
+      const vz = normal.z * speed + Math.cos(n * 7) * speed * 0.75;
+      if (solid) {
+        if (this.solidParticles.length >= MAX_FRAGMENTS)
+          this.solidParticles.shift();
+        this.solidParticles.push({
+          x: px,
+          y: py,
+          z: pz,
+          vx,
+          vy,
+          vz,
+          age: 0,
+          life: 4 + Math.abs(Math.sin(n)) * 2,
+          size: small ? 0.045 : 0.12 + (i % 4) * 0.075,
+          wood,
+          tint,
+          spin: 0,
+        });
+      } else if (spark) {
+        if (this.fireParticles.length >= MAX_FIRE) this.fireParticles.shift();
+        const serial = ++this.particleSerial;
+        this.fireParticles.push({
+          x: px,
+          y: py,
+          z: pz,
+          vx,
+          vy,
+          vz,
+          age: 0,
+          life: big ? 0.28 + (i % 3) * 0.08 : 0.15 + (i % 4) * 0.055,
+          size: muzzle && e.kind === 'cannon' ? 0.95 : big ? 1.45 : 0.28,
+          spin: (serial * 1.7) % (Math.PI * 2),
+          seed: (serial * 0.6180339887) % 1,
+        });
+      } else {
+        if (this.smokeParticles.length >= MAX_SMOKE)
+          this.smokeParticles.shift();
+        const serial = ++this.particleSerial;
+        this.smokeParticles.push({
+          x: px,
+          y: py,
+          z: pz,
+          vx,
+          vy,
+          vz,
+          age: 0,
+          life: big ? 3.8 : small ? 0.8 : 2.2,
+          size: small ? 0.45 : 1.05 + (i % 4) * 0.35,
+          tint:
+            material === 'masonry'
+              ? 0xb5ab96
+              : material === 'earth'
+                ? 0x998770
+                : 0x74766b,
+          spin: (serial * 1.3) % (Math.PI * 2),
+          seed: (serial * 0.6180339887) % 1,
+        });
+      }
     }
     if (e.kind === 'damage') this.shake = 1;
     if (e.kind === 'cannon' && e.strength === 1) this.shake = 0.3;
@@ -550,7 +654,6 @@ export class TankScene {
         this.shake,
         (big ? 0.75 : 0.25) * Math.max(0, 1 - distance / 90),
       );
-    this.particles = this.particles.slice(-180);
   }
   private animateTank(
     model: ReturnType<typeof makeTank>,
@@ -606,8 +709,13 @@ export class TankScene {
     if (this.disposed) return;
     const dt = Math.max(0, Math.min(0.15, s.time - this.last));
     this.last = s.time;
+    this.visualTime += dt;
     for (const e of s.events) this.burst(e);
     s.events = [];
+    this.flashLight.intensity = Math.max(
+      0,
+      this.flashLight.intensity - dt * 260,
+    );
     this.shake = Math.max(0, this.shake - dt * 2);
     this.trackPhase += s.speed * dt;
     this.markDistance += Math.hypot(s.x - this.markX, s.z - this.markZ);
@@ -624,10 +732,23 @@ export class TankScene {
         this.object.rotation.set(0, -s.yaw, 0);
         this.object.scale.setScalar(1);
         this.object.updateMatrix();
-        this.trackMarks.setMatrixAt(this.markCount++ % 900, this.object.matrix);
+        const serial = this.markCount++;
+        const slot = serial % MAX_TRACK_MARKS;
+        this.markSerials[slot] = serial;
+        this.trackMarks.setMatrixAt(slot, this.object.matrix);
       }
-      this.trackMarks.count = Math.min(900, this.markCount);
+      const activeCount = Math.min(MAX_TRACK_MARKS, this.markCount);
+      for (let k = 0; k < activeCount; k++) {
+        const age = this.markCount - 1 - this.markSerials[k];
+        const remaining = MAX_TRACK_MARKS - 1 - age;
+        this.markAlphaAttr.setX(
+          k,
+          Math.max(0, Math.min(1, remaining / TRACK_FADE_WINDOW)),
+        );
+      }
+      this.trackMarks.count = activeCount;
       this.trackMarks.instanceMatrix.needsUpdate = true;
+      this.markAlphaAttr.needsUpdate = true;
     }
 
     this.player.root.position.set(
@@ -677,7 +798,10 @@ export class TankScene {
           collapse.pulse = pulse;
           for (let i = 0; i < 14; i++) {
             const angle = (i / 14) * Math.PI * 2;
-            this.particles.push({
+            if (this.smokeParticles.length >= MAX_SMOKE)
+              this.smokeParticles.shift();
+            const serial = ++this.particleSerial;
+            this.smokeParticles.push({
               x: c.x + Math.sin(angle) * c.w * 0.43,
               y: 0.3 + (pulse === 0 ? c.h * 0.55 : 0),
               z: c.z + Math.cos(angle) * c.d * 0.43,
@@ -687,8 +811,9 @@ export class TankScene {
               age: 0,
               life: 3.4,
               size: 2.2 + pulse * 0.5,
-              glow: false,
               tint: 0xb2a48b,
+              spin: (serial * 1.3) % (Math.PI * 2),
+              seed: (serial * 0.6180339887) % 1,
             });
           }
         }
@@ -741,8 +866,11 @@ export class TankScene {
           e.active &&
           e.health <= 0 &&
           (e.kind === 'tank' || e.kind === 'gun' || e.kind === 'demolition')
-        )
-          this.particles.push({
+        ) {
+          if (this.smokeParticles.length >= MAX_SMOKE)
+            this.smokeParticles.shift();
+          const serial = ++this.particleSerial;
+          this.smokeParticles.push({
             x: e.x,
             y: 1,
             z: e.z,
@@ -752,10 +880,16 @@ export class TankScene {
             age: 0,
             life: 5,
             size: 2,
-            glow: false,
+            tint: 0x3b3832,
+            spin: (serial * 1.3) % (Math.PI * 2),
+            seed: (serial * 0.6180339887) % 1,
           });
-      if (Math.abs(s.speed) > 0.5)
-        this.particles.push({
+        }
+      if (Math.abs(s.speed) > 0.5) {
+        if (this.smokeParticles.length >= MAX_SMOKE)
+          this.smokeParticles.shift();
+        const serial = ++this.particleSerial;
+        this.smokeParticles.push({
           x: s.x - Math.sin(s.yaw) * 2,
           y: 0.3,
           z: s.z + Math.cos(s.yaw) * 2,
@@ -765,19 +899,22 @@ export class TankScene {
           age: 0,
           life: 2,
           size: 1,
-          glow: false,
+          tint: 0x858071,
+          spin: (serial * 1.3) % (Math.PI * 2),
+          seed: (serial * 0.6180339887) % 1,
         });
+      }
     }
-    const follow = zoom ? 7.2 : 15,
-      eye = new T.Vector3(
-        s.x - Math.sin(s.turret) * follow,
-        zoom ? 5.1 : 6.2,
-        s.z + Math.cos(s.turret) * follow,
-      );
+    const follow = zoom ? 7.2 : 15;
+    this.scratchEye.set(
+      s.x - Math.sin(s.turret) * follow,
+      zoom ? 5.1 : 6.2,
+      s.z + Math.cos(s.turret) * follow,
+    );
     if (!this.cameraReady || s.status !== 'playing') {
-      this.camera.position.copy(eye);
+      this.camera.position.copy(this.scratchEye);
       this.cameraReady = true;
-    } else this.camera.position.lerp(eye, Math.min(1, dt * 9));
+    } else this.camera.position.lerp(this.scratchEye, Math.min(1, dt * 9));
     const muzzle = tankMuzzle(s);
     this.camera.lookAt(
       muzzle.x + Math.sin(s.turret) * 100,
@@ -788,70 +925,107 @@ export class TankScene {
     );
     this.camera.fov = zoom ? 35 : 58;
     this.camera.updateProjectionMatrix();
-    let dust = 0,
-      chips = 0,
-      fragments = 0;
-    this.particles = this.particles.filter((p) => p.age < p.life).slice(-180);
-    for (const p of this.particles) {
+
+    let solidWrite = 0;
+    const prevSolid = this.fragments.count;
+    for (let i = 0; i < this.solidParticles.length; i++) {
+      const p = this.solidParticles[i];
       p.age += dt;
-      if (p.solid) stepFragment(p, dt);
-      else {
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.z += p.vz * dt;
-        p.vx *= Math.exp(-dt * 1.1);
-        p.vz *= Math.exp(-dt * 1.1);
-        if (p.glow) p.vy -= dt * 9;
-      }
-      this.object.position.set(p.x, Math.max(0.05, p.y), p.z);
-      if (p.solid) {
-        if (p.y > 0.09 || Math.hypot(p.vx, p.vy, p.vz) > 0.3)
-          p.spin = (p.spin ?? 0) + dt;
-        const spin = p.spin ?? 0;
-        this.object.rotation.set(spin * 3.1, spin * 2.3, spin * 1.7);
-      } else this.object.quaternion.copy(this.camera.quaternion);
+      if (p.age >= p.life) continue;
+      stepFragment(p, dt);
+      if (p.y > 0.09 || Math.hypot(p.vx, p.vy, p.vz) > 0.3) p.spin += dt;
       const fade = Math.max(0, Math.min(1, (p.life - p.age) / 0.6));
-      const size = p.solid
-        ? p.size * fade
-        : p.size * (1 + p.age * 0.85) * Math.max(0, fade);
+      const size = p.size * fade;
+      this.object.position.set(p.x, Math.max(0.05, p.y), p.z);
+      this.object.rotation.set(p.spin * 3.1, p.spin * 2.3, p.spin * 1.7);
       this.object.scale.set(
-        size * (p.wood && p.solid ? 0.45 : 1),
-        size * (p.wood && p.solid ? 2.6 : 1),
+        size * (p.wood ? 0.45 : 1),
+        size * (p.wood ? 2.6 : 1),
         size,
       );
       this.object.updateMatrix();
-      if (p.solid && fragments < 140) {
-        this.fragments.setMatrixAt(fragments, this.object.matrix);
-        this.fragments.setColorAt(
-          fragments++,
-          this.color.setHex(p.tint ?? 0xa69b81),
-        );
-      } else if (p.glow && chips < 100)
-        this.chips.setMatrixAt(chips++, this.object.matrix);
-      else if (dust < 180) {
-        this.smoke.setMatrixAt(dust, this.object.matrix);
-        this.color
-          .setHex(p.tint ?? 0x858071)
-          .multiplyScalar(1 - (p.age / p.life) * 0.2);
-        this.smoke.setColorAt(dust++, this.color);
-      }
+      this.fragments.setMatrixAt(solidWrite, this.object.matrix);
+      this.fragments.setColorAt(solidWrite, this.color.setHex(p.tint));
+      this.solidParticles[solidWrite++] = p;
     }
-    this.fragments.count = fragments;
-    this.fragments.instanceMatrix.needsUpdate = true;
-    if (this.fragments.instanceColor)
-      this.fragments.instanceColor.needsUpdate = true;
-    this.smoke.count = dust;
-    this.chips.count = chips;
-    this.smoke.instanceMatrix.needsUpdate = true;
-    if (this.smoke.instanceColor) this.smoke.instanceColor.needsUpdate = true;
-    this.chips.instanceMatrix.needsUpdate = true;
-    this.shells.count = Math.min(80, s.shells.length);
-    s.shells.slice(0, 80).forEach((r, i) => {
-      this.object.position.set(r.x, r.y, r.z);
-      this.object.quaternion.setFromUnitVectors(
-        new T.Vector3(0, 0, 1),
-        new T.Vector3(r.vx, r.vy, r.vz).normalize(),
+    this.solidParticles.length = solidWrite;
+    this.fragments.count = solidWrite;
+    if (solidWrite > 0 || prevSolid > 0) {
+      this.fragments.instanceMatrix.needsUpdate = true;
+      if (this.fragments.instanceColor)
+        this.fragments.instanceColor.needsUpdate = true;
+    }
+
+    let fireWrite = 0;
+    for (let i = 0; i < this.fireParticles.length; i++) {
+      const p = this.fireParticles[i];
+      p.age += dt;
+      if (p.age >= p.life) continue;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      p.vx *= Math.exp(-dt * 1.1);
+      p.vz *= Math.exp(-dt * 1.1);
+      p.vy -= dt * 9;
+      const u = p.age / p.life;
+      const size = p.size * (1 + p.age * 1.4);
+      this.firePool.set(
+        fireWrite,
+        p.x,
+        Math.max(0.05, p.y),
+        p.z,
+        size,
+        size,
+        2.6,
+        1.45,
+        0.45,
+        1 - u,
+        p.spin + p.age * 2.2,
+        p.seed,
       );
+      this.fireParticles[fireWrite++] = p;
+    }
+    this.fireParticles.length = fireWrite;
+    this.firePool.commit(fireWrite, this.visualTime);
+
+    let smokeWrite = 0;
+    for (let i = 0; i < this.smokeParticles.length; i++) {
+      const p = this.smokeParticles[i];
+      p.age += dt;
+      if (p.age >= p.life) continue;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+      p.vx *= Math.exp(-dt * 1.1);
+      p.vz *= Math.exp(-dt * 1.1);
+      const fade = Math.max(0, Math.min(1, (p.life - p.age) / 0.6));
+      const size = p.size * (1 + p.age * 0.85);
+      this.color.setHex(p.tint).multiplyScalar(1 - (p.age / p.life) * 0.2);
+      this.smokePool.set(
+        smokeWrite,
+        p.x,
+        Math.max(0.05, p.y),
+        p.z,
+        size,
+        size,
+        this.color.r,
+        this.color.g,
+        this.color.b,
+        0.65 * fade,
+        p.spin + p.age * 0.35,
+        p.seed,
+      );
+      this.smokeParticles[smokeWrite++] = p;
+    }
+    this.smokeParticles.length = smokeWrite;
+    this.smokePool.commit(smokeWrite, this.visualTime);
+
+    this.shells.count = Math.min(80, s.shells.length);
+    for (let i = 0; i < this.shells.count; i++) {
+      const r = s.shells[i];
+      this.object.position.set(r.x, r.y, r.z);
+      this.scratchVec.set(r.vx, r.vy, r.vz).normalize();
+      this.object.quaternion.setFromUnitVectors(this.scratchZ, this.scratchVec);
       this.object.scale.set(
         r.mg ? 0.035 : 0.09,
         r.mg ? 0.035 : 0.09,
@@ -859,7 +1033,7 @@ export class TankScene {
       );
       this.object.updateMatrix();
       this.shells.setMatrixAt(i, this.object.matrix);
-    });
+    }
     this.shells.instanceMatrix.needsUpdate = true;
     (this.river.material as T.MeshStandardMaterial).normalMap!.offset.x =
       s.time * 0.008;
@@ -872,40 +1046,56 @@ export class TankScene {
       );
       a.rotation.y = Math.PI;
     });
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
   }
   /** Read-only renderer counters for the inspection route; no gameplay UI polling. */
   metrics() {
     return {
       draws: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
-      particles: this.particles.length,
+      particles:
+        this.smokeParticles.length +
+        this.fireParticles.length +
+        this.solidParticles.length,
       marks: this.scars.count,
       geometries: this.renderer.info.memory.geometries,
       textures: this.renderer.info.memory.textures,
     };
   }
   reset() {
-    this.particles = [];
+    this.smokeParticles.length = 0;
+    this.fireParticles.length = 0;
+    this.solidParticles.length = 0;
+    this.smokePool.clear();
+    this.firePool.clear();
+    this.fragments.count = 0;
+    this.flashLight.intensity = 0;
     this.collapses.clear();
     this.scarOwners.clear();
     this.scarSerial = 0;
     this.scars.count = 0;
     this.last = 0;
     this.trackPhase = 0;
+    this.markSerials.fill(0);
     this.markCount = 0;
     this.markDistance = 0;
     this.markX = 0;
     this.markZ = 18;
     this.trackMarks.count = 0;
+    this.markAlphaAttr.needsUpdate = true;
     this.shake = 0;
     this.cameraReady = false;
   }
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
     this.observer.disconnect();
     this.renderer.domElement.removeEventListener('webglcontextlost', this.lost);
     this.renderer.domElement.remove();
+    this.smokePool.dispose();
+    this.firePool.dispose();
+    this.post?.dispose();
     this.scene.traverse((o) => {
       if (o instanceof T.InstancedMesh) o.dispose();
       if (o instanceof T.DirectionalLight) o.shadow.dispose();
@@ -915,5 +1105,6 @@ export class TankScene {
     this.env.dispose();
     this.art.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 }

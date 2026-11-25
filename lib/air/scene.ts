@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 import { AirArt, makeAirframe, makeCoast, makeTargetModel } from './art';
 import { makeOcean, makeSky } from '../naval/ocean';
-import { snapDirectionalShadow } from '../naval/daylight';
+import {
+  bakeCoastalEnvironment,
+  snapDirectionalShadow,
+} from '../naval/daylight';
 import { ShellSplashVisuals } from '../naval/shell-splashes';
 import { AirEffects } from './effects';
 import { makeCoastalAtmosphere } from './coastal-atmosphere';
 import { placePilotCamera } from './pilot-view';
+import { createBloomComposer } from '../post-processing';
+import { TracerPool, createBombGeometry } from '../vfx';
 import {
   bombSolution,
   gunSolutions,
@@ -31,23 +36,13 @@ export class AirScene {
   private effects = new AirEffects(this.scene);
   private splashes = new ShellSplashVisuals(this.scene);
   private targets = new Map<string, ReturnType<typeof makeTargetModel>>();
-  private trailGeometry = new THREE.BufferGeometry();
-  private trailArray = new Float32Array(160 * 6);
-  private trails = new THREE.LineSegments(
-    this.trailGeometry,
-    new THREE.LineBasicMaterial({
-      color: '#ffe09d',
-      transparent: true,
-      opacity: 0.9,
-    }),
+  private tracers = new TracerPool(this.scene, 192);
+  private bombs = new THREE.InstancedMesh(
+    this.art.geo(createBombGeometry(1)),
+    this.art.olive,
+    6,
   );
-  private flakGeometry = new THREE.BufferGeometry();
-  private flakArray = new Float32Array(32 * 6);
-  private flakTrails = new THREE.LineSegments(
-    this.flakGeometry,
-    new THREE.LineBasicMaterial({ color: '#ff6d37' }),
-  );
-  private bombs = new THREE.InstancedMesh(this.art.sphere, this.art.olive, 6);
+  private post?: ReturnType<typeof createBloomComposer>;
   private object = new THREE.Object3D();
   private observer: ResizeObserver;
   private width = 1;
@@ -94,8 +89,6 @@ export class AirScene {
       this.coast,
       this.atmosphere.root,
       this.aircraft.root,
-      this.trails,
-      this.flakTrails,
       this.bombs,
     );
     this.scene.fog = new THREE.FogExp2('#b0c4c6', 0.00017);
@@ -116,31 +109,23 @@ export class AirScene {
     sun.shadow.normalBias = 0.35;
     sun.shadow.radius = 2;
     this.scene.add(sun, sun.target);
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const skyScene = new THREE.Scene();
-    skyScene.add(this.sky.clone());
-    this.environment = pmrem.fromScene(skyScene, 0.12, 0.1, 14000);
+    this.environment = bakeCoastalEnvironment(
+      this.renderer,
+      this.sky,
+      '#2e4648',
+      14000,
+    );
     this.scene.environment = this.environment.texture;
-    this.scene.environmentIntensity = 0.4;
-    pmrem.dispose();
-    this.trailGeometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(this.trailArray, 3).setUsage(
-        THREE.DynamicDrawUsage,
-      ),
-    );
-    this.trailGeometry.setDrawRange(0, 0);
-    this.trails.frustumCulled = false;
-    this.flakGeometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(this.flakArray, 3).setUsage(
-        THREE.DynamicDrawUsage,
-      ),
-    );
-    this.flakGeometry.setDrawRange(0, 0);
-    this.flakTrails.frustumCulled = false;
+    this.scene.environmentIntensity = 0.45;
     this.bombs.count = 0;
     this.bombs.frustumCulled = false;
+    if (!this.touch.matches) {
+      this.post = createBloomComposer(this.renderer, this.scene, this.camera, {
+        strength: 0.26,
+        radius: 0.4,
+        threshold: 1.15,
+      });
+    }
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
@@ -153,6 +138,7 @@ export class AirScene {
     this.camera.fov = this.camera.aspect < 1 ? 70 : 64;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
+    this.post?.setSize(this.width, this.height);
     this.predictTime = -1;
   }
   event(e: AirEvent) {
@@ -285,25 +271,27 @@ export class AirScene {
         );
     }
     if (this.smokeTime >= 0.32) this.smokeTime = 0;
-    let bullets = 0,
+    let tracerCount = 0,
       bombs = 0;
     for (const p of b.projectiles)
-      if (p.kind === 'gun' && bullets < 160) {
-        const offset = bullets++ * 6;
-        this.trailArray.set(
-          [
-            p.position.x,
-            p.position.y,
-            p.position.z,
-            p.position.x - p.velocity.x * 0.019,
-            p.position.y - p.velocity.y * 0.019,
-            p.position.z - p.velocity.z * 0.019,
-          ],
-          offset,
+      if (p.kind === 'gun' && tracerCount < 160) {
+        this.tracers.set(
+          tracerCount++,
+          p.position.x - p.velocity.x * 0.019,
+          p.position.y - p.velocity.y * 0.019,
+          p.position.z - p.velocity.z * 0.019,
+          p.position.x,
+          p.position.y,
+          p.position.z,
+          0.1,
+          1.85,
+          1.45,
+          0.75,
+          0.9,
         );
       } else if (p.kind === 'bomb' && bombs < 6) {
         this.object.position.copy(p.position);
-        this.object.scale.set(0.28, 0.28, 1.1);
+        this.object.scale.setScalar(1.1);
         this.object.lookAt(
           p.position.x + p.velocity.x,
           p.position.y + p.velocity.y - 9.81 * p.age,
@@ -313,26 +301,25 @@ export class AirScene {
         this.bombs.setMatrixAt(bombs++, this.object.matrix);
       }
     this.bombs.count = bombs;
-    this.bombs.instanceMatrix.needsUpdate = true;
-    this.trailGeometry.setDrawRange(0, bullets * 2);
-    this.trailGeometry.attributes.position.needsUpdate = true;
-    b.flak
-      .slice(0, 32)
-      .forEach((p, i) =>
-        this.flakArray.set(
-          [
-            p.position.x,
-            p.position.y,
-            p.position.z,
-            p.position.x - (p.end.x - p.origin.x) * 0.035,
-            p.position.y - (p.end.y - p.origin.y) * 0.035,
-            p.position.z - (p.end.z - p.origin.z) * 0.035,
-          ],
-          i * 6,
-        ),
+    if (bombs > 0) this.bombs.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < b.flak.length && i < 32; i++) {
+      const p = b.flak[i];
+      this.tracers.set(
+        tracerCount++,
+        p.position.x - (p.end.x - p.origin.x) * 0.035,
+        p.position.y - (p.end.y - p.origin.y) * 0.035,
+        p.position.z - (p.end.z - p.origin.z) * 0.035,
+        p.position.x,
+        p.position.y,
+        p.position.z,
+        0.13,
+        1.9,
+        0.75,
+        0.35,
+        0.92,
       );
-    this.flakGeometry.setDrawRange(0, Math.min(32, b.flak.length) * 2);
-    this.flakGeometry.attributes.position.needsUpdate = true;
+    }
+    this.tracers.commit(tracerCount);
     this.effects.update(
       active,
       this.height,
@@ -370,7 +357,8 @@ export class AirScene {
         predictImpact(avg, [], 2)?.position ?? projectilePoint(avg, 0.7);
     }
     this.renderer.info.reset();
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
     this.lastCalls = this.renderer.info.render.calls;
     this.maxCalls = Math.max(this.maxCalls, this.lastCalls);
     this.maxEffects = Math.max(this.maxEffects, this.effects.count);
@@ -393,6 +381,8 @@ export class AirScene {
   reset() {
     this.effects.reset();
     this.splashes.reset();
+    this.tracers.clear();
+    this.bombs.count = 0;
     this.predictTime = -1;
     this.smokeTime = this.shake = 0;
     this.frames = [];
@@ -407,6 +397,9 @@ export class AirScene {
       'webglcontextlost',
       this.onLost,
     );
+    this.post?.dispose();
+    this.tracers.dispose();
+    this.bombs.dispose();
     this.effects.dispose();
     this.splashes.dispose();
     this.ocean.dispose();
@@ -416,10 +409,6 @@ export class AirScene {
     this.atmosphere.dispose();
     this.sun.shadow.dispose();
     this.art.dispose();
-    this.trailGeometry.dispose();
-    this.trails.material.dispose();
-    this.flakGeometry.dispose();
-    this.flakTrails.material.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.renderer.domElement.remove();

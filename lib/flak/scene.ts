@@ -1,8 +1,10 @@
 import * as T from 'three';
 import { FlakArt, aircraft, gun, paratrooper, consolidate } from './art';
 import { makeOcean, makeSky } from '../naval/ocean';
-import { COASTAL_SUN } from '../naval/daylight';
+import { bakeCoastalEnvironment, COASTAL_SUN } from '../naval/daylight';
 import { TOUCH_LAYOUT_QUERY } from '../touch-input';
+import { createBloomComposer } from '../post-processing';
+import { BillboardPool, TracerPool, createBombGeometry } from '../vfx';
 import {
   aimDirection,
   eyePosition,
@@ -10,7 +12,6 @@ import {
   type FlakEvent,
   type Vec,
 } from './simulation';
-const noise = `float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);} float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);} float fbm(vec2 p){return noise(p)*.55+noise(p*2.03)*.28+noise(p*4.07)*.14;}`;
 
 /** Coastal dune profile that keeps the battery level and slopes smoothly below sea level. */
 export function flakCoastHeight(x: number, z: number): number {
@@ -31,45 +32,25 @@ type Puff = {
   size: number;
   shade: number;
   glow: boolean;
+  spin: number;
+  rot: number;
+  seed: number;
 };
-/** Billboard pool: one draw for drifting smoke, one for cloud layers. */
-function smokeMesh(a: FlakArt, count: number) {
-  const g = a.geo(new T.PlaneGeometry(1, 1)),
-    alphas = new Float32Array(count),
-    alpha = new T.InstancedBufferAttribute(alphas, 1);
-  g.setAttribute('alpha', alpha);
-  const mat = new T.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    uniforms: { time: { value: 0 } },
-    vertexShader: `attribute float alpha;varying vec2 uvv;varying float opacity;varying vec3 tint;void main(){uvv=uv;opacity=alpha;tint=instanceColor;vec4 p=modelViewMatrix*instanceMatrix*vec4(0,0,0,1);p.xy+=position.xy*vec2(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz));gl_Position=projectionMatrix*p;}`,
-    fragmentShader:
-      `varying vec2 uvv;varying float opacity;varying vec3 tint;uniform float time;${noise}void main(){vec2 p=uvv*2.-1.;float cloud=fbm(uvv*6.+vec2(time*.015,0));float edge=1.-smoothstep(.3,1.,length(p)+(cloud-.5)*.45);float shade=.65+uvv.y*.4+cloud*.22;gl_FragColor=vec4(tint*shade,edge*cloud*opacity);#include <tonemapping_fragment>\n#include <colorspace_fragment>}`.replace(
-        ';#include',
-        ';\n#include',
-      ),
-  });
-  a.materials.add(mat);
-  const mesh = new T.InstancedMesh(g, mat, count);
-  mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
-  mesh.frustumCulled = false;
-  for (let i = 0; i < count; i++) mesh.setColorAt(i, new T.Color('white'));
-  return { mesh, alpha, alphas, mat };
-}
 export class FlakScene {
   private renderer: T.WebGLRenderer;
   private scene = new T.Scene();
-  private camera = new T.PerspectiveCamera(59, 1, 0.08, 12000);
+  private camera = new T.PerspectiveCamera(59, 1, 0.3, 12000);
   private art = new FlakArt();
   private weapon = gun(this.art);
   private sky = makeSky();
   private ocean = makeOcean({ reflection: 'environment', shorelineZ: -82 });
   private environment: T.WebGLRenderTarget;
-  private smoke = smokeMesh(this.art, 180);
-  private clouds = smokeMesh(this.art, 48);
+  private smoke: BillboardPool;
+  private flashes: BillboardPool;
+  private clouds: BillboardPool;
   private puffs: Puff[] = [];
+  private serial = 0;
   private object = new T.Object3D();
-  private color = new T.Color();
   private planes = (['bomber', 'transport', 'fighter'] as const).flatMap(
     (kind) =>
       Array.from({ length: 3 }, () => ({
@@ -82,15 +63,12 @@ export class FlakScene {
     id: -1,
     ...paratrooper(this.art),
   }));
-  private trailArray = new Float32Array(40 * 6);
-  private trails: T.LineSegments;
-  private trailGeometry = new T.BufferGeometry();
-  private enemyTrailArray = new Float32Array(24 * 6);
-  private enemyTrailGeometry = new T.BufferGeometry();
+  private tracers: TracerPool;
   private bombs: T.InstancedMesh;
   private shells: T.InstancedMesh;
   private observer: ResizeObserver;
   private light = new T.PointLight('#ffd89e', 0, 8);
+  private post?: ReturnType<typeof createBloomComposer>;
   private flash = 0;
   private shake = 0;
   private previous = 0;
@@ -118,14 +96,7 @@ export class FlakScene {
     this.renderer.shadowMap.type = T.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('webglcontextlost', this.onLost);
-    this.scene.add(
-      this.sky,
-      this.ocean.mesh,
-      this.weapon.root,
-      this.smoke.mesh,
-      this.clouds.mesh,
-      this.light,
-    );
+    this.scene.add(this.sky, this.ocean.mesh, this.weapon.root, this.light);
     this.scene.fog = new T.FogExp2('#afc1c1', 0.00038);
     this.scene.add(new T.HemisphereLight('#c4d3d3', '#797159', 1.15));
     const sun = new T.DirectionalLight('#ffdfb0', 3.1);
@@ -147,13 +118,27 @@ export class FlakScene {
     sun.shadow.normalBias = 0.02;
     sun.shadow.radius = 2;
     this.scene.add(sun, sun.target);
-    const pmrem = new T.PMREMGenerator(this.renderer),
-      env = new T.Scene();
-    env.add(this.sky.clone());
-    this.environment = pmrem.fromScene(env, 0.15, 0.1, 12000);
+    this.environment = bakeCoastalEnvironment(
+      this.renderer,
+      this.sky,
+      '#5e5a49',
+      12000,
+    );
     this.scene.environment = this.environment.texture;
     this.scene.environmentIntensity = 0.55;
-    pmrem.dispose();
+    this.smoke = new BillboardPool(this.scene, 180, {
+      blending: 'normal',
+      kind: 'smoke',
+    });
+    this.flashes = new BillboardPool(this.scene, 64, {
+      blending: 'additive',
+      kind: 'fire',
+    });
+    this.clouds = new BillboardPool(this.scene, 48, {
+      blending: 'normal',
+      kind: 'smoke',
+    });
+    this.tracers = new TracerPool(this.scene, 64);
     this.buildCoast();
     for (const p of this.planes) {
       p.root.visible = false;
@@ -163,39 +148,11 @@ export class FlakScene {
       p.root.visible = false;
       this.scene.add(p.root);
     }
-    this.trailGeometry.setAttribute(
-      'position',
-      new T.BufferAttribute(this.trailArray, 3).setUsage(T.DynamicDrawUsage),
+    this.bombs = new T.InstancedMesh(
+      this.art.geo(createBombGeometry(-1)),
+      this.art.dark,
+      8,
     );
-    this.trailGeometry.setDrawRange(0, 0);
-    const trailMat = new T.LineBasicMaterial({
-      color: '#ffe1a5',
-      transparent: true,
-      opacity: 0.95,
-      toneMapped: false,
-    });
-    this.art.materials.add(trailMat);
-    this.trails = new T.LineSegments(this.trailGeometry, trailMat);
-    this.trails.frustumCulled = false;
-    this.scene.add(this.trails);
-    this.enemyTrailGeometry.setAttribute(
-      'position',
-      new T.BufferAttribute(this.enemyTrailArray, 3).setUsage(
-        T.DynamicDrawUsage,
-      ),
-    );
-    this.enemyTrailGeometry.setDrawRange(0, 0);
-    const enemyMat = new T.LineBasicMaterial({
-      color: '#ff9960',
-      transparent: true,
-      opacity: 0.95,
-      toneMapped: false,
-    });
-    this.art.materials.add(enemyMat);
-    const enemyTrails = new T.LineSegments(this.enemyTrailGeometry, enemyMat);
-    enemyTrails.frustumCulled = false;
-    this.scene.add(enemyTrails);
-    this.bombs = new T.InstancedMesh(this.art.sphere, this.art.dark, 8);
     this.bombs.count = 0;
     this.bombs.frustumCulled = false;
     this.scene.add(this.bombs);
@@ -215,26 +172,35 @@ export class FlakScene {
       this.shells.setMatrixAt(i, this.object.matrix);
     }
     this.shells.count = 0;
+    const cloudPaletteA = new T.Color('#d9dfd8');
+    const cloudPaletteB = new T.Color('#a8b6b5');
     for (let i = 0; i < 48; i++) {
       const angle = i * 2.399;
       const distance = 1100 + (i % 5) * 430;
-      this.object.position.set(
+      const c = i % 3 ? cloudPaletteA : cloudPaletteB;
+      this.clouds.set(
+        i,
         Math.sin(angle) * distance,
         450 + (i % 7) * 90,
         Math.cos(angle) * distance,
+        420 + (i % 4) * 110,
+        110 + (i % 3) * 50,
+        c.r,
+        c.g,
+        c.b,
+        0.78,
+        ((i % 7) - 3) * 0.07,
+        (i * 0.6180339887) % 1,
       );
-      this.object.rotation.set(0, 0, 0);
-      this.object.scale.set(420 + (i % 4) * 110, 110 + (i % 3) * 50, 1);
-      this.object.updateMatrix();
-      this.clouds.mesh.setMatrixAt(i, this.object.matrix);
-      this.clouds.mesh.setColorAt(
-        i,
-        new T.Color(i % 3 ? '#d9dfd8' : '#a8b6b5'),
-      );
-      this.clouds.alphas[i] = 0.95;
     }
-    this.clouds.alpha.needsUpdate = true;
-    this.clouds.mesh.instanceColor!.needsUpdate = true;
+    this.clouds.commit(48, 0);
+    if (!touch) {
+      this.post = createBloomComposer(this.renderer, this.scene, this.camera, {
+        strength: 0.26,
+        radius: 0.4,
+        threshold: 1.15,
+      });
+    }
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
@@ -389,6 +355,7 @@ export class FlakScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this.post?.setSize(w, h);
   }
   reset() {
     this.puffs = [];
@@ -397,8 +364,20 @@ export class FlakScene {
     this.ambientClock = 0;
     this.flash = 0;
     this.shake = 0;
-    for (const p of this.planes) p.id = -1;
-    for (const p of this.troops) p.id = -1;
+    this.light.intensity = 0;
+    this.bombs.count = 0;
+    this.shells.count = 0;
+    this.smoke.clear();
+    this.flashes.clear();
+    this.tracers.clear();
+    for (const p of this.planes) {
+      p.id = -1;
+      p.root.visible = false;
+    }
+    for (const p of this.troops) {
+      p.id = -1;
+      p.root.visible = false;
+    }
   }
   private puff(
     at: Vec,
@@ -407,8 +386,19 @@ export class FlakScene {
     shade: number,
     glow = false,
   ) {
-    if (this.puffs.length >= 180) this.puffs.shift();
-    this.puffs.push({ at: { ...at }, size, life, shade, glow, age: 0 });
+    if (this.puffs.length >= 240) this.puffs.shift();
+    const seed = (++this.serial * 0.6180339887) % 1;
+    this.puffs.push({
+      at: { ...at },
+      size,
+      life,
+      shade,
+      glow,
+      age: 0,
+      spin: ((this.serial % 11) - 5) * 0.08,
+      rot: seed * Math.PI * 2,
+      seed,
+    });
   }
   private effects(events: FlakEvent[]) {
     for (const e of events) {
@@ -464,8 +454,17 @@ export class FlakScene {
     );
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(eye.x + d.x * 500, eye.y + d.y * 500, eye.z + d.z * 500);
-    this.camera.fov = zoom ? 35 : this.camera.aspect < 0.85 ? 70 : 59;
-    this.camera.updateProjectionMatrix();
+    const wantedFov = zoom ? 35 : this.camera.aspect < 0.85 ? 70 : 59;
+    const nextFov = T.MathUtils.damp(
+      this.camera.fov,
+      wantedFov,
+      14,
+      Math.max(dt, 1 / 120),
+    );
+    if (Math.abs(nextFov - this.camera.fov) > 1e-4) {
+      this.camera.fov = nextFov;
+      this.camera.updateProjectionMatrix();
+    }
     this.weapon.yaw.rotation.y = -s.yaw;
     this.weapon.cradle.rotation.x = s.pitch;
     this.weapon.cradle.position.z = this.flash * 0.035;
@@ -538,40 +537,43 @@ export class FlakScene {
         t.health > 0 ? Math.max(0.08, opening) : 0.2,
       );
     }
-    let n = 0;
-    for (const r of s.rounds.slice(0, 40)) {
+    let tracerCount = 0;
+    for (let i = 0; i < s.rounds.length && tracerCount < 40; i++) {
+      const r = s.rounds[i];
       const scale = 0.025;
-      this.trailArray.set(
-        [
-          r.x - r.vx * scale,
-          r.y - r.vy * scale,
-          r.z - r.vz * scale,
-          r.x,
-          r.y,
-          r.z,
-        ],
-        n * 6,
-      );
-      n++;
-    }
-    this.trailGeometry.attributes.position.needsUpdate = true;
-    this.trailGeometry.setDrawRange(0, n * 2);
-    let enemyCount = 0;
-    for (const r of s.enemyRounds.slice(0, 24)) {
-      this.enemyTrailArray.set(
-        [
-          r.x - r.vx * 0.045,
-          r.y - r.vy * 0.045,
-          r.z - r.vz * 0.045,
-          r.x,
-          r.y,
-          r.z,
-        ],
-        enemyCount++ * 6,
+      this.tracers.set(
+        tracerCount++,
+        r.x - r.vx * scale,
+        r.y - r.vy * scale,
+        r.z - r.vz * scale,
+        r.x,
+        r.y,
+        r.z,
+        0.09,
+        1.85,
+        1.45,
+        0.75,
+        0.95,
       );
     }
-    this.enemyTrailGeometry.attributes.position.needsUpdate = true;
-    this.enemyTrailGeometry.setDrawRange(0, enemyCount * 2);
+    for (let i = 0; i < s.enemyRounds.length && tracerCount < 64; i++) {
+      const r = s.enemyRounds[i];
+      this.tracers.set(
+        tracerCount++,
+        r.x - r.vx * 0.045,
+        r.y - r.vy * 0.045,
+        r.z - r.vz * 0.045,
+        r.x,
+        r.y,
+        r.z,
+        0.1,
+        1.9,
+        0.8,
+        0.38,
+        0.95,
+      );
+    }
+    this.tracers.commit(tracerCount);
     this.bombs.count = Math.min(8, s.bombs.length);
     for (let i = 0; i < this.bombs.count; i++) {
       const b = s.bombs[i];
@@ -582,11 +584,11 @@ export class FlakScene {
         0,
         'YXZ',
       );
-      this.object.scale.set(0.24, 0.24, 1.1);
+      this.object.scale.setScalar(1.1);
       this.object.updateMatrix();
       this.bombs.setMatrixAt(i, this.object.matrix);
     }
-    this.bombs.instanceMatrix.needsUpdate = true;
+    if (this.bombs.count > 0) this.bombs.instanceMatrix.needsUpdate = true;
     if (this.ambientClock > 2.3) {
       this.ambientClock = 0;
       const t = s.time;
@@ -601,35 +603,63 @@ export class FlakScene {
         0.12,
       );
     }
-    for (const p of this.puffs) {
+    let write = 0;
+    let smokeCount = 0;
+    let flashCount = 0;
+    for (let i = 0; i < this.puffs.length; i++) {
+      const p = this.puffs[i];
       p.age += dt;
-      p.at.x += dt * (p.glow ? 0 : 3);
-      p.at.y += dt * (p.glow ? 0 : 1.8);
-    }
-    this.puffs = this.puffs.filter((p) => p.age < p.life);
-    this.smoke.mesh.count = this.puffs.length;
-    this.puffs.forEach((p, i) => {
-      this.object.position.set(p.at.x, p.at.y, p.at.z);
+      if (p.age >= p.life) continue;
+      if (!p.glow) {
+        p.at.x += dt * 3;
+        p.at.y += dt * 1.8;
+        p.rot += p.spin * dt;
+      }
       const size = p.size * (1 + p.age * 0.25);
-      this.object.scale.set(size, size, 1);
-      this.object.rotation.set(0, 0, 0);
-      this.object.updateMatrix();
-      this.smoke.mesh.setMatrixAt(i, this.object.matrix);
-      this.color.setRGB(
-        p.glow ? 3 : p.shade,
-        p.glow ? 1.4 : p.shade,
-        p.glow ? 0.3 : p.shade * 0.98,
-      );
-      this.smoke.mesh.setColorAt(i, this.color);
-      this.smoke.alphas[i] = (1 - p.age / p.life) * (p.glow ? 2 : 1.7);
-    });
-    this.smoke.mesh.instanceMatrix.needsUpdate = true;
-    this.smoke.mesh.instanceColor!.needsUpdate = true;
-    this.smoke.alpha.needsUpdate = true;
-    this.smoke.mat.uniforms.time.value = s.time;
-    this.clouds.mat.uniforms.time.value = s.time;
+      const alpha = 1 - p.age / p.life;
+      if (p.glow) {
+        if (flashCount < this.flashes.capacity) {
+          this.flashes.set(
+            flashCount++,
+            p.at.x,
+            p.at.y,
+            p.at.z,
+            size,
+            size,
+            2.8,
+            1.35,
+            0.35,
+            alpha * 0.95,
+            p.rot,
+            p.seed,
+          );
+        }
+      } else if (smokeCount < this.smoke.capacity) {
+        this.smoke.set(
+          smokeCount++,
+          p.at.x,
+          p.at.y,
+          p.at.z,
+          size,
+          size,
+          p.shade,
+          p.shade,
+          p.shade * 0.98,
+          alpha * 0.72,
+          p.rot,
+          p.seed,
+        );
+      }
+      this.puffs[write++] = p;
+    }
+    this.puffs.length = write;
+    this.smoke.commit(smokeCount, s.time);
+    this.flashes.commit(flashCount, s.time);
+    this.clouds.material.uniforms.uTime.value = s.time;
+    this.sky.material.uniforms.time.value = s.time;
     this.ocean.update(s.time, { ships: [] });
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
   }
   dispose() {
     this.disposed = true;
@@ -639,19 +669,23 @@ export class FlakScene {
       this.onLost,
     );
     this.renderer.domElement.remove();
+    this.post?.dispose();
+    this.smoke.dispose();
+    this.flashes.dispose();
+    this.clouds.dispose();
+    this.tracers.dispose();
     this.scene.traverse((o) => {
       if (o instanceof T.InstancedMesh) o.dispose();
       if (o instanceof T.Light && 'shadow' in o)
         (o as T.DirectionalLight).shadow?.dispose();
     });
-    this.trailGeometry.dispose();
-    this.enemyTrailGeometry.dispose();
     this.ocean.dispose();
     (this.sky.material as T.Material).dispose();
     this.sky.geometry.dispose();
     this.environment.dispose();
     this.art.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.puffs = [];
   }
 }

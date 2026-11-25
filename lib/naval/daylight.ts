@@ -62,3 +62,44 @@ export function makeDaylightSky() {
   sky.castShadow = sky.receiveShadow = false;
   return sky;
 }
+
+/** Build a temporary environment scene combining sky dome and lower-hemisphere ground bounce. */
+export function buildCoastalEnvironmentScene(
+  sky: Sky,
+  groundColor = '#344a50',
+) {
+  const scene = new THREE.Scene();
+  const skyClone = sky.clone();
+  const groundGeo = new THREE.CircleGeometry(6000, 24);
+  groundGeo.rotateX(-Math.PI / 2);
+  const groundMat = new THREE.MeshBasicMaterial({ color: groundColor });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.position.y = -20;
+  scene.add(skyClone, ground);
+  return {
+    scene,
+    dispose() {
+      groundGeo.dispose();
+      groundMat.dispose();
+    },
+  };
+}
+
+/** Bake a PMREM environment from the coastal sky without the HDR sun disc ringing artifact. */
+export function bakeCoastalEnvironment(
+  renderer: THREE.WebGLRenderer,
+  sky: Sky,
+  groundColor = '#344a50',
+  far = 18000,
+): THREE.WebGLRenderTarget {
+  const showSunDisc = sky.material.uniforms.showSunDisc;
+  const prev = showSunDisc?.value;
+  if (showSunDisc) showSunDisc.value = false;
+  const env = buildCoastalEnvironmentScene(sky, groundColor);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const target = pmrem.fromScene(env.scene, 0.08, 0.1, far);
+  if (showSunDisc && prev !== undefined) showSunDisc.value = prev;
+  env.dispose();
+  pmrem.dispose();
+  return target;
+}
