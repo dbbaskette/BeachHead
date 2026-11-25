@@ -1,5 +1,12 @@
 import * as T from 'three';
-import { TankArt, makeTank, makeCover, makeEnemy, makeAlly } from './art';
+import {
+  TankArt,
+  TANK_WHEEL_Z,
+  makeTank,
+  makeCover,
+  makeEnemy,
+  makeAlly,
+} from './art';
 import { consolidateTank as consolidate } from './art';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeSky } from '../naval/ocean';
@@ -292,28 +299,42 @@ export class TankScene {
       this.covers.set(c.id, model);
       this.scene.add(model.root);
     }
-    const setDressing = new T.Group();
+    const shadowBands = new Map<number, T.Group>();
+    const backdropBands = new Map<number, T.Group>();
+    const bandGroup = (map: Map<number, T.Group>, z: number) => {
+      const key = Math.floor((z + 400) / 70);
+      let group = map.get(key);
+      if (!group) {
+        group = new T.Group();
+        map.set(key, group);
+      }
+      return group;
+    };
     for (let i = 0; i < 48; i++) {
       const x = i % 2 ? -85 - (i % 7) * 6 : 64 + (i % 6) * 9,
         z = 15 - i * 8;
-      this.tree(setDressing, x, z, 1 + (i % 3) * 0.2);
+      this.tree(bandGroup(backdropBands, z), x, z, 1 + (i % 3) * 0.2);
     }
-    for (let i = 0; i < 17; i++)
-      this.tree(setDressing, -59, -18 - i * 15, 0.6 + (i % 3) * 0.1);
+    for (let i = 0; i < 17; i++) {
+      const z = -18 - i * 15;
+      this.tree(bandGroup(shadowBands, z), -59, z, 0.6 + (i % 3) * 0.1);
+    }
     // Telegraph poles, roadside rubble, drainage and a hedged horizon.
     for (let i = 0; i < 8; i++) {
       const z = -20 - i * 39;
+      const band = bandGroup(shadowBands, z);
       this.art.mesh(
-        setDressing,
+        band,
         this.art.cylinder,
         this.art.wood,
         [11, 5, z],
         [0.16, 10, 0.16],
       );
-      this.art.soft(setDressing, this.art.wood, [11, 9, z], [2.3, 0.15, 0.18]);
+      this.art.soft(band, this.art.wood, [11, 9, z], [2.3, 0.15, 0.18]);
     }
     for (let i = 0; i < 7; i++) {
       const z = -20 - i * 39;
+      const band = bandGroup(shadowBands, z - 19.5);
       for (const x of [10.2, 11.8]) {
         const curve = new T.CatmullRomCurve3([
           new T.Vector3(x, 9, z),
@@ -321,7 +342,7 @@ export class TankScene {
           new T.Vector3(x, 9, z - 39),
         ]);
         this.art.mesh(
-          setDressing,
+          band,
           this.art.geo(new T.TubeGeometry(curve, 10, 0.018, 3, false)),
           this.art.dark,
           [0, 0, 0],
@@ -333,10 +354,11 @@ export class TankScene {
       (c) => c.kind === 'house' && Math.abs(c.x) < 40,
     )) {
       const side = Math.sign(house.x);
+      const band = bandGroup(shadowBands, house.z);
       for (let j = 0; j < 14; j++) {
         const z = house.z + (j / 14 - 0.5) * house.d;
         this.art.soft(
-          setDressing,
+          band,
           this.art.stone,
           [side * 8.4, 0.01, z],
           [0.35, 0.15, house.d / 14 - 0.07],
@@ -347,15 +369,27 @@ export class TankScene {
       const x = (i % 2 ? 1 : -1) * (8 + (i % 7) * 0.65),
         z = -20 - ((i * 19) % 270);
       const b = this.art.soft(
-        setDressing,
+        bandGroup(shadowBands, z),
         this.art.stone,
         [x, 0.12, z],
         [0.25 + (i % 3) * 0.15, 0.24, 0.45],
       );
       b.rotation.y = i;
     }
-    consolidate(setDressing, this.art);
-    this.scene.add(setDressing);
+    for (const group of shadowBands.values()) {
+      consolidate(group, this.art);
+      this.scene.add(group);
+    }
+    for (const group of backdropBands.values()) {
+      consolidate(group, this.art);
+      group.traverse((o) => {
+        if (o instanceof T.Mesh) {
+          o.castShadow = false;
+          o.receiveShadow = true;
+        }
+      });
+      this.scene.add(group);
+    }
     for (const e of s.enemies) {
       if (e.kind === 'tank') continue;
       const model = makeEnemy(this.art, e.kind);
@@ -740,7 +774,17 @@ export class TankScene {
     model.turret.rotation.y = -(turret - yaw);
     model.barrel.rotation.x = pitch;
     model.barrel.position.z = -1.03 + recoil * 0.3;
-    for (const wheel of model.wheels) wheel.rotation.x = distance * 1.5;
+    let w = 0;
+    for (const side of [-1, 1]) {
+      for (const z of TANK_WHEEL_Z) {
+        this.object.position.set(side * 1.43, 0.52, z);
+        this.object.rotation.set(distance * 1.5, 0, Math.PI / 2);
+        this.object.scale.set(0.4, 0.28, 0.4);
+        this.object.updateMatrix();
+        model.wheelMesh.setMatrixAt(w++, this.object.matrix);
+      }
+    }
+    model.wheelMesh.instanceMatrix.needsUpdate = true;
     for (const sprocket of model.sprockets)
       sprocket.rotation.x = distance * 1.5;
     let i = 0;

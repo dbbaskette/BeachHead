@@ -1,5 +1,4 @@
 import * as T from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { worldArchUV, worldCylinderUV, worldTubeUV, worldUV } from './detail';
 import { rooms, solids, doorLayouts } from './simulation';
@@ -366,35 +365,5 @@ export function addBunkerArchitecture(
       m.scale.set(0.07 + (i % 3) * 0.025, 0.07 + (i % 4) * 0.018, 0.12);
       m.rotation.set(i * 0.7, i * 0.4, i * 0.2);
     }
-  // Static fixtures share a handful of draw calls even on mobile. Their curved
-  // silhouette does not require hundreds of separately submitted meshes.
-  const batches = new Map<T.Material, T.Mesh[]>();
-  for (const fixture of fixtures) {
-    const material = fixture.material as T.Material;
-    const batch = batches.get(material);
-    if (batch) batch.push(fixture);
-    else batches.set(material, [fixture]);
-  }
-  const originals = new Set<T.BufferGeometry>();
-  for (const [material, batch] of batches) {
-    const transformed = batch.map((fixture) => {
-      fixture.updateMatrixWorld(true);
-      const geometry = fixture.geometry.index
-        ? fixture.geometry.toNonIndexed()
-        : fixture.geometry.clone();
-      geometry.applyMatrix4(fixture.matrixWorld);
-      return geometry;
-    });
-    const geometry = mergeGeometries(transformed);
-    transformed.forEach((g) => g.dispose());
-    if (!geometry) continue;
-    const combined = new T.Mesh(geometry, material);
-    combined.castShadow = combined.receiveShadow = true;
-    scene.add(combined);
-    for (const fixture of batch) {
-      originals.add(fixture.geometry);
-      fixture.removeFromParent();
-    }
-  }
-  originals.forEach((g) => g.dispose());
+  // Keep individual fixtures in scene so `batchBunkerScenery` bins them into 8m spatial cells.
 }

@@ -56,18 +56,22 @@ export class GrenadeBlast {
         }),
       ),
     );
+    const lightSmoke = new THREE.SpriteMaterial({
+      map: this.texture,
+      color: '#8d887c',
+      transparent: true,
+      depthWrite: false,
+      opacity: 0,
+    });
+    const darkSmoke = new THREE.SpriteMaterial({
+      map: this.texture,
+      color: '#5d5c55',
+      transparent: true,
+      depthWrite: false,
+      opacity: 0,
+    });
     for (let i = 0; i < 9; i++)
-      root.add(
-        new THREE.Sprite(
-          new THREE.SpriteMaterial({
-            map: this.texture,
-            color: i % 3 ? '#8d887c' : '#5d5c55',
-            transparent: true,
-            depthWrite: false,
-            opacity: 0,
-          }),
-        ),
-      );
+      root.add(new THREE.Sprite(i % 3 ? lightSmoke : darkSmoke));
     for (let i = 0; i < 8; i++)
       root.add(new THREE.Mesh(this.debrisGeometry, this.debrisMaterial));
     this.scene.add(root);
@@ -138,8 +142,10 @@ export class GrenadeBlast {
   }
 
   private remove(root: THREE.Group) {
+    const mats = new Set<THREE.SpriteMaterial>();
     for (const child of root.children)
-      if (child instanceof THREE.Sprite) child.material.dispose();
+      if (child instanceof THREE.Sprite) mats.add(child.material);
+    mats.forEach((m) => m.dispose());
     root.removeFromParent();
   }
 

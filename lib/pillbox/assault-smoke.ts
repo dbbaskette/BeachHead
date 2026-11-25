@@ -49,18 +49,22 @@ export class AssaultSmoke {
         root = new THREE.Group();
         root.name = `assault-smoke-${smoke.id}`;
         root.add(new THREE.Mesh(this.canisterGeometry, this.canisterMaterial));
+        const lightMat = new THREE.SpriteMaterial({
+          map: this.texture,
+          color: '#d8d8cd',
+          depthWrite: false,
+          depthTest: true,
+          transparent: true,
+        });
+        const darkMat = new THREE.SpriteMaterial({
+          map: this.texture,
+          color: '#aeb4ae',
+          depthWrite: false,
+          depthTest: true,
+          transparent: true,
+        });
         for (let i = 0; i < 12; i++)
-          root.add(
-            new THREE.Sprite(
-              new THREE.SpriteMaterial({
-                map: this.texture,
-                color: i % 3 ? '#d8d8cd' : '#aeb4ae',
-                depthWrite: false,
-                depthTest: true,
-                transparent: true,
-              }),
-            ),
-          );
+          root.add(new THREE.Sprite(i % 3 ? lightMat : darkMat));
         this.scene.add(root);
         this.screens.set(smoke.id, root);
       }
@@ -101,8 +105,10 @@ export class AssaultSmoke {
   }
 
   private remove(root: THREE.Group) {
+    const mats = new Set<THREE.SpriteMaterial>();
     for (const child of root.children)
-      if (child instanceof THREE.Sprite) child.material.dispose();
+      if (child instanceof THREE.Sprite) mats.add(child.material);
+    mats.forEach((m) => m.dispose());
     root.removeFromParent();
   }
 

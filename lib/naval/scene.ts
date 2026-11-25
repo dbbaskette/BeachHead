@@ -449,6 +449,7 @@ export class NavalScene {
     const materials = new Set<THREE.Material>(),
       geometries = new Set<THREE.BufferGeometry>();
     this.scene.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh) o.dispose();
       if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
         geometries.add(o.geometry);
         (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) =>

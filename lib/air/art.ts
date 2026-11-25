@@ -101,35 +101,35 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
       length = command ? 124 : t.half.x * 2,
       width = command ? 56 : t.half.z * 2;
     if (command) {
-      const shape = new THREE.Shape();
-      shape.moveTo(-width * 0.43, length * 0.46);
-      shape.lineTo(-width * 0.5, length * 0.3);
-      shape.lineTo(-width * 0.5, -length * 0.22);
-      shape.lineTo(-width * 0.3, -length * 0.41);
-      shape.lineTo(0, -length * 0.5);
-      shape.lineTo(width * 0.3, -length * 0.41);
-      shape.lineTo(width * 0.5, -length * 0.22);
-      shape.lineTo(width * 0.5, length * 0.3);
-      shape.lineTo(width * 0.43, length * 0.46);
-      shape.closePath();
-      const hullGeometry = a.geo(
-        new THREE.ExtrudeGeometry(shape, {
-          depth: 7,
-          bevelEnabled: true,
-          bevelSegments: 2,
-          steps: 1,
-          bevelSize: 1.4,
-          bevelThickness: 1.4,
-        }),
-      );
+      const makeCommandShape = (flipY = false) => {
+        const s = flipY ? -1 : 1;
+        const shape = new THREE.Shape();
+        shape.moveTo(-width * 0.43, s * length * 0.46);
+        shape.lineTo(-width * 0.5, s * length * 0.3);
+        shape.lineTo(-width * 0.5, s * -length * 0.22);
+        shape.lineTo(-width * 0.3, s * -length * 0.41);
+        shape.lineTo(0, s * -length * 0.5);
+        shape.lineTo(width * 0.3, s * -length * 0.41);
+        shape.lineTo(width * 0.5, s * -length * 0.22);
+        shape.lineTo(width * 0.5, s * length * 0.3);
+        shape.lineTo(width * 0.43, s * length * 0.46);
+        shape.closePath();
+        return shape;
+      };
+      const hullGeometry = new THREE.ExtrudeGeometry(makeCommandShape(), {
+        depth: 7,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        steps: 1,
+        bevelSize: 1.4,
+        bevelThickness: 1.4,
+      });
       hullGeometry.rotateX(Math.PI / 2);
       a.mesh(root, hullGeometry, hull, [0, 5, 0], [1, 1, 1]);
-      const deckGeometry = a.geo(new THREE.ShapeGeometry(shape));
-      deckGeometry.rotateX(Math.PI / 2);
-      const deckMaterial = a.wood.clone();
-      deckMaterial.side = THREE.DoubleSide;
-      a.materials.add(deckMaterial);
-      a.mesh(root, deckGeometry, deckMaterial, [0, 6.45, 0], [0.94, 1, 0.94]);
+      // Negate shape Y and rotate -PI/2 so the deck surface normal faces +Y without DoubleSide.
+      const deckGeometry = new THREE.ShapeGeometry(makeCommandShape(true));
+      deckGeometry.rotateX(-Math.PI / 2);
+      a.mesh(root, deckGeometry, a.wood, [0, 6.45, 0], [0.94, 1, 0.94]);
       for (const side of [-1, 1]) {
         for (const z of [-25, -13, -1, 11, 23, 35]) {
           a.block(
@@ -173,16 +173,14 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
         length * 0.34,
       );
       hullShape.closePath();
-      const hullGeo = a.geo(
-        new THREE.ExtrudeGeometry(hullShape, {
-          depth: 3,
-          bevelEnabled: true,
-          bevelSize: 0.45,
-          bevelThickness: 0.5,
-          bevelSegments: 2,
-          steps: 1,
-        }),
-      );
+      const hullGeo = new THREE.ExtrudeGeometry(hullShape, {
+        depth: 3,
+        bevelEnabled: true,
+        bevelSize: 0.45,
+        bevelThickness: 0.5,
+        bevelSegments: 2,
+        steps: 1,
+      });
       hullGeo.rotateX(Math.PI / 2);
       a.mesh(root, hullGeo, hull, [0, 3.8, 0], [1, 1, 1]);
       a.block(root, a.dark, [0, 4.1, 0], [width * 0.84, 0.5, length * 0.84]);
@@ -359,30 +357,117 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
     for (let i = 0; i < 3; i++)
       a.mesh(detail, a.cylinder, a.dark, [-11, 2, i * 4 - 4], [1.6, 4, 1.6]);
   }
-  // Ribs, rails, cargo and fenders share one draw per material at the detail LOD.
-  const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  for (const child of detail.children.slice()) {
-    if (!(child instanceof THREE.Mesh) || Array.isArray(child.material))
-      continue;
-    child.updateMatrix();
-    const geometry = child.geometry.clone().applyMatrix4(child.matrix);
-    const group = batches.get(child.material) ?? [];
-    group.push(geometry);
-    batches.set(child.material, group);
-    detail.remove(child);
+  // Ribs, rails, cargo, fenders and static target hulls share one draw per material.
+  const mergeStaticChildren = (
+    container: THREE.Object3D,
+    skip = new Set<THREE.Object3D>(),
+  ) => {
+    const batches = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const rawUnshared = new Set<THREE.BufferGeometry>();
+    for (const child of container.children.slice()) {
+      if (
+        skip.has(child) ||
+        !(child instanceof THREE.Mesh) ||
+        Array.isArray(child.material)
+      )
+        continue;
+      child.updateMatrix();
+      const raw = child.geometry;
+      if (!a.geometries.has(raw)) rawUnshared.add(raw);
+      const geometry = (
+        raw.index ? raw.toNonIndexed() : raw.clone()
+      ).applyMatrix4(child.matrix);
+      const group = batches.get(child.material) ?? [];
+      group.push(geometry);
+      batches.set(child.material, group);
+      container.remove(child);
+    }
+    rawUnshared.forEach((geometry) => geometry.dispose());
+    for (const [material, geometries] of batches) {
+      const merged = mergeGeometries(geometries, false);
+      if (merged) container.add(new THREE.Mesh(a.geo(merged), material));
+      geometries.forEach((geometry) => geometry.dispose());
+    }
+  };
+  mergeStaticChildren(detail);
+  const ramp = root.getObjectByName('ramp');
+  if (ramp instanceof THREE.Mesh && ramp.children.length > 0) {
+    // Keep ramp articulated at its bow hinge while combining its 5 treads into 1 draw.
+    mergeStaticChildren(ramp);
   }
-  for (const [material, geometries] of batches) {
-    const merged = mergeGeometries(geometries);
-    if (merged) detail.add(new THREE.Mesh(a.geo(merged), material));
-    geometries.forEach((geometry) => geometry.dispose());
-  }
+  const keepSeparate = new Set<THREE.Object3D>([detail]);
+  if (ramp) keepSeparate.add(ramp);
+  mergeStaticChildren(root, keepSeparate);
   root.traverse((object) => {
     if (object instanceof THREE.Mesh) {
-      object.castShadow = true;
+      const transparent =
+        !Array.isArray(object.material) && object.material.transparent;
+      object.castShadow = !transparent;
       object.receiveShadow = true;
     }
   });
   return { root, detail, hull };
+}
+
+function surfaceDetailBump() {
+  const size = 128;
+  const data = new Uint8Array(size * size * 4);
+  let s = 21911;
+  for (let i = 0; i < size * size; i++) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const x = i % size;
+    const y = Math.floor(i / size);
+    const wave = Math.sin(x * 0.25 + y * 0.17) * 26;
+    const v = Math.max(
+      0,
+      Math.min(255, Math.round(128 + wave + ((s >>> 24) - 128) * 0.55)),
+    );
+    data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v;
+    data[i * 4 + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 3);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function grassTuftGeometry() {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    const angle = (i * Math.PI) / 3;
+    const dx = Math.cos(angle) * 0.55;
+    const dz = Math.sin(angle) * 0.55;
+    const nx = -Math.sin(angle) * 0.14;
+    const nz = Math.cos(angle) * 0.14;
+    positions.push(
+      -dx,
+      0,
+      -dz,
+      dx,
+      0,
+      dz,
+      dx * 0.6 + nx,
+      1,
+      dz * 0.6 + nz,
+      -dx,
+      0,
+      -dz,
+      dx * 0.6 + nx,
+      1,
+      dz * 0.6 + nz,
+      -dx * 0.6 + nx,
+      1,
+      -dz * 0.6 + nz,
+    );
+    uvs.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.computeVertexNormals();
+  return g;
 }
 
 export function makeCoast(a: AirArt) {
@@ -406,7 +491,6 @@ export function makeCoast(a: AirArt) {
   geo.computeVertexNormals();
   const sand = a.texture('pillbox-sand-diffuse.jpg', true),
     normal = a.texture('pillbox-sand-normal.jpg');
-  normal.repeat.set(70, 350);
   const mat = coastalMaterial(sand, normal);
   a.materials.add(mat);
   const land = new THREE.Mesh(geo, mat);
@@ -417,25 +501,59 @@ export function makeCoast(a: AirArt) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     return seed / 4294967296;
   };
+  let rockSeed = 91417;
+  const rockRand = () => {
+    rockSeed = (Math.imul(rockSeed, 1664525) + 1013904223) >>> 0;
+    return rockSeed / 4294967296;
+  };
   const stone = a.geo(new THREE.IcosahedronGeometry(1, 1));
-  const rocks = new THREE.InstancedMesh(stone, a.wood, 240),
-    grass = new THREE.InstancedMesh(stone, a.mat('#686b43', 1), 600),
+  const coastalBump = surfaceDetailBump();
+  a.textures.add(coastalBump);
+  const rockMat = a.mat('#6e6a5c', 0.94);
+  rockMat.map = a.paint;
+  rockMat.bumpMap = coastalBump;
+  rockMat.bumpScale = 0.08;
+  const grassMat = a.mat('#ffffff', 0.98);
+  grassMat.side = THREE.DoubleSide;
+  const grassGeo = a.geo(grassTuftGeometry());
+  const rocks = new THREE.InstancedMesh(stone, rockMat, 240),
+    grass = new THREE.InstancedMesh(grassGeo, grassMat, 600),
     obstacles = new THREE.InstancedMesh(a.box, a.dark, 480);
   const object = new THREE.Object3D();
+  const tint = new THREE.Color();
   for (let i = 0; i < 600; i++) {
     const z = random() * 8400 - 4200,
       x = shoreline(z) + 85 + random() * 620,
       y = terrainHeight(x, z);
-    object.position.set(x, y + 0.25, z);
-    object.scale.set(1 + random() * 3, 0.4 + random(), 1 + random() * 2);
-    object.rotation.set(0, random() * 6.28, 0.1);
+    object.position.set(x, y, z);
+    object.scale.set(
+      1.2 + random() * 2.5,
+      0.7 + random() * 1.4,
+      1.2 + random() * 2.5,
+    );
+    object.rotation.set(0, random() * 6.28, (random() - 0.5) * 0.2);
     object.updateMatrix();
     grass.setMatrixAt(i, object.matrix);
+    tint.setHSL(
+      0.2 + random() * 0.055,
+      0.25 + random() * 0.15,
+      0.26 + random() * 0.14,
+    );
+    grass.setColorAt(i, tint);
     if (i < 240) {
+      const rz = rockRand() * 8400 - 4200,
+        rx = shoreline(rz) + 50 + rockRand() * 620,
+        ry = terrainHeight(rx, rz);
+      object.position.set(rx, ry + 0.25, rz);
       object.scale.set(
-        1 + random() * 3,
-        0.6 + random() * 1.8,
-        1 + random() * 4,
+        1 + rockRand() * 3,
+        0.6 + rockRand() * 1.8,
+        1 + rockRand() * 4,
+      );
+      object.rotation.set(
+        rockRand() * 0.4,
+        rockRand() * 6.28,
+        rockRand() * 0.4,
       );
       object.updateMatrix();
       rocks.setMatrixAt(i, object.matrix);
@@ -456,6 +574,8 @@ export function makeCoast(a: AirArt) {
       }
     }
   }
+  grass.instanceMatrix.needsUpdate = true;
+  if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
   root.add(rocks, grass, obstacles);
   const trunks = new THREE.InstancedMesh(a.cylinder, a.wood, 280);
   const foliage = a.mat('#4a5735', 0.97);
@@ -506,17 +626,51 @@ export function makeCoast(a: AirArt) {
   rocks.castShadow = true;
   obstacles.castShadow = true;
   root.add(trunks, crowns);
+  const wallGeos: THREE.BufferGeometry[] = [];
+  const roofGeos: THREE.BufferGeometry[] = [];
+  const buildingWallMat = a.mat('#a8a496', 0.94);
+  buildingWallMat.map = a.paint;
+  buildingWallMat.bumpMap = coastalBump;
+  buildingWallMat.bumpScale = 0.04;
+  const buildingRoofMat = a.mat('#4f3c33', 0.9);
   for (let i = 0; i < 6; i++) {
     const z = -2100 + i * 800,
-      x = 450 + (i % 2) * 180;
-    a.block(root, a.wood, [x, terrainHeight(x, z) + 7, z], [32, 14, 20]);
-    const roof = a.block(
-      root,
-      a.dark,
-      [x, terrainHeight(x, z) + 15, z],
-      [37, 3, 25],
+      x = 450 + (i % 2) * 180,
+      y = terrainHeight(x, z);
+    const wall = (
+      a.box.index ? a.box.toNonIndexed() : a.box.clone()
+    ).applyMatrix4(
+      new THREE.Matrix4().compose(
+        new THREE.Vector3(x, y + 7, z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(32, 14, 20),
+      ),
     );
-    roof.rotation.z = 0.08;
+    wallGeos.push(wall);
+    const roof = (
+      a.box.index ? a.box.toNonIndexed() : a.box.clone()
+    ).applyMatrix4(
+      new THREE.Matrix4().compose(
+        new THREE.Vector3(x, y + 15, z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.08)),
+        new THREE.Vector3(37, 3, 25),
+      ),
+    );
+    roofGeos.push(roof);
+  }
+  const mergedWalls = mergeGeometries(wallGeos, false);
+  const mergedRoofs = mergeGeometries(roofGeos, false);
+  wallGeos.forEach((g) => g.dispose());
+  roofGeos.forEach((g) => g.dispose());
+  if (mergedWalls) {
+    const wallsMesh = new THREE.Mesh(a.geo(mergedWalls), buildingWallMat);
+    wallsMesh.castShadow = wallsMesh.receiveShadow = true;
+    root.add(wallsMesh);
+  }
+  if (mergedRoofs) {
+    const roofsMesh = new THREE.Mesh(a.geo(mergedRoofs), buildingRoofMat);
+    roofsMesh.castShadow = roofsMesh.receiveShadow = true;
+    root.add(roofsMesh);
   }
   return root;
 }

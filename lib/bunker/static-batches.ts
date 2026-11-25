@@ -8,6 +8,8 @@ export function batchBunkerScenery(scene: T.Object3D, movable: T.Object3D[]) {
   scene.updateMatrixWorld(true);
   const inverse = scene.matrixWorld.clone().invert();
   const batches = new Map<string, T.Mesh<T.BufferGeometry, T.Material>[]>();
+  const worldBox = new T.Box3();
+  const center = new T.Vector3();
   scene.traverse((o) => {
     if (
       !(o instanceof T.Mesh) ||
@@ -23,7 +25,10 @@ export function batchBunkerScenery(scene: T.Object3D, movable: T.Object3D[]) {
     // A hidden ancestor must not become visible when geometry is reparented.
     for (let p = o.parent; p; p = p.parent)
       if (!p.visible || excluded.has(p)) return;
-    const position = new T.Vector3().setFromMatrixPosition(o.matrixWorld);
+    // Bin by bounding-box center so world-baked cables/tubes land in their actual cell.
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+    worldBox.copy(o.geometry.boundingBox!).applyMatrix4(o.matrixWorld);
+    worldBox.getCenter(center);
     const attributes = Object.keys(o.geometry.attributes)
       .sort()
       .map((name) => {
@@ -31,7 +36,7 @@ export function batchBunkerScenery(scene: T.Object3D, movable: T.Object3D[]) {
         return `${name}:${a.itemSize}:${a.normalized}`;
       })
       .join(',');
-    const key = `${Math.floor(position.x / 8)},${Math.floor(position.z / 8)}:${o.material.uuid}:${o.castShadow}:${o.receiveShadow}:${o.renderOrder}:${o.layers.mask}:${attributes}`;
+    const key = `${Math.floor(center.x / 8)},${Math.floor(center.z / 8)}:${o.material.uuid}:${o.castShadow}:${o.receiveShadow}:${o.renderOrder}:${o.layers.mask}:${attributes}`;
     const batch = batches.get(key) ?? [];
     batch.push(o as T.Mesh<T.BufferGeometry, T.Material>);
     batches.set(key, batch);
@@ -61,6 +66,9 @@ export function batchBunkerScenery(scene: T.Object3D, movable: T.Object3D[]) {
     const first = meshes[0],
       batch = new T.Mesh(geometry, first.material);
     batch.name = 'Static bunker scenery batch';
+    batch.userData.worldBounds = geometry
+      .boundingBox!.clone()
+      .applyMatrix4(scene.matrixWorld);
     batch.castShadow = first.castShadow;
     batch.receiveShadow = first.receiveShadow;
     batch.renderOrder = first.renderOrder;

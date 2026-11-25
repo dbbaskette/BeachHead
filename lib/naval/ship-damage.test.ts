@@ -118,22 +118,28 @@ void test('sinking debris stays bounded, lingers at the surface and cleans up on
     visual.updateShip(ship, mesh, 0.1);
     visual.update(0.1);
   }
-  const debris = scene.children.filter((c) => c.name === 'floating-wreckage');
-  assert.equal(debris.length, 10);
-  assert.ok(debris.every((d) => d.position.y > 0 && d.position.y < 0.5));
-  const position = debris[0].position.clone();
+  const wreckage = scene.getObjectByName(
+    'floating-wreckage',
+  ) as THREE.InstancedMesh;
+  assert.ok(wreckage instanceof THREE.InstancedMesh);
+  assert.equal(wreckage.count, 10);
+  const instanceMat = new THREE.Matrix4();
+  const instancePos = new THREE.Vector3();
+  for (let i = 0; i < wreckage.count; i++) {
+    wreckage.getMatrixAt(i, instanceMat);
+    instancePos.setFromMatrixPosition(instanceMat);
+    assert.ok(instancePos.y > 0 && instancePos.y < 0.5);
+  }
+  const firstBefore = new THREE.Matrix4();
+  const firstAfter = new THREE.Matrix4();
+  wreckage.getMatrixAt(0, firstBefore);
   visual.update(0);
-  assert.ok(debris[0].position.equals(position));
+  wreckage.getMatrixAt(0, firstAfter);
+  assert.ok(firstAfter.equals(firstBefore));
   let disposed = 0;
-  (debris[0] as THREE.Mesh).geometry.addEventListener(
-    'dispose',
-    () => disposed++,
-  );
+  wreckage.geometry.addEventListener('dispose', () => disposed++);
   visual.reset();
-  assert.equal(
-    scene.children.filter((c) => c.name === 'floating-wreckage').length,
-    0,
-  );
+  assert.equal(scene.getObjectByName('floating-wreckage'), undefined);
   assert.equal(mesh.children.length, 0);
   visual.dispose();
   assert.equal(disposed, 1);

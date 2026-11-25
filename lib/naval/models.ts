@@ -59,17 +59,24 @@ function cylinder(
   parent.add(mesh);
   return mesh;
 }
-function line(
+function addLines(
   parent: THREE.Object3D,
-  a: number[],
-  b: number[],
+  pairs: Array<[number[], number[]]>,
   material: THREE.LineBasicMaterial,
 ) {
-  const geo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(...(a as [number, number, number])),
-    new THREE.Vector3(...(b as [number, number, number])),
-  ]);
-  parent.add(new THREE.Line(geo, material));
+  const positions = new Float32Array(pairs.length * 6);
+  for (let i = 0; i < pairs.length; i++) {
+    const [a, b] = pairs[i];
+    positions[i * 6] = a[0];
+    positions[i * 6 + 1] = a[1];
+    positions[i * 6 + 2] = a[2];
+    positions[i * 6 + 3] = b[0];
+    positions[i * 6 + 4] = b[1];
+    positions[i * 6 + 5] = b[2];
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  parent.add(new THREE.LineSegments(geo, material));
 }
 function plate(
   parent: THREE.Object3D,
@@ -84,27 +91,6 @@ function plate(
   mesh.rotation.y = ry;
   parent.add(mesh);
   return mesh;
-}
-function boltRow(
-  parent: THREE.Object3D,
-  count: number,
-  start: THREE.Vector3,
-  step: THREE.Vector3,
-  m: NavalMaterials,
-) {
-  const bolts = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.075, 0.085, 0.06, 6),
-    m.gunmetal,
-    count,
-  );
-  const o = new THREE.Object3D();
-  for (let i = 0; i < count; i++) {
-    o.position.copy(start).addScaledVector(step, i);
-    o.updateMatrix();
-    bolts.setMatrixAt(i, o.matrix);
-  }
-  bolts.castShadow = true;
-  parent.add(bolts);
 }
 function hatch(
   root: THREE.Object3D,
@@ -213,10 +199,41 @@ function bake(root: THREE.Group) {
     geos.forEach((v) => v.dispose());
     if (g) {
       const mesh = new THREE.Mesh(g, mat);
-      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.castShadow = !mat.transparent;
+      mesh.receiveShadow = true;
       root.add(mesh);
     }
   }
+}
+function hullOutline(length: number, width: number, flipY = false) {
+  const s = flipY ? -1 : 1;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, s * -length * 0.53);
+  shape.bezierCurveTo(
+    width * 0.22,
+    s * -length * 0.46,
+    width * 0.46,
+    s * -length * 0.28,
+    width * 0.5,
+    s * -length * 0.1,
+  );
+  shape.lineTo(width * 0.48, s * length * 0.36);
+  shape.quadraticCurveTo(
+    0,
+    s * length * 0.51,
+    -width * 0.48,
+    s * length * 0.36,
+  );
+  shape.lineTo(-width * 0.5, s * -length * 0.1);
+  shape.bezierCurveTo(
+    -width * 0.46,
+    s * -length * 0.28,
+    -width * 0.22,
+    s * -length * 0.46,
+    0,
+    s * -length * 0.53,
+  );
+  return shape;
 }
 export function makeShip(
   length: number,
@@ -225,27 +242,7 @@ export function makeShip(
   id = '01',
 ) {
   const root = new THREE.Group();
-  const shape = new THREE.Shape();
-  shape.moveTo(0, -length * 0.53);
-  shape.bezierCurveTo(
-    width * 0.22,
-    -length * 0.46,
-    width * 0.46,
-    -length * 0.28,
-    width * 0.5,
-    -length * 0.1,
-  );
-  shape.lineTo(width * 0.48, length * 0.36);
-  shape.quadraticCurveTo(0, length * 0.51, -width * 0.48, length * 0.36);
-  shape.lineTo(-width * 0.5, -length * 0.1);
-  shape.bezierCurveTo(
-    -width * 0.46,
-    -length * 0.28,
-    -width * 0.22,
-    -length * 0.46,
-    0,
-    -length * 0.53,
-  );
+  const shape = hullOutline(length, width);
   const g = new THREE.ExtrudeGeometry(shape, {
     depth: 6.5,
     bevelEnabled: true,
@@ -262,10 +259,11 @@ export function makeShip(
   waterline.scale.set(0.994, 0.28, 0.995);
   waterline.position.y = 1.7;
   root.add(waterline);
-  const deck = new THREE.Mesh(worldUV(new THREE.ShapeGeometry(shape)), m.deck);
-  deck.rotation.x = Math.PI / 2;
+  // Negate shape Y and rotate -PI/2 so the top face normal points +Y without DoubleSide.
+  const deckGeo = new THREE.ShapeGeometry(hullOutline(length, width, true));
+  deckGeo.rotateX(-Math.PI / 2);
+  const deck = new THREE.Mesh(worldUV(deckGeo), m.deck);
   deck.position.y = 6.3;
-  deck.material.side = THREE.DoubleSide;
   root.add(deck);
   box(root, [width * 0.57, 4, length * 0.35], [0, 8.5, 0], m.steel);
   box(root, [width * 0.48, 5, length * 0.14], [0, 13, -length * 0.09], m.steel);
@@ -284,6 +282,8 @@ export function makeShip(
   for (let x = -width * 0.25; x < width * 0.26; x += 2) {
     box(root, [1.35, 1.1, 0.15], [x, 17.2, -length * 0.166], m.glass);
   }
+  const labelMat = m.label(id);
+  const cables: Array<[number[], number[]]> = [];
   for (const side of [-1, 1]) {
     for (let z = -length * 0.15; z < -length * 0.06; z += 2)
       box(root, [0.15, 1.1, 1.2], [side * width * 0.304, 17.2, z], m.glass);
@@ -298,7 +298,7 @@ export function makeShip(
       9,
       3.4,
       [side * (width * 0.504 + 1), 3.8, -length * 0.15],
-      m.label(id),
+      labelMat,
       (side * Math.PI) / 2,
     );
     for (const z of [-length * 0.18, length * 0.19]) {
@@ -315,14 +315,11 @@ export function makeShip(
     for (let z = -length * 0.3; z < length * 0.35; z += 6) {
       cylinder(root, 0.075, 1.6, [side * width * 0.45, 7.3, z], m.steel);
     }
-    const lm = new THREE.LineBasicMaterial({ color: '#8c9d9b' });
     for (const y of [7.2, 8])
-      line(
-        root,
+      cables.push([
         [side * width * 0.45, y, -length * 0.3],
         [side * width * 0.45, y, length * 0.35],
-        lm,
-      );
+      ]);
     for (const z of [-length * 0.24, length * 0.28]) {
       cylinder(root, 1.4, 1, [side * width * 0.32, 7, z], m.dark);
       const aa = cylinder(
@@ -342,20 +339,22 @@ export function makeShip(
       box(root, [0.35, 8, 0.35], [x * 2.2, 15, z], m.steel);
     cylinder(root, 2.2, 0.5, [0, 12, z], m.steel);
   }
-  const lm = new THREE.LineBasicMaterial({ color: '#536977' });
+  const cableMat = new THREE.LineBasicMaterial({ color: '#6b7f87' });
   for (const x of [-2, 2]) {
     cylinder(root, 0.23, 19, [x, 26, -length * 0.04], m.steel);
-    line(root, [x, 35, -length * 0.04], [0, 40, -length * 0.04], lm);
+    cables.push([
+      [x, 35, -length * 0.04],
+      [0, 40, -length * 0.04],
+    ]);
   }
   cylinder(root, 0.18, 21, [0, 29, -length * 0.04], m.steel);
   box(root, [13, 0.35, 0.3], [0, 34, -length * 0.04], m.dark);
   for (const side of [-1, 1])
-    line(
-      root,
+    cables.push([
       [0, 39, -length * 0.04],
       [side * width * 0.42, 8, length * 0.35],
-      lm,
-    );
+    ]);
+  addLines(root, cables, cableMat);
   const radar = box(root, [5, 2, 0.2], [0, 38, -length * 0.04], m.dark);
   radar.rotation.y = 0.25;
   turret(root, -length * 0.32, m, 0.9);
@@ -376,16 +375,21 @@ export function makePlayerDeck(m: NavalMaterials) {
   const root = new THREE.Group();
   box(root, [28, 3, 91], [0, 2, -13], m.dark);
   box(root, [27, 0.35, 90], [0, 3.8, -13], m.deck);
+  const deckCables: Array<[number[], number[]]> = [];
   for (const x of [-12.8, 12.8]) {
     for (let z = -54; z < 29; z += 4)
       cylinder(root, 0.055, 2, [x, 5, z], m.steel, 0.055, 8);
-    const lm = new THREE.LineBasicMaterial({ color: '#a9b1a5' });
-    for (const y of [4.9, 5.9]) line(root, [x, y, -54], [x, y, 29], lm);
+    for (const y of [4.9, 5.9])
+      deckCables.push([
+        [x, y, -54],
+        [x, y, 29],
+      ]);
     for (const z of [-43, -22, 5]) {
       box(root, [1.5, 0.2, 2], [x * 0.88, 4.1, z], m.dark);
       cylinder(root, 0.25, 0.55, [x * 0.88, 4.45, z], m.gunmetal);
     }
   }
+  addLines(root, deckCables, new THREE.LineBasicMaterial({ color: '#a9b1a5' }));
   for (const z of [-35, -20, 0, 14]) hatch(root, -7, 4.2, z, m);
   for (const side of [-1, 1]) {
     box(root, [0.12, 0.03, 46], [side * 5.9, 4.02, -24], m.ivory);
@@ -401,9 +405,10 @@ export function makePlayerDeck(m: NavalMaterials) {
   root.add(mount);
   cylinder(mount, 5.7, 2.8, [0, 0, 0], m.dark, 5.7, 48);
   cylinder(mount, 5.85, 0.3, [0, 1.3, 0], m.gunmetal, 5.85, 48);
+  bake(mount);
   const turretGroup = new THREE.Group();
   mount.add(turretGroup);
-  const shield = box(turretGroup, [9.7, 4, 7.8], [0, 2.2, 0.2], m.steel);
+  box(turretGroup, [9.7, 4, 7.8], [0, 2.2, 0.2], m.steel);
   // Chamfered face and roof edges catch the sunlight.
   box(turretGroup, [9.9, 0.22, 8], [0, 4.3, 0.2], m.gunmetal);
   box(turretGroup, [0.15, 3.7, 7.7], [-4.86, 2.2, 0.2], m.dark);
@@ -415,27 +420,26 @@ export function makePlayerDeck(m: NavalMaterials) {
     for (let y = 1.8; y < 2.8; y += 0.16)
       box(turretGroup, [0.9, 0.045, 0.12], [x, y, 4.28], m.gunmetal);
   }
-  boltRow(
-    turretGroup,
-    17,
-    new THREE.Vector3(-4.5, 4.47, 3.8),
-    new THREE.Vector3(0.55, 0, 0),
-    m,
+  const bolts = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.075, 0.085, 0.06, 6),
+    m.gunmetal,
+    45,
   );
-  boltRow(
-    turretGroup,
-    14,
-    new THREE.Vector3(-4.7, 4.47, -3.5),
-    new THREE.Vector3(0, 0, 0.55),
-    m,
-  );
-  boltRow(
-    turretGroup,
-    14,
-    new THREE.Vector3(4.7, 4.47, -3.5),
-    new THREE.Vector3(0, 0, 0.55),
-    m,
-  );
+  const boltObj = new THREE.Object3D();
+  let boltIndex = 0;
+  for (let i = 0; i < 17; i++) {
+    boltObj.position.set(-4.5 + i * 0.55, 4.47, 3.8);
+    boltObj.updateMatrix();
+    bolts.setMatrixAt(boltIndex++, boltObj.matrix);
+  }
+  for (const x of [-4.7, 4.7])
+    for (let i = 0; i < 14; i++) {
+      boltObj.position.set(x, 4.47, -3.5 + i * 0.55);
+      boltObj.updateMatrix();
+      bolts.setMatrixAt(boltIndex++, boltObj.matrix);
+    }
+  bolts.castShadow = true;
+  turretGroup.add(bolts);
   hatch(turretGroup, 0, 4.45, 1, m);
   bake(turretGroup);
   const guns = new THREE.Group();
@@ -486,8 +490,8 @@ export function makePlayerDeck(m: NavalMaterials) {
     guns.add(muzzle);
     muzzles.push(muzzle);
   }
+  bake(guns);
   // Static deck and turret stay separate from the articulating gun assembly.
-  shield.receiveShadow = true;
   return { root, turret: turretGroup, guns, muzzles };
 }
 
@@ -595,8 +599,8 @@ export function makeIsland(
   group.add(terrain);
   // Instanced treetops add a recognizable vegetation scale without individual draw calls.
   const treeMat = new THREE.MeshStandardMaterial({
-    color: '#354d3a',
-    roughness: 1,
+    color: '#ffffff',
+    roughness: 0.96,
   });
   const trees = new THREE.InstancedMesh(
     new THREE.ConeGeometry(3, 12, 5),
@@ -604,21 +608,39 @@ export function makeIsland(
     550,
   );
   const o = new THREE.Object3D();
+  const tint = new THREE.Color();
   let rng = seed * 941 + 1;
+  let placed = 0;
   for (let i = 0; i < 550; i++) {
     rng = (rng * 1664525 + 1013904223) >>> 0;
     const a = (rng / 4294967296) * Math.PI * 2;
     rng = (rng * 1664525 + 1013904223) >>> 0;
     const r = radius * (0.23 + (rng / 4294967296) * 0.52);
+    rng = (rng * 1664525 + 1013904223) >>> 0;
+    const u = rng / 4294967296;
     const px = Math.cos(a) * r,
       pz = Math.sin(a) * r,
       h = heightAt(px, pz);
+    const dx = (heightAt(px + 3, pz) - heightAt(px - 3, pz)) / 6;
+    const dz = (heightAt(px, pz + 3) - heightAt(px, pz - 3)) / 6;
+    if (h < 2.2 || Math.hypot(dx, dz) > 0.55) continue;
     o.position.set(px, h + 5, pz);
     o.scale.set(1.1, 1 + (i % 5) * 0.2, 1.1);
     o.rotation.y = a;
     o.updateMatrix();
-    trees.setMatrixAt(i, o.matrix);
+    trees.setMatrixAt(placed, o.matrix);
+    tint.setHSL(
+      0.24 + u * 0.08,
+      0.22 + ((i * 7) % 11) * 0.015,
+      0.2 + ((i * 13) % 10) * 0.014,
+    );
+    trees.setColorAt(placed, tint);
+    placed++;
   }
+  trees.count = placed;
+  trees.instanceMatrix.needsUpdate = true;
+  if (trees.instanceColor) trees.instanceColor.needsUpdate = true;
+  enableWaterReflection(trees);
   group.add(trees);
   return group;
 }

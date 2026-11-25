@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useSettings } from '@/lib/settings';
 import {
   BunkerFinale,
   DETONATION_TIME,
@@ -15,6 +16,11 @@ export function BunkerFinaleView({
   onBlast: () => void;
   onPause: (paused: boolean) => void;
 }) {
+  const { reducedMotion } = useSettings();
+  const reducedRef = useRef(reducedMotion);
+  useEffect(() => {
+    reducedRef.current = reducedMotion;
+  }, [reducedMotion]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const callbacks = useRef({ onComplete, onBlast, onPause });
   useEffect(() => {
@@ -30,9 +36,25 @@ export function BunkerFinaleView({
   };
   useEffect(() => {
     const film = new BunkerFinale();
-    const reduced = window.matchMedia(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
+    const element = canvas.current;
+    const resize = () => {
+      if (!element) return;
+      const host = element.parentElement ?? element;
+      const rect = host.getBoundingClientRect();
+      if (!rect.width) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const width = Math.max(320, Math.min(1672, Math.round(rect.width * dpr)));
+      const height = Math.max(180, Math.round((width * 941) / 1672));
+      if (element.width !== width || element.height !== height) {
+        element.width = width;
+        element.height = height;
+      }
+    };
+    const observer = element ? new ResizeObserver(resize) : undefined;
+    if (element) {
+      observer?.observe(element.parentElement ?? element);
+      resize();
+    }
     let raf = 0,
       last = 0,
       time = 0,
@@ -61,7 +83,7 @@ export function BunkerFinaleView({
         callbacks.current.onBlast();
         setCaption('The radio network falls silent');
       }
-      film.render(canvas.current, time, reduced);
+      film.render(canvas.current, time, reducedRef.current);
       if (time >= FINALE_DURATION) {
         callbacks.current.onComplete();
         return;
@@ -73,6 +95,7 @@ export function BunkerFinaleView({
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      observer?.disconnect();
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('blur', blur);
       window.removeEventListener('keydown', key);

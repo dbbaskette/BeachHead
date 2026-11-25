@@ -36,12 +36,17 @@ export class LandingCraftRenderer {
       ramp: THREE.Group;
       wake: THREE.Mesh;
       gunner: THREE.Group;
+      passengers: THREE.InstancedMesh;
     }
   >();
   private template: THREE.Group;
   private paint: THREE.MeshStandardMaterial;
   private rampTemplate: THREE.Group;
   private gunnerTemplate: THREE.Group;
+  private wakeGeometry: THREE.PlaneGeometry;
+  private passengerGeo: THREE.BufferGeometry;
+  private passengerMat: THREE.MeshStandardMaterial;
+  private seatTransforms: THREE.Matrix4[] = [];
   private geometries = new Set<THREE.BufferGeometry>();
   private materials = new Set<THREE.Material>();
   private disposed = false;
@@ -163,6 +168,55 @@ export class LandingCraftRenderer {
     this.gunnerTemplate = this.merge(gunner);
     this.template = this.merge(body);
     this.rampTemplate = this.merge(ramp);
+    this.wakeGeometry = new THREE.PlaneGeometry(6.5, 24);
+    this.geometries.add(this.wakeGeometry);
+
+    // Lightweight non-skinned seated passenger silhouette merged with vertex colors.
+    const torsoGeo = new THREE.CapsuleGeometry(0.24, 0.56, 3, 8);
+    torsoGeo.translate(0, 0.55, 0);
+    const nonIdxTorso = torsoGeo.toNonIndexed();
+    torsoGeo.dispose();
+    const headGeo = new THREE.SphereGeometry(0.22, 8, 6);
+    headGeo.translate(0, 1.15, 0);
+    const nonIdxHead = headGeo.toNonIndexed();
+    headGeo.dispose();
+    const colorize = (
+      g: THREE.BufferGeometry,
+      r: number,
+      gr: number,
+      b: number,
+    ) => {
+      const count = g.getAttribute('position').count;
+      const colors = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        colors[i * 3] = r;
+        colors[i * 3 + 1] = gr;
+        colors[i * 3 + 2] = b;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    };
+    colorize(nonIdxTorso, 0.25, 0.29, 0.21);
+    colorize(nonIdxHead, 0.31, 0.35, 0.27);
+    this.passengerGeo = mergeGeometries([nonIdxTorso, nonIdxHead], false)!;
+    nonIdxTorso.dispose();
+    nonIdxHead.dispose();
+    this.geometries.add(this.passengerGeo);
+    this.passengerMat = material(
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.92,
+      }),
+    ) as THREE.MeshStandardMaterial;
+    const seatDummy = new THREE.Object3D();
+    for (let slot = 0; slot < 6; slot++) {
+      seatDummy.position.set(
+        slot % 2 ? 0.85 : -0.85,
+        0.74,
+        1 - Math.floor(slot / 2) * 1.35,
+      );
+      seatDummy.updateMatrix();
+      this.seatTransforms.push(seatDummy.matrix.clone());
+    }
   }
   private merge(group: THREE.Group) {
     const merged = new THREE.Group();
@@ -194,9 +248,18 @@ export class LandingCraftRenderer {
     ramp.position.set(0, 0.72, 6);
     const gunner = this.gunnerTemplate.clone();
     gunner.position.set(-1.3, 1.4, -4.5);
-    root.add(ramp, gunner);
-    const geometry = new THREE.PlaneGeometry(6.5, 24);
-    this.geometries.add(geometry);
+    const passengers = new THREE.InstancedMesh(
+      this.passengerGeo,
+      this.passengerMat,
+      6,
+    );
+    passengers.castShadow = false;
+    passengers.receiveShadow = true;
+    passengers.count = 0;
+    for (let i = 0; i < 6; i++)
+      passengers.setMatrixAt(i, this.seatTransforms[i]);
+    passengers.instanceMatrix.needsUpdate = true;
+    root.add(ramp, gunner, passengers);
     const material = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
@@ -214,11 +277,11 @@ export class LandingCraftRenderer {
       }`,
     });
     this.materials.add(material);
-    const wake = new THREE.Mesh(geometry, material);
+    const wake = new THREE.Mesh(this.wakeGeometry, material);
     wake.rotation.x = -Math.PI / 2;
     wake.renderOrder = 1;
     this.scene.add(wake, root);
-    const instance = { root, ramp, wake, gunner };
+    const instance = { root, ramp, wake, gunner, passengers };
     this.craft.set(id, instance);
     return instance;
   }
@@ -230,8 +293,7 @@ export class LandingCraftRenderer {
       if (!ids.has(id)) {
         value.root.removeFromParent();
         value.wake.removeFromParent();
-        this.geometries.delete(value.wake.geometry);
-        value.wake.geometry.dispose();
+        value.passengers.dispose();
         const m = value.wake.material as THREE.Material;
         this.materials.delete(m);
         m.dispose();
@@ -252,6 +314,7 @@ export class LandingCraftRenderer {
       v.root.userData.targetable = c.phase !== 'withdrawing';
       v.ramp.userData.targetable = c.rampHealth > 0;
       v.gunner.visible = c.gunnerHealth > 0;
+      v.passengers.count = Math.min(6, Math.max(0, c.passengers));
       v.ramp.rotation.x = c.ramp * RAMP_ANGLE + (c.jamTimer > 0 ? 0.12 : 0);
       v.gunner.rotation.y = Math.sin(battle.time * 0.8 + c.id) * 0.12;
       v.wake.position.set(c.x, 0.1, c.z - 17);
@@ -287,6 +350,7 @@ export class LandingCraftRenderer {
     for (const v of this.craft.values()) {
       v.root.removeFromParent();
       v.wake.removeFromParent();
+      v.passengers.dispose();
     }
     this.craft.clear();
     this.geometries.forEach((g) => g.dispose());

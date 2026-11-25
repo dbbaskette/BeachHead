@@ -8,8 +8,28 @@ export function consolidate(root: T.Group, a: AirArt) {
   const groups = new Map<T.Material, T.BufferGeometry[]>();
   root.traverse((o) => {
     if (o instanceof T.Mesh && !(o instanceof T.InstancedMesh)) {
-      const g = o.geometry.clone().applyMatrix4(o.matrixWorld);
       const m = o.material as T.Material;
+      const g = (
+        o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()
+      ).applyMatrix4(o.matrixWorld);
+      const scale = m.userData.worldUVScale as number | undefined;
+      if (scale) {
+        const p = g.getAttribute('position');
+        const n = g.getAttribute('normal');
+        const uv = g.getAttribute('uv');
+        if (p && n && uv) {
+          for (let i = 0; i < p.count; i++) {
+            const ax = Math.abs(n.getX(i)),
+              ay = Math.abs(n.getY(i));
+            uv.setXY(
+              i,
+              (ax > 0.6 ? p.getZ(i) : p.getX(i)) * scale,
+              (ay > 0.6 ? p.getZ(i) : p.getY(i)) * scale,
+            );
+          }
+          uv.needsUpdate = true;
+        }
+      }
       if (!groups.has(m)) groups.set(m, []);
       groups.get(m)!.push(g);
     }
@@ -66,18 +86,152 @@ function panelTexture(a: AirArt) {
   a.textures.add(t);
   return t;
 }
+function gunmetalPbr(a: AirArt) {
+  const size = 128;
+  const diffuse = new Uint8Array(size * size * 4);
+  const normal = new Uint8Array(size * size * 4);
+  const rough = new Uint8Array(size * size * 4);
+  const heights = new Float32Array(size * size);
+  let s = 19403;
+  const rand = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = y * size + x;
+      const seam = x % 64 < 2 || y % 64 < 2;
+      const brush =
+        Math.sin(x * 0.32 + Math.cos(y * 0.19) * 1.4) * 0.14 +
+        (rand() - 0.5) * 0.16;
+      heights[idx] = brush + (seam ? -0.35 : 0);
+      const c = Math.max(
+        95,
+        Math.min(220, Math.round(166 + heights[idx] * 48)),
+      );
+      const r = Math.max(
+        85,
+        Math.min(230, Math.round(145 - brush * 42 + (seam ? 45 : 0))),
+      );
+      const o = idx * 4;
+      diffuse[o] = c;
+      diffuse[o + 1] = c + 3;
+      diffuse[o + 2] = c - 4;
+      diffuse[o + 3] = 255;
+      rough[o] = rough[o + 1] = rough[o + 2] = r;
+      rough[o + 3] = 255;
+    }
+  }
+  for (let y = 0; y < size; y++) {
+    const ym = (y - 1 + size) % size;
+    const yp = (y + 1) % size;
+    for (let x = 0; x < size; x++) {
+      const xm = (x - 1 + size) % size;
+      const xp = (x + 1) % size;
+      const dx = (heights[y * size + xp] - heights[y * size + xm]) * 2.2;
+      const dy = (heights[yp * size + x] - heights[ym * size + x]) * 2.2;
+      const inv = 1 / Math.hypot(dx, dy, 1);
+      const o = (y * size + x) * 4;
+      normal[o] = Math.round((-dx * inv * 0.5 + 0.5) * 255);
+      normal[o + 1] = Math.round((-dy * inv * 0.5 + 0.5) * 255);
+      normal[o + 2] = Math.round((inv * 0.5 + 0.5) * 255);
+      normal[o + 3] = 255;
+    }
+  }
+  const make = (data: Uint8Array, srgb = false) => {
+    const t = new T.DataTexture(data, size, size, T.RGBAFormat);
+    t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.anisotropy = 4;
+    if (srgb) t.colorSpace = T.SRGBColorSpace;
+    t.needsUpdate = true;
+    a.textures.add(t);
+    return t;
+  };
+  return {
+    map: make(diffuse, true),
+    normalMap: make(normal, false),
+    roughnessMap: make(rough, false),
+  };
+}
+
+function bladeGeometry(length: number, chord: number) {
+  const s = new T.Shape();
+  s.moveTo(-chord * 0.25, 0.14);
+  s.lineTo(chord * 0.25, 0.14);
+  s.quadraticCurveTo(chord * 0.55, length * 0.55, chord * 0.22, length);
+  s.quadraticCurveTo(0, length + chord * 0.28, -chord * 0.22, length);
+  s.quadraticCurveTo(-chord * 0.55, length * 0.55, -chord * 0.25, 0.14);
+  const g = new T.ExtrudeGeometry(s, {
+    depth: 0.03,
+    bevelEnabled: true,
+    bevelThickness: 0.012,
+    bevelSize: 0.012,
+    bevelSegments: 1,
+    steps: 1,
+  });
+  g.translate(0, 0, -0.015);
+  return g;
+}
+
+function finGeometry(
+  baseChord: number,
+  tipChord: number,
+  height: number,
+  thick: number,
+) {
+  const s = new T.Shape();
+  // rotateY(+PI/2) maps +X -> -Z (leading edge) and -X -> +Z (trailing rudder).
+  s.moveTo(-baseChord * 0.5, 0);
+  s.lineTo(baseChord * 0.5, 0);
+  s.lineTo(tipChord * 0.15, height * 0.88);
+  s.quadraticCurveTo(0, height * 1.05, -baseChord * 0.44, height);
+  s.lineTo(-baseChord * 0.5, 0);
+  const g = new T.ExtrudeGeometry(s, {
+    depth: thick,
+    bevelEnabled: true,
+    bevelThickness: thick * 0.25,
+    bevelSize: thick * 0.25,
+    bevelSegments: 1,
+    steps: 1,
+  });
+  g.translate(0, 0, -thick * 0.5);
+  g.rotateY(Math.PI / 2);
+  return g;
+}
+
 export class FlakArt extends AirArt {
   panels = panelTexture(this);
   olivePaint = this.mat('#62674e', 0.68);
   belly = this.mat('#969f99', 0.58);
   black = this.mat('#202622', 0.83);
-  canopy = this.mat('#729b9f', 0.18);
+  canopy: T.MeshPhysicalMaterial;
   brass = this.mat('#c5a263', 0.34);
+  insigniaPlate?: T.PlaneGeometry;
+  insigniaMat?: T.MeshStandardMaterial;
+  blurMat?: T.MeshBasicMaterial;
+  fighterBlurGeo?: T.CircleGeometry;
+  bomberBlurGeo?: T.CircleGeometry;
+  fighterFinGeo?: T.BufferGeometry;
+  transportFinGeo?: T.BufferGeometry;
+  bomberFinGeo?: T.BufferGeometry;
+  fighterBladeGeo?: T.BufferGeometry;
+  twinBladeGeo?: T.BufferGeometry;
+  trooperFabric?: T.MeshStandardMaterial;
+  trooperDome?: T.SphereGeometry;
+  trooperLineMat?: T.LineBasicMaterial;
+  trooperLines?: T.BufferGeometry;
   constructor() {
     super();
     this.olivePaint.map = this.panels;
     this.belly.map = this.panels;
-    this.canopy.metalness = 0.65;
+    this.canopy = new T.MeshPhysicalMaterial({
+      color: '#729b9f',
+      roughness: 0.12,
+      metalness: 0.25,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
+    });
+    this.materials.add(this.canopy);
     this.brass.metalness = 0.85;
   }
 }
@@ -135,6 +289,7 @@ function wing(a: FlakArt, span: number, chord: number) {
   return a.geo(g);
 }
 function insignia(a: FlakArt) {
+  if (a.insigniaMat) return a.insigniaMat;
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 128;
@@ -164,20 +319,38 @@ function insignia(a: FlakArt) {
     roughness: 0.8,
     side: T.DoubleSide,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
   });
   a.materials.add(m);
+  a.insigniaMat = m;
   return m;
+}
+function blurDisc(a: FlakArt) {
+  if (!a.blurMat) {
+    a.blurMat = new T.MeshBasicMaterial({
+      color: '#c4c0ab',
+      transparent: true,
+      opacity: 0.095,
+      side: T.DoubleSide,
+      depthWrite: false,
+    });
+    a.materials.add(a.blurMat);
+  }
+  return a.blurMat;
 }
 /** Compact single-engine fighter: tapered airfoils, radial cowling and framed canopy. */
 function fighter(a: FlakArt) {
   const root = new T.Group(),
     body = new T.Group(),
     prop = new T.Group();
+  prop.name = 'prop-0';
   a.mesh(body, fuselage(a, false), a.olivePaint, [0, 0, 0], [0.63, 0.68, 0.62]);
   a.mesh(body, a.sphere, a.belly, [0, -0.27, -0.4], [0.7, 0.55, 3.8]);
   a.mesh(body, wing(a, 11.2, 2.65), a.olivePaint, [0, -0.28, -0.6], [1, 1, 1]);
   a.mesh(body, wing(a, 4.4, 1.65), a.olivePaint, [0, 0.2, 3.6], [1, 1, 1]);
-  a.mesh(body, a.sphere, a.olivePaint, [0, 1.03, 3.55], [0.12, 1.38, 1.05]);
+  a.fighterFinGeo ??= a.geo(finGeometry(2.1, 1.0, 2.25, 0.14));
+  a.mesh(body, a.fighterFinGeo, a.olivePaint, [0, 0.08, 3.65], [1, 1, 1]);
   a.mesh(body, a.sphere, a.canopy, [0, 0.8, -0.45], [0.57, 0.62, 1.2]);
   for (const z of [-1.1, -0.35, 0.4]) {
     const frame = a.mesh(
@@ -219,7 +392,7 @@ function fighter(a: FlakArt) {
   }
   a.mesh(body, a.sphere, a.black, [0, -0.7, -3.4], [0.35, 0.2, 0.6]);
   const marking = insignia(a),
-    plate = a.geo(new T.PlaneGeometry(1, 1));
+    plate = (a.insigniaPlate ??= a.geo(new T.PlaneGeometry(1, 1)));
   for (const side of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
       const barrel = a.mesh(
@@ -259,33 +432,22 @@ function fighter(a: FlakArt) {
     a.block(body, a.dark, [side * 0.72, -0.15, -2.65], [0.12, 0.15, 0.55]);
   }
   a.mesh(prop, a.sphere, a.steel, [0, 0, 0], [0.23, 0.23, 0.35]);
+  a.fighterBladeGeo ??= a.geo(bladeGeometry(1.5, 0.22));
   for (let i = 0; i < 4; i++) {
     const angle = (i * Math.PI) / 2;
     const blade = a.mesh(
       prop,
-      a.sphere,
+      a.fighterBladeGeo,
       a.black,
-      [Math.sin(angle) * 0.7, Math.cos(angle) * 0.7, 0],
-      [0.12, 1, 0.055],
+      [0, 0, 0],
+      [1, 1, 1],
     );
     blade.rotation.z = -angle;
   }
+  consolidate(prop, a);
   prop.position.set(0, 0, -4.9);
-  const blur = new T.MeshBasicMaterial({
-    color: '#c9c4b0',
-    transparent: true,
-    opacity: 0.09,
-    side: T.DoubleSide,
-    depthWrite: false,
-  });
-  a.materials.add(blur);
-  a.mesh(
-    body,
-    a.geo(new T.CircleGeometry(1.65, 32)),
-    blur,
-    [0, 0, -4.86],
-    [1, 1, 1],
-  );
+  a.fighterBlurGeo ??= a.geo(new T.CircleGeometry(1.65, 32));
+  a.mesh(body, a.fighterBlurGeo, blurDisc(a), [0, 0, -4.86], [1, 1, 1]);
   consolidate(body, a);
   root.add(body, prop);
   return { root, props: [prop] };
@@ -314,18 +476,26 @@ export function aircraft(a: FlakArt, kind: 'bomber' | 'transport' | 'fighter') {
     [0, 0.35, length * 0.39],
     [1, 1, 1],
   );
-  const tail = a.geo(new T.SphereGeometry(1, 12, 8));
-  if (transport)
-    a.mesh(body, tail, a.olivePaint, [0, 1.55, length * 0.37], [0.16, 2, 2.1]);
-  else
+  if (transport) {
+    a.transportFinGeo ??= a.geo(finGeometry(3.8, 1.9, 3.6, 0.18));
+    a.mesh(
+      body,
+      a.transportFinGeo,
+      a.olivePaint,
+      [0, 0.25, length * 0.37],
+      [1, 1, 1],
+    );
+  } else {
+    a.bomberFinGeo ??= a.geo(finGeometry(2.9, 1.5, 2.85, 0.18));
     for (const side of [-1, 1])
       a.mesh(
         body,
-        tail,
+        a.bomberFinGeo,
         a.olivePaint,
-        [side * 2.8, 1.15, length * 0.38],
-        [0.18, 1.65, 1.6],
+        [side * 2.8, 0.15, length * 0.38],
+        [1, 1, 1],
       );
+  }
   // Framed cockpit and glazed bomber nose.
   a.mesh(
     body,
@@ -361,7 +531,9 @@ export function aircraft(a: FlakArt, kind: 'bomber' | 'transport' | 'fighter') {
           [0.025, 0.46, 0.42],
         );
   const marking = insignia(a),
-    plate = a.geo(new T.PlaneGeometry(1, 1));
+    plate = (a.insigniaPlate ??= a.geo(new T.PlaneGeometry(1, 1)));
+  a.twinBladeGeo ??= a.geo(bladeGeometry(1.78, 0.24));
+  a.bomberBlurGeo ??= a.geo(new T.CircleGeometry(2, 32));
   for (const side of [-1, 1]) {
     const m = a.mesh(
       body,
@@ -415,34 +587,16 @@ export function aircraft(a: FlakArt, kind: 'bomber' | 'transport' | 'fighter') {
       cylinder.rotation.z = angle - Math.PI / 2;
     }
     const prop = new T.Group();
+    prop.name = `prop-${props.length}`;
     a.mesh(prop, a.sphere, a.steel, [0, 0, 0], [0.25, 0.25, 0.45]);
     for (let i = 0; i < 3; i++) {
-      const blade = a.mesh(
-        prop,
-        a.sphere,
-        a.black,
-        [Math.sin(i * 2.094) * 0.82, Math.cos(i * 2.094) * 0.82, 0],
-        [0.11, 1.3, 0.07],
-      );
+      const blade = a.mesh(prop, a.twinBladeGeo, a.black, [0, 0, 0], [1, 1, 1]);
       blade.rotation.z = -i * 2.094;
     }
+    consolidate(prop, a);
     prop.position.set(engineX, 0, -4.6);
     props.push(prop);
-    const blurMat = new T.MeshBasicMaterial({
-      color: '#b5b3a0',
-      transparent: true,
-      opacity: 0.1,
-      side: T.DoubleSide,
-      depthWrite: false,
-    });
-    a.materials.add(blurMat);
-    a.mesh(
-      body,
-      a.geo(new T.CircleGeometry(2, 32)),
-      blurMat,
-      [engineX, 0, -4.58],
-      [1, 1, 1],
-    );
+    a.mesh(body, a.bomberBlurGeo, blurDisc(a), [engineX, 0, -4.58], [1, 1, 1]);
     // Exhaust outlet, nacelle seams and wing aileron hinge.
     a.block(body, a.dark, [engineX + side * 0.8, -0.45, -2.2], [0.2, 0.2, 1]);
     a.block(
@@ -460,10 +614,14 @@ export function gun(a: FlakArt) {
   const base = new T.Group(),
     yaw = new T.Group(),
     cradle = new T.Group();
-  const steel = a.mat('#545b4c', 0.65);
-  steel.map = a.texture('deck-color.jpg', true);
-  steel.normalMap = a.texture('deck-normal.jpg');
-  steel.roughnessMap = a.texture('deck-roughness.jpg');
+  const steel = a.mat('#585f52', 0.68);
+  const gunMaps = gunmetalPbr(a);
+  steel.map = gunMaps.map;
+  steel.normalMap = gunMaps.normalMap;
+  steel.roughnessMap = gunMaps.roughnessMap;
+  steel.normalScale.set(0.45, 0.45);
+  steel.metalness = 0.58;
+  steel.userData.worldUVScale = 0.5;
   a.mesh(base, a.cylinder, steel, [0, 4.6, 4], [1.55, 0.3, 1.55]);
   a.mesh(base, a.cylinder, a.dark, [0, 4.8, 4], [1.15, 0.18, 1.15]);
   for (let i = 0; i < 24; i++) {
@@ -609,45 +767,48 @@ export function paratrooper(a: FlakArt) {
   a.block(body, a.olivePaint, [0, 0, 0.23], [0.43, 0.6, 0.18]);
   consolidate(body, a);
   root.add(body);
-  const canopy = new T.Group(),
-    fabric = a.mat('#c1bda0', 0.98);
-  fabric.side = T.DoubleSide;
-  const dome = a.geo(
+  const canopy = new T.Group();
+  canopy.name = 'canopy';
+  if (!a.trooperFabric) {
+    a.trooperFabric = a.mat('#c1bda0', 0.98);
+    a.trooperFabric.side = T.DoubleSide;
+  }
+  a.trooperDome ??= a.geo(
     new T.SphereGeometry(3.6, 24, 12, 0, Math.PI * 2, 0.08, Math.PI * 0.47),
   );
-  a.mesh(canopy, dome, fabric, [0, 3.9, 0], [1, 0.65, 1]);
-  const points: T.Vector3[] = [];
-  for (let i = 0; i < 24; i++) {
-    const angle = (i / 24) * Math.PI * 2;
-    points.push(
-      new T.Vector3(Math.cos(angle) * 3.58, 4.05, Math.sin(angle) * 3.58),
-      new T.Vector3(Math.cos(angle) * 0.26, 0.42, Math.sin(angle) * 0.22),
-    );
-    for (let j = 1; j < 10; j++) {
-      const t = (j / 10) * Math.PI * 0.47,
-        u = ((j + 1) / 10) * Math.PI * 0.47;
+  a.mesh(canopy, a.trooperDome, a.trooperFabric, [0, 3.9, 0], [1, 0.65, 1]);
+  if (!a.trooperLines) {
+    const points: T.Vector3[] = [];
+    for (let i = 0; i < 24; i++) {
+      const angle = (i / 24) * Math.PI * 2;
       points.push(
-        new T.Vector3(
-          Math.cos(angle) * Math.sin(t) * 3.61,
-          3.9 + Math.cos(t) * 2.35,
-          Math.sin(angle) * Math.sin(t) * 3.61,
-        ),
-        new T.Vector3(
-          Math.cos(angle) * Math.sin(u) * 3.61,
-          3.9 + Math.cos(u) * 2.35,
-          Math.sin(angle) * Math.sin(u) * 3.61,
-        ),
+        new T.Vector3(Math.cos(angle) * 3.58, 4.05, Math.sin(angle) * 3.58),
+        new T.Vector3(Math.cos(angle) * 0.26, 0.42, Math.sin(angle) * 0.22),
       );
+      for (let j = 1; j < 10; j++) {
+        const t = (j / 10) * Math.PI * 0.47,
+          u = ((j + 1) / 10) * Math.PI * 0.47;
+        points.push(
+          new T.Vector3(
+            Math.cos(angle) * Math.sin(t) * 3.61,
+            3.9 + Math.cos(t) * 2.35,
+            Math.sin(angle) * Math.sin(t) * 3.61,
+          ),
+          new T.Vector3(
+            Math.cos(angle) * Math.sin(u) * 3.61,
+            3.9 + Math.cos(u) * 2.35,
+            Math.sin(angle) * Math.sin(u) * 3.61,
+          ),
+        );
+      }
     }
+    a.trooperLines = a.geo(new T.BufferGeometry().setFromPoints(points));
   }
-  const lineMat = new T.LineBasicMaterial({ color: '#777a65' });
-  a.materials.add(lineMat);
-  canopy.add(
-    new T.LineSegments(
-      a.geo(new T.BufferGeometry().setFromPoints(points)),
-      lineMat,
-    ),
-  );
+  if (!a.trooperLineMat) {
+    a.trooperLineMat = new T.LineBasicMaterial({ color: '#777a65' });
+    a.materials.add(a.trooperLineMat);
+  }
+  canopy.add(new T.LineSegments(a.trooperLines, a.trooperLineMat));
   root.add(canopy);
   return { root, canopy };
 }

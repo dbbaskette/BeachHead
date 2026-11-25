@@ -187,13 +187,33 @@ export function instrumentTexture() {
   return texture;
 }
 
+export type CoastalSurfaceOptions = {
+  shoreAxis?: 'x' | 'z';
+  shoreOffset?: number;
+  grassStart?: number;
+  grassEnd?: number;
+  roadOffset?: number;
+};
+
 /** World-scale sand/grass blending avoids the checkerboard repetition visible from altitude. */
-export function coastalMaterial(map: THREE.Texture, normal: THREE.Texture) {
+export function coastalMaterial(
+  map: THREE.Texture,
+  normal: THREE.Texture,
+  options: CoastalSurfaceOptions = {},
+) {
+  const {
+    shoreAxis = 'x',
+    shoreOffset = 0,
+    grassStart = 92,
+    grassEnd = 230,
+    roadOffset = 320,
+  } = options;
+  const hasRoad = roadOffset < 1000;
   const material = new THREE.MeshStandardMaterial({
     map,
     normalMap: normal,
-    normalScale: new THREE.Vector2(0.18, 0.18),
-    roughness: 0.93,
+    normalScale: new THREE.Vector2(0.45, 0.45),
+    roughness: 0.9,
   });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -209,33 +229,125 @@ export function coastalMaterial(map: THREE.Texture, normal: THREE.Texture) {
       '#include <common>',
       `#include <common>\nvarying vec3 coastPosition;\n${noiseGLSL}`,
     );
+    const shoreExpr =
+      shoreAxis === 'z'
+        ? `${shoreOffset.toFixed(1)} + sin(p.x * 0.015) * 6.0`
+        : `${shoreOffset.toFixed(1)} + sin(p.y * 0.0025) * 24.0 + sin(p.y * 0.009) * 6.0`;
+    const inlandExpr = shoreAxis === 'z' ? 'p.z - shore' : 'p.x - shore';
+    const roadExpr = hasRoad
+      ? `1.0 - smoothstep(4.0, 8.0, abs(inland - (${roadOffset.toFixed(1)} + sin(p.y * 0.002) * 35.0)))`
+      : '0.0';
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <map_fragment>',
       `
       vec2 p=coastPosition.xz;
-      float shore=sin(p.y*.0025)*24.+sin(p.y*.009)*6.;
-      float inland=p.x-shore;
+      float shore=${shoreExpr};
+      float inland=${inlandExpr};
       float macro=terrainNoise(p*.012);
       vec2 warp=vec2(noise2(p*.018),noise2(p*.018+53.))*2.;
       vec3 sandA=texture2D(map,p*.038+warp*.15).rgb;
       vec3 sandB=texture2D(map,mat2(.8,-.6,.6,.8)*p*.019+warp*.09).rgb;
       vec3 sand=mix(sandA,sandB,.52)*vec3(1.2,1.13,.98);
-      float duneGrass=smoothstep(92.,230.,inland+(macro-.5)*170.);
+      float duneGrass=smoothstep(${grassStart.toFixed(1)},${grassEnd.toFixed(1)},inland+(macro-.5)*170.);
       vec3 vegetation=mix(vec3(.18,.23,.105),vec3(.42,.4,.22),macro);
       float closeGrain=terrainNoise(p*.29);
       vegetation*=.88+closeGrain*.24;
       vec3 surface=mix(sand,vegetation,duneGrass*.88);
       float wet=1.-smoothstep(1.,24.,inland+(macro-.5)*12.);
       surface*=mix(1.,.52,wet);
-      float road=1.-smoothstep(4.,8.,abs(inland-(320.+sin(p.y*.002)*35.)));
+      float road=${roadExpr};
       surface=mix(surface,sand*.66,road*.65);
       surface*=.85+macro*.3;
       diffuseColor.rgb*=surface;
     `,
     );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `#include <roughnessmap_fragment>
+      roughnessFactor=mix(mix(0.9,0.96,duneGrass),0.26,wet);`,
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <normal_fragment_maps>',
+      `#ifdef USE_NORMALMAP_TANGENTSPACE
+        vec2 worldNormUvA=p*0.14;
+        vec2 worldNormUvB=mat2(0.8,-0.6,0.6,0.8)*(p*0.047)+warp*0.04;
+        vec3 mapN1=texture2D(normalMap,worldNormUvA).xyz*2.0-1.0;
+        vec3 mapN2=texture2D(normalMap,worldNormUvB).xyz*2.0-1.0;
+        vec3 mapN=normalize(vec3((mapN1.xy*0.65+mapN2.xy*0.35)*normalScale,1.0));
+        mat3 worldTbn=getTangentFrame(-vViewPosition,normal,worldNormUvA);
+        normal=normalize(worldTbn*mapN);
+      #endif`,
+    );
   };
-  material.customProgramCacheKey = () => 'air-coast-v2';
+  material.customProgramCacheKey = () =>
+    `air-coast-v3-${shoreAxis}-${grassStart}-${roadOffset}`;
   return material;
+}
+
+/** Procedural aircraft panel normal and roughness maps; safe in both browser and Node. */
+export function aircraftSurfaceMaps() {
+  const size = 256;
+  const normalData = new Uint8Array(size * size * 4);
+  const roughData = new Uint8Array(size * size * 4);
+  const heights = new Float32Array(size * size);
+  let seed = 31337;
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = y * size + x;
+      const seamX = x % 64 < 2;
+      const seamY = y % 64 < 2;
+      const seam = seamX || seamY;
+      const rivet =
+        !seam &&
+        (x % 16 === 4 || x % 16 === 12) &&
+        (y % 64 === 6 || y % 64 === 58);
+      const brush = (rand() - 0.5) * 0.08;
+      heights[idx] = (seam ? -0.45 : rivet ? 0.25 : 0) + brush;
+      // Worn bare aluminum along panel edges drops roughness (~0.36), flat camo stays ~0.78.
+      const edgeWear =
+        (x % 64 >= 2 && x % 64 < 5) || (y % 64 >= 2 && y % 64 < 5);
+      const r = seam
+        ? 222
+        : rivet || edgeWear
+          ? 96
+          : Math.round(188 + brush * 120);
+      const o = idx * 4;
+      roughData[o] = roughData[o + 1] = roughData[o + 2] = r;
+      roughData[o + 3] = 255;
+    }
+  }
+  for (let y = 0; y < size; y++) {
+    const ym = (y - 1 + size) % size;
+    const yp = (y + 1) % size;
+    for (let x = 0; x < size; x++) {
+      const xm = (x - 1 + size) % size;
+      const xp = (x + 1) % size;
+      const dx = (heights[y * size + xp] - heights[y * size + xm]) * 2.2;
+      const dy = (heights[yp * size + x] - heights[ym * size + x]) * 2.2;
+      const inv = 1 / Math.hypot(dx, dy, 1);
+      const o = (y * size + x) * 4;
+      normalData[o] = Math.round((-dx * inv * 0.5 + 0.5) * 255);
+      normalData[o + 1] = Math.round((-dy * inv * 0.5 + 0.5) * 255);
+      normalData[o + 2] = Math.round((inv * 0.5 + 0.5) * 255);
+      normalData[o + 3] = 255;
+    }
+  }
+  const make = (data: Uint8Array) => {
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+    return tex;
+  };
+  return { normalMap: make(normalData), roughnessMap: make(roughData) };
 }
 
 /** Painted wing skin: subdued seams, rivets, access panels and period-style markings. */

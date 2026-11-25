@@ -210,8 +210,14 @@ export class TacticalRenderer {
           materials.add(m);
       }
     });
+    const textures = new Set<THREE.Texture>();
+    materials.forEach((m) => {
+      for (const v of Object.values(m))
+        if (v instanceof THREE.Texture) textures.add(v);
+    });
     geometry.forEach((g) => g.dispose());
     materials.forEach((m) => m.dispose());
+    textures.forEach((t) => t.dispose());
     this.teams.clear();
     this.grenades.clear();
   }
