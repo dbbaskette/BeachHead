@@ -22,7 +22,7 @@ export function consolidate(root: T.Group, a: AirArt) {
     geos.forEach((g) => g.dispose());
     if (merged) {
       const mesh = new T.Mesh(a.geo(merged), mat);
-      mesh.castShadow = true;
+      mesh.castShadow = !mat.transparent;
       mesh.receiveShadow = true;
       root.add(mesh);
     }

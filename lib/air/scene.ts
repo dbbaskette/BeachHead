@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { AirArt, makeAirframe, makeCoast, makeTargetModel } from './art';
 import { makeOcean, makeSky } from '../naval/ocean';
-import { COASTAL_SUN } from '../naval/daylight';
+import { snapDirectionalShadow } from '../naval/daylight';
 import { ShellSplashVisuals } from '../naval/shell-splashes';
 import { AirEffects } from './effects';
 import { makeCoastalAtmosphere } from './coastal-atmosphere';
@@ -25,7 +25,7 @@ export class AirScene {
   private coast = makeCoast(this.art);
   private atmosphere = makeCoastalAtmosphere(this.art);
   private sun = new THREE.DirectionalLight('#ffe5bd', 2.8);
-  private ocean = makeOcean();
+  private ocean = makeOcean({ reflection: 'environment' });
   private sky = makeSky();
   private environment: THREE.WebGLRenderTarget;
   private effects = new AirEffects(this.scene);
@@ -102,7 +102,7 @@ export class AirScene {
     this.scene.add(new THREE.HemisphereLight('#d4e4e4', '#5d6652', 0.85));
     const sun = this.sun;
     sun.castShadow = !this.touch.matches;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, {
       left: -350,
       right: 350,
@@ -113,7 +113,8 @@ export class AirScene {
     });
     sun.shadow.camera.updateProjectionMatrix();
     sun.shadow.bias = -0.0002;
-    sun.shadow.normalBias = 0.65;
+    sun.shadow.normalBias = 0.35;
+    sun.shadow.radius = 2;
     this.scene.add(sun, sun.target);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const skyScene = new THREE.Scene();
@@ -218,15 +219,10 @@ export class AirScene {
     });
     this.sky.material.uniforms.time.value = b.time;
     this.atmosphere.update(b.time);
-    // Snap the moving shadow coverage to texels to avoid shimmering in flight.
-    const sx = Math.round(f.position.x / 1.37) * 1.37,
-      sz = Math.round(f.position.z / 1.37) * 1.37;
-    this.sun.target.position.set(sx, 0, sz);
-    this.sun.position
-      .copy(COASTAL_SUN)
-      .multiplyScalar(800)
-      .add(this.sun.target.position);
-    this.sun.target.updateMatrixWorld();
+    // Shift shadow coverage ahead along heading and snap to light-space texels.
+    const aheadX = f.position.x + Math.sin(f.heading) * 220;
+    const aheadZ = f.position.z - Math.cos(f.heading) * 220;
+    snapDirectionalShadow(this.sun, aheadX, 0, aheadZ, 800);
     const live = new Set(b.targets.filter((t) => t.active).map((t) => t.id));
     for (const [id, m] of this.targets)
       if (!live.has(id)) m.root.visible = false;

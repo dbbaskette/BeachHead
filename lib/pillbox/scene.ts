@@ -377,15 +377,16 @@ export class PillboxScene {
       : 2048;
     sun.shadow.mapSize.set(shadowSize, shadowSize);
     Object.assign(sun.shadow.camera, {
-      left: -65,
-      right: 65,
-      top: 35,
-      bottom: -145,
-      near: 5,
-      far: 220,
+      left: -102,
+      right: 90,
+      top: 76,
+      bottom: -64,
+      near: 40,
+      far: 205,
     });
     sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.08;
+    sun.shadow.normalBias = 0.05;
+    sun.shadow.radius = 2;
     this.scene.add(sun, sun.target);
 
     this.observer = new ResizeObserver(() => this.resize());

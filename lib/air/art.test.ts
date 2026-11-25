@@ -26,6 +26,23 @@ void test('refined coastline stays on the ballistic terrain and owns all renderi
     else assert.ok(y < 0);
   }
   const aircraft = makeAirframe(art);
+  const cockpitSet = new Set<THREE.Object3D>();
+  aircraft.cockpit.traverse((object) => cockpitSet.add(object));
+  let cockpitMeshes = 0;
+  let exteriorShadowReceivers = 0;
+  aircraft.root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    if (cockpitSet.has(object)) {
+      cockpitMeshes++;
+      assert.equal(object.castShadow, false);
+      assert.equal(object.receiveShadow, false);
+    } else if (object.receiveShadow) {
+      exteriorShadowReceivers++;
+      assert.equal(object.castShadow, true);
+    }
+  });
+  assert.ok(cockpitMeshes > 0);
+  assert.ok(exteriorShadowReceivers > 0);
   const targets = createTargets().map((target) => makeTargetModel(art, target));
   const atmosphere = makeCoastalAtmosphere(art);
   for (const root of [

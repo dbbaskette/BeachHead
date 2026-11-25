@@ -4,7 +4,7 @@ import { COASTAL_SUN } from './daylight';
 import * as THREE from 'three';
 import { makeShip, makePlayerDeck, makeIsland, aimPlayerDeck } from './models';
 import { createNavalMaterials } from './materials';
-import { makeOcean, makeSky } from './ocean';
+import { enableWaterReflection, makeOcean, makeSky } from './ocean';
 import { NavalEffects } from './effects';
 import { ShipDamageVisuals } from './ship-damage';
 import { ShellSplashVisuals, shellVisualScale } from './shell-splashes';
@@ -18,7 +18,11 @@ export class NavalScene {
   private atmosphere = new CoastalAtmosphere(this.scene, 'naval');
   private sky = makeSky();
   private materials = createNavalMaterials();
-  private ocean = makeOcean();
+  private touch = window.matchMedia(TOUCH_LAYOUT_QUERY);
+  private ocean = makeOcean({
+    reflection: 'planar',
+    textureSize: this.touch.matches ? 256 : 512,
+  });
   private player = makePlayerDeck(this.materials);
   private effects = new NavalEffects(this.scene);
   private shellSplashes = new ShellSplashVisuals(this.scene);
@@ -36,7 +40,10 @@ export class NavalScene {
   private recoil = 0;
   private damage = 0;
   private visualTime = 0;
-  private touch = window.matchMedia(TOUCH_LAYOUT_QUERY);
+  private shadowReady = false;
+  private lastShadowHeading = NaN;
+  private lastShadowRange = NaN;
+  private lastShadowScope = false;
   private observer: ResizeObserver;
   private onLost = (event: Event) => {
     event.preventDefault();
@@ -68,6 +75,7 @@ export class NavalScene {
     this.renderer.domElement.addEventListener('webglcontextlost', this.onLost);
     this.scene.fog = new THREE.FogExp2('#9eb9c0', 0.00016);
     const sky = this.sky;
+    enableWaterReflection(sky);
     this.scene.add(sky, this.ocean.mesh, this.player.root);
     const environmentScene = new THREE.Scene();
     environmentScene.add(sky.clone());
@@ -78,7 +86,9 @@ export class NavalScene {
     pmrem.dispose();
     this.scene.environment = this.environment.texture;
     this.scene.environmentIntensity = 0.28;
-    this.scene.add(new THREE.HemisphereLight('#c7e0e6', '#344a50', 0.8));
+    const hemi = new THREE.HemisphereLight('#c7e0e6', '#344a50', 0.8);
+    enableWaterReflection(hemi);
+    this.scene.add(hemi);
     const sun = new THREE.DirectionalLight('#ffe2b5', 3.1);
     sun.position
       .copy(COASTAL_SUN)
@@ -99,7 +109,9 @@ export class NavalScene {
       far: 190,
     });
     sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.1;
+    sun.shadow.normalBias = 0.025;
+    sun.shadow.radius = 2;
+    enableWaterReflection(sun);
     this.scene.add(sun, sun.target, this.muzzleLight);
     this.scene.add(
       makeIsland(-1700, -2700, 1300, 350, 3),
@@ -203,7 +215,13 @@ export class NavalScene {
     const activeDt = battle.status === 'paused' ? 0 : dt;
     this.visualTime += activeDt;
     const t = this.visualTime;
-    this.ocean.update(t, battle);
+    this.ocean.update(t, battle, {
+      x: 0,
+      z: -13,
+      heading: 0,
+      length: 108,
+      health: battle.health,
+    });
     this.sky.material.uniforms.time.value = t;
     this.atmosphere.update(battle.time);
     this.recoil = Math.max(0, this.recoil - activeDt * 3.5);
@@ -237,6 +255,7 @@ export class NavalScene {
           this.materials,
           ['D 17', 'C 42', 'B 09'][i],
         );
+        enableWaterReflection(mesh);
         this.ships.set(ship.id, mesh);
         this.scene.add(mesh);
       }
@@ -330,6 +349,22 @@ export class NavalScene {
     );
     // The screen-space reticle is the sole aim cursor.
     this.reticle.visible = false;
+    const shadowsDirty =
+      !this.shadowReady ||
+      battle.status === 'playing' ||
+      battle.status === 'won' ||
+      battle.status === 'lost' ||
+      battle.heading !== this.lastShadowHeading ||
+      battle.range !== this.lastShadowRange ||
+      scope !== this.lastShadowScope;
+    this.renderer.shadowMap.autoUpdate = shadowsDirty;
+    if (shadowsDirty) {
+      this.renderer.shadowMap.needsUpdate = true;
+      this.shadowReady = true;
+      this.lastShadowHeading = battle.heading;
+      this.lastShadowRange = battle.range;
+      this.lastShadowScope = scope;
+    }
     this.renderer.render(this.scene, this.camera);
   }
   dispose() {

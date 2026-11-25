@@ -11,6 +11,19 @@ import {
   type Vec,
 } from './simulation';
 const noise = `float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);} float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);} float fbm(vec2 p){return noise(p)*.55+noise(p*2.03)*.28+noise(p*4.07)*.14;}`;
+
+/** Coastal dune profile that keeps the battery level and slopes smoothly below sea level. */
+export function flakCoastHeight(x: number, z: number): number {
+  const dune =
+    2.3 +
+    Math.sin(x * 0.008) *
+      Math.sin(z * 0.013) *
+      Math.min(17, Math.max(0, z) * 0.08) +
+    Math.sin(x * 0.021 + z * 0.019) * 1.3;
+  const shoreZ = -82 + Math.sin(x * 0.015) * 6;
+  const t = T.MathUtils.smoothstep(z, shoreZ - 38, shoreZ + 52);
+  return T.MathUtils.lerp(-2.4, dune, t);
+}
 type Puff = {
   at: Vec;
   age: number;
@@ -50,7 +63,7 @@ export class FlakScene {
   private art = new FlakArt();
   private weapon = gun(this.art);
   private sky = makeSky();
-  private ocean = makeOcean();
+  private ocean = makeOcean({ reflection: 'environment', shorelineZ: -82 });
   private environment: T.WebGLRenderTarget;
   private smoke = smokeMesh(this.art, 180);
   private clouds = smokeMesh(this.art, 48);
@@ -101,7 +114,7 @@ export class FlakScene {
     this.renderer.outputColorSpace = T.SRGBColorSpace;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
-    this.renderer.shadowMap.enabled = !touch;
+    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFShadowMap;
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('webglcontextlost', this.onLost);
@@ -116,20 +129,24 @@ export class FlakScene {
     this.scene.fog = new T.FogExp2('#afc1c1', 0.00038);
     this.scene.add(new T.HemisphereLight('#c4d3d3', '#797159', 1.15));
     const sun = new T.DirectionalLight('#ffdfb0', 3.1);
-    sun.position.copy(COASTAL_SUN).multiplyScalar(200);
-    sun.castShadow = !touch;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.target.position.set(0, 4.5, 4);
+    sun.position.copy(COASTAL_SUN).multiplyScalar(80).add(sun.target.position);
+    sun.castShadow = true;
+    const shadowSize = touch ? 1024 : 2048;
+    sun.shadow.mapSize.set(shadowSize, shadowSize);
     Object.assign(sun.shadow.camera, {
-      left: -20,
-      right: 20,
-      top: 20,
-      bottom: -20,
-      near: 1,
-      far: 500,
+      left: -14,
+      right: 14,
+      top: 14,
+      bottom: -12,
+      near: 50,
+      far: 120,
     });
     sun.shadow.camera.updateProjectionMatrix();
-    sun.shadow.normalBias = 0.025;
-    this.scene.add(sun);
+    sun.shadow.bias = -0.0003;
+    sun.shadow.normalBias = 0.02;
+    sun.shadow.radius = 2;
+    this.scene.add(sun, sun.target);
     const pmrem = new T.PMREMGenerator(this.renderer),
       env = new T.Scene();
     env.add(this.sky.clone());
@@ -226,28 +243,36 @@ export class FlakScene {
     const a = this.art,
       root = new T.Group();
     const sand = a.mat('#b5ad91', 0.98);
+    sand.vertexColors = true;
     sand.map = a.texture('pillbox-sand-diffuse.jpg', true);
     sand.normalMap = a.texture('pillbox-sand-normal.jpg');
     sand.roughnessMap = a.texture('pillbox-sand-roughness.jpg');
     for (const t of [sand.map, sand.normalMap, sand.roughnessMap])
-      t.repeat.set(500, 280);
+      t.repeat.set(500, 295);
     sand.normalScale.set(0.7, 0.7);
-    const g = a.geo(new T.PlaneGeometry(3500, 1900, 100, 70));
+    const g = a.geo(new T.PlaneGeometry(3500, 2000, 100, 80));
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const dry = new T.Color('#ffffff');
+    const wet = new T.Color('#8a7e63');
+    const tint = new T.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i),
-        z = pos.getZ(i) + 850;
-      const h =
-        2.3 +
-        Math.sin(x * 0.008) *
-          Math.sin(z * 0.013) *
-          Math.min(17, Math.max(0, z) * 0.08) +
-        Math.sin(x * 0.021 + z * 0.019) * 1.3;
+        z = pos.getZ(i) + 860,
+        h = flakCoastHeight(x, z);
       pos.setXYZ(i, x, h, z);
+      const wetness = 1 - T.MathUtils.smoothstep(h, -0.2, 1.1);
+      tint.copy(dry).lerp(wet, wetness);
+      colors[i * 3] = tint.r;
+      colors[i * 3 + 1] = tint.g;
+      colors[i * 3 + 2] = tint.b;
     }
+    g.setAttribute('color', new T.BufferAttribute(colors, 3));
     g.computeVertexNormals();
-    a.mesh(root, g, sand, [0, 0, 0], [1, 1, 1]);
+    const terrain = a.mesh(this.scene, g, sand, [0, 0, 0], [1, 1, 1]);
+    terrain.castShadow = false;
+    terrain.receiveShadow = true;
     const concrete = a.mat('#939383', 0.98);
     concrete.map = a.texture('pillbox-concrete-diffuse.jpg', true);
     concrete.normalMap = a.texture('pillbox-concrete-normal.jpg');
@@ -344,20 +369,13 @@ export class FlakScene {
       );
     for (let i = 0; i < 900; i++) {
       const x = Math.sin(i * 52.31) * 120,
-        z = -55 + (i % 97) * 1.8;
-      if (Math.hypot(x, z - 4) < 12) {
+        z = -55 + (i % 97) * 1.8,
+        gy = flakCoastHeight(x, z);
+      if (Math.hypot(x, z - 4) < 12 || gy < 0.7) {
         this.object.scale.set(0, 0, 0);
       } else
         this.object.scale.set(0.6 + (i % 4) * 0.2, 0.3 + (i % 7) * 0.13, 0.6);
-      this.object.position.set(
-        x,
-        2.8 +
-          Math.sin(x * 0.008) *
-            Math.sin(z * 0.013) *
-            Math.min(17, Math.max(0, z) * 0.08) +
-          Math.sin(x * 0.021 + z * 0.019) * 1.3,
-        z,
-      );
+      this.object.position.set(x, gy + 0.5, z);
       this.object.rotation.set(0.1, i, 0.15);
       this.object.updateMatrix();
       grass.setMatrixAt(i, this.object.matrix);

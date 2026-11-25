@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { NavalMaterials } from './materials';
+import { enableWaterReflection } from './ocean';
 import {
   PLAYER_MOUNT,
   PLAYER_GUN_PIVOT,
@@ -588,7 +589,9 @@ export function makeIsland(
     geo,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97 }),
   );
-  terrain.receiveShadow = true;
+  terrain.name = 'island-terrain';
+  terrain.receiveShadow = false;
+  enableWaterReflection(terrain);
   group.add(terrain);
   // Instanced treetops add a recognizable vegetation scale without individual draw calls.
   const treeMat = new THREE.MeshStandardMaterial({

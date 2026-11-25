@@ -580,6 +580,12 @@ export function makeAirframe(a: AirArt) {
     if (!merged) throw new Error('Aircraft geometry could not be assembled');
     root.add(new THREE.Mesh(a.geo(merged), material));
   }
+  const cockpitMaterials = new Set<THREE.Material>([
+    interior,
+    trim,
+    lens,
+    seam,
+  ]);
   root.traverse((object) => {
     if (
       object instanceof THREE.Mesh &&
@@ -587,7 +593,13 @@ export function makeAirframe(a: AirArt) {
       !object.material.transparent
     ) {
       object.castShadow = true;
-      object.receiveShadow = true;
+      object.receiveShadow = !cockpitMaterials.has(object.material);
+    }
+  });
+  cockpit.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.castShadow = false;
+      object.receiveShadow = false;
     }
   });
   return {
