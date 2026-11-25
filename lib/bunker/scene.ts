@@ -2,7 +2,13 @@ import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Sky } from 'three/addons/objects/Sky.js';
-import { addBunkerDetail, addWeaponDetail, worldUV } from './detail';
+import {
+  addBunkerDetail,
+  addWeaponDetail,
+  worldCylinderUV,
+  worldLatheUV,
+  worldUV,
+} from './detail';
 import { PELVIS_HEIGHT } from './reactions';
 import { GuardMotion, loadGuardMotions } from './guard-motion';
 import {
@@ -143,7 +149,14 @@ export class BunkerScene {
     color: new T.Color(2.4, 1.85, 0.95),
     toneMapped: false,
   });
+  private lampGlowMat = new T.MeshStandardMaterial({
+    color: '#b78c58',
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+  });
   private blastLight = new T.PointLight('#ffba70', 0, 12, 2);
+  private embrasureSun = new T.SpotLight('#d9e9ed', 170, 28, 0.92, 0.55, 1.5);
   private blastAge = 0;
   private medkit = new T.Group();
   private exitLight = new T.MeshStandardMaterial({
@@ -156,7 +169,7 @@ export class BunkerScene {
   private environment: T.WebGLRenderTarget;
   private resources = new Set<T.Texture>();
   private detailShadows = false;
-  private mobileLights?: BunkerMobileLights;
+  private mobileLights: BunkerMobileLights;
   private guardFrustum = new T.Frustum();
   private viewProjection = new T.Matrix4();
   private guardBounds = new T.Sphere();
@@ -212,51 +225,74 @@ export class BunkerScene {
     this.scene.background = new T.Color('#6f8991');
     this.scene.fog = new T.FogExp2('#33332f', 0.012);
     this.scene.add(new T.HemisphereLight('#c5d5d4', '#484035', 0.42));
-    const sun = new T.DirectionalLight('#d9e9ed', touch ? 0.65 : 3.3);
-    sun.position.set(-20, 12, 10);
-    sun.castShadow = !touch;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -18;
-    sun.shadow.camera.right = 18;
-    sun.shadow.camera.top = 25;
-    sun.shadow.camera.bottom = -25;
-    sun.shadow.normalBias = 0.035;
-    this.scene.add(sun);
+    this.embrasureSun.intensity = touch ? 45 : 170;
+    this.embrasureSun.position.set(-15, 5.2, 9.5);
+    this.embrasureSun.target.position.set(2.5, 1.1, 7.8);
+    this.embrasureSun.castShadow = !touch;
+    this.embrasureSun.shadow.mapSize.set(1024, 1024);
+    this.embrasureSun.shadow.camera.near = 2;
+    this.embrasureSun.shadow.camera.far = 28;
+    this.embrasureSun.shadow.bias = -0.0005;
+    this.embrasureSun.shadow.normalBias = 0.03;
+    this.scene.add(this.embrasureSun, this.embrasureSun.target);
     const sky = new Sky();
     sky.scale.setScalar(150);
     sky.material.uniforms.turbidity.value = 8;
     sky.material.uniforms.rayleigh.value = 0.6;
     sky.material.uniforms.sunPosition.value.set(-1, 0.35, 0.4);
     this.scene.add(sky);
-    const steel = new T.TextureLoader().load(
-      assetUrl('/textures/bunker-worn-steel.jpg'),
-    );
-    steel.colorSpace = T.SRGBColorSpace;
-    steel.wrapS = steel.wrapT = T.RepeatWrapping;
-    steel.anisotropy = 8;
-    this.resources.add(steel);
-    this.metal.map = steel;
-    this.metal.bumpMap = steel;
-    this.metal.bumpScale = 0.008;
-    this.metal.color.set('#efeee8');
-    this.metal.metalness = 0.28;
-    this.metal.roughness = 0.53;
-    this.dark.map = steel;
-    this.dark.color.set('#b0b3ac');
-    this.dark.metalness = 0.5;
-    this.dark.roughness = 0.43;
-    const timber = new T.TextureLoader().load(
-      assetUrl('/textures/bunker-timber.jpg'),
-    );
-    timber.colorSpace = T.SRGBColorSpace;
-    timber.wrapS = timber.wrapT = T.RepeatWrapping;
-    timber.repeat.set(1.5, 1.5);
-    this.resources.add(timber);
-    this.wood.map = timber;
-    this.wood.bumpMap = timber;
-    this.wood.bumpScale = 0.012;
-    const concrete = this.surface('pillbox-concrete', '#aaa79c', 0.6);
-    const floor = this.surface('pillbox-concrete', '#77786e', 0.7);
+
+    const loader = new T.TextureLoader();
+    const steelMaps = this.createSteelPbr();
+    for (const mat of [this.metal, this.dark]) {
+      mat.map = steelMaps.map;
+      mat.normalMap = steelMaps.normalMap;
+      mat.roughnessMap = steelMaps.roughnessMap;
+      mat.normalScale.set(0.35, 0.35);
+    }
+    this.metal.color.set('#a8ada8');
+    this.metal.metalness = 0.45;
+    this.metal.roughness = 0.62;
+    this.dark.color.set('#5a605d');
+    this.dark.metalness = 0.55;
+    this.dark.roughness = 0.52;
+
+    const loadPot = (path: string, repeat: number, srgb = false) => {
+      const tex = loader.load(assetUrl(`/textures/${path}`));
+      tex.wrapS = tex.wrapT = T.RepeatWrapping;
+      tex.repeat.set(repeat, repeat);
+      tex.anisotropy = srgb ? 8 : 4;
+      if (srgb) tex.colorSpace = T.SRGBColorSpace;
+      this.resources.add(tex);
+      return tex;
+    };
+    this.wood.map = loadPot('deck-color.jpg', 0.75, true);
+    this.wood.normalMap = loadPot('deck-normal.jpg', 0.75);
+    this.wood.roughnessMap = loadPot('deck-roughness.jpg', 0.75);
+    this.wood.normalScale.set(0.45, 0.45);
+    this.wood.color.set('#b9a184');
+    this.wood.roughness = 0.92;
+
+    const concreteDiffuse = loadPot('pillbox-concrete-diffuse.jpg', 0.55, true);
+    const concreteNormal = loadPot('pillbox-concrete-normal.jpg', 0.55);
+    const concreteRoughness = loadPot('pillbox-concrete-roughness.jpg', 0.55);
+    const concrete = new T.MeshStandardMaterial({
+      map: concreteDiffuse,
+      normalMap: concreteNormal,
+      roughnessMap: concreteRoughness,
+      normalScale: new T.Vector2(0.55, 0.55),
+      color: '#b4b1a6',
+      roughness: 0.92,
+    });
+    const floor = new T.MeshStandardMaterial({
+      map: concreteDiffuse,
+      normalMap: concreteNormal,
+      roughnessMap: concreteRoughness,
+      normalScale: new T.Vector2(0.45, 0.45),
+      color: '#7c7d73',
+      roughness: 0.78,
+      metalness: 0.18,
+    });
     for (const r of rooms) {
       this.box(r.x, -0.15, r.z, r.w, 0.3, r.d, floor);
       this.box(r.x, r.h + 0.18, r.z, r.w, 0.36, r.d, concrete);
@@ -285,6 +321,12 @@ export class BunkerScene {
       this.dark,
       this.brass,
     );
+    const dampMat = new T.MeshStandardMaterial({
+      color: '#555e51',
+      roughness: 1,
+      transparent: true,
+      opacity: 0.28,
+    });
     for (const r of rooms) {
       for (const x of [r.w / 2 - 0.4, r.w / 2 - 0.65])
         this.cylinder(r.x + x, r.h - 0.48, r.z, 0.065, r.d, this.metal, 'z');
@@ -305,12 +347,8 @@ export class BunkerScene {
           0.025,
           0.5,
           1.6,
-          new T.MeshStandardMaterial({
-            color: '#555e51',
-            roughness: 1,
-            transparent: true,
-            opacity: 0.28,
-          }),
+          dampMat,
+          false,
         );
       }
     }
@@ -326,20 +364,18 @@ export class BunkerScene {
     const gunFill = new T.SpotLight('#c9dbdf', 36, 13, 0.75, 0.65, 2);
     gunFill.position.set(-6, 3.2, 11);
     gunFill.target.position.set(-4.4, 1.2, 8.5);
-    gunFill.castShadow = !touch;
-    gunFill.shadow.mapSize.set(512, 512);
-    gunFill.shadow.bias = -0.001;
+    gunFill.castShadow = false;
     this.scene.add(gunFill, gunFill.target);
     const archLight = new T.SpotLight('#ffe0ac', 95, 13, 0.9, 0.7, 2);
     archLight.position.set(3.7, 2.35, 5.5);
     archLight.target.position.set(-1.3, 2.9, 2.05);
-    archLight.castShadow = !touch;
-    archLight.shadow.mapSize.set(512, 512);
-    archLight.shadow.normalBias = 0.025;
+    archLight.castShadow = false;
     this.scene.add(archLight, archLight.target);
     // Embrasure: sea, distant shoreline, and a heavy gun pointing out of the slit.
     const seaMat = new T.MeshStandardMaterial({
       color: '#607d84',
+      emissive: '#223338',
+      emissiveIntensity: 0.45,
       roughness: 0.25,
       metalness: 0.35,
     });
@@ -469,6 +505,8 @@ export class BunkerScene {
       new T.BoxGeometry(1.5, 0.18, 0.08),
       this.exitLight,
       [0, 2.82, 0.16],
+      [0, 0, 0],
+      false,
     );
     const exitSign = this.sign('EXIT / BEACH', 0, 3.2, 15.5, 2);
     exitSign.rotation.y = Math.PI;
@@ -591,6 +629,9 @@ export class BunkerScene {
       [-0.025, -0.085, -0.23],
     );
     addWeaponDetail(this.weapon, this.metal, this.dark, this.wood);
+    this.weapon.traverse((o) => {
+      if (o instanceof T.Mesh) o.castShadow = false;
+    });
     this.muzzle = createMuzzleFlashMesh(0.75);
     this.muzzle.position.set(0, 0.009, -0.72);
     this.muzzle.visible = false;
@@ -658,12 +699,14 @@ export class BunkerScene {
     this.stainMesh.renderOrder = 2;
     this.scene.add(this.debrisMesh, this.stainMesh);
 
-    if (touch) {
-      this.mobileLights = new BunkerMobileLights(this.scene, [
-        this.camera,
-        this.blastLight,
-      ]);
-    } else {
+    this.mobileLights = new BunkerMobileLights(
+      this.scene,
+      [this.camera, this.blastLight, this.embrasureSun],
+      touch
+        ? { maxSpots: 5, maxPoints: 3, maxShadows: 0 }
+        : { maxSpots: 6, maxPoints: 4, maxShadows: 2, shadowRange: 20 },
+    );
+    if (!touch) {
       this.post = createBunkerComposer(this.renderer, this.scene, this.camera, [
         this.weapon,
         this.missionProps.held,
@@ -681,34 +724,78 @@ export class BunkerScene {
     resize();
     this.ready = this.loadGuards();
   }
-  private surface(prefix: string, color: string, repeat: number) {
-    const loader = new T.TextureLoader();
-    const load = (suffix: string) => {
-      const map = loader.load(assetUrl(`/textures/${prefix}-${suffix}.jpg`));
-      map.wrapS = map.wrapT = T.RepeatWrapping;
-      map.repeat.set(repeat, repeat);
-      map.anisotropy = 4;
-      this.resources.add(map);
-      return map;
+  private createSteelPbr() {
+    const size = 256;
+    const stride = 4;
+    const diffuse = new Uint8Array(size * size * stride);
+    const normal = new Uint8Array(size * size * stride);
+    const rough = new Uint8Array(size * size * stride);
+    const heights = new Float32Array(size * size);
+    const hash = (x: number, y: number) => {
+      const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+      return n - Math.floor(n);
     };
-    const map = loader.load(
-      assetUrl('/textures/bunker-weathered-concrete.jpg'),
-    );
-    map.wrapS = map.wrapT = T.RepeatWrapping;
-    map.repeat.set(repeat, repeat);
-    map.anisotropy = 8;
-    this.resources.add(map);
-    map.colorSpace = T.SRGBColorSpace;
-    return new T.MeshStandardMaterial({
-      map,
-      bumpMap: map,
-      bumpScale: 0.018,
-      normalMap: load('normal'),
-      roughnessMap: load('roughness'),
-      normalScale: new T.Vector2(0.45, 0.45),
-      color,
-      roughness: 0.92,
-    });
+    for (let y = 0; y < size; y++) {
+      const seamY = y < 3 || Math.abs(y - 128) < 2;
+      for (let x = 0; x < size; x++) {
+        const seamX = x < 3 || Math.abs(x - 128) < 2;
+        const idx = y * size + x;
+        const brush =
+          Math.sin(x * 0.25 + hash(Math.floor(x / 8), y) * 1.4) * 0.14 +
+          (hash(x, Math.floor(y / 2)) - 0.5) * 0.2;
+        const grain = (hash(x, y) - 0.5) * 0.14;
+        const seam = seamX || seamY ? -0.35 : 0;
+        heights[idx] = brush + grain + seam;
+        const base = Math.max(
+          90,
+          Math.min(225, Math.round(168 + brush * 42 + grain * 28 + seam * 55)),
+        );
+        const o = idx * stride;
+        diffuse[o] = base;
+        diffuse[o + 1] = base + 2;
+        diffuse[o + 2] = base + 3;
+        diffuse[o + 3] = 255;
+        const r = Math.max(
+          95,
+          Math.min(
+            235,
+            Math.round(158 - brush * 36 + (seam ? 42 : 0) + grain * 40),
+          ),
+        );
+        rough[o] = rough[o + 1] = rough[o + 2] = r;
+        rough[o + 3] = 255;
+      }
+    }
+    for (let y = 0; y < size; y++) {
+      const ym = (y - 1 + size) % size;
+      const yp = (y + 1) % size;
+      for (let x = 0; x < size; x++) {
+        const xm = (x - 1 + size) % size;
+        const xp = (x + 1) % size;
+        const dx = (heights[y * size + xp] - heights[y * size + xm]) * 2.2;
+        const dy = (heights[yp * size + x] - heights[ym * size + x]) * 2.2;
+        const inv = 1 / Math.hypot(dx, dy, 1);
+        const o = (y * size + x) * stride;
+        normal[o] = Math.round((-dx * inv * 0.5 + 0.5) * 255);
+        normal[o + 1] = Math.round((-dy * inv * 0.5 + 0.5) * 255);
+        normal[o + 2] = Math.round((inv * 0.5 + 0.5) * 255);
+        normal[o + 3] = 255;
+      }
+    }
+    const make = (data: Uint8Array, srgb: boolean) => {
+      const tex = new T.DataTexture(data, size, size, T.RGBAFormat);
+      tex.wrapS = tex.wrapT = T.RepeatWrapping;
+      tex.anisotropy = 4;
+      if (srgb) tex.colorSpace = T.SRGBColorSpace;
+      tex.needsUpdate = true;
+      this.resources.add(tex);
+      return tex;
+    };
+    return {
+      map: make(diffuse, true),
+      normalMap: make(normal, false),
+      roughnessMap: make(rough, false),
+    };
   }
   private part(
     parent: T.Object3D,
@@ -716,12 +803,14 @@ export class BunkerScene {
     mat: T.Material,
     p: number[],
     r = [0, 0, 0],
+    castShadow?: boolean,
   ) {
     const mesh = new T.Mesh(geo, mat);
     mesh.position.set(p[0], p[1], p[2]);
     mesh.rotation.set(r[0], r[1], r[2]);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    const transparent = !Array.isArray(mat) && mat.transparent;
+    mesh.castShadow = castShadow ?? !transparent;
+    mesh.receiveShadow = !transparent;
     parent.add(mesh);
     return mesh;
   }
@@ -733,6 +822,7 @@ export class BunkerScene {
     h: number,
     d: number,
     mat: T.Material,
+    castShadow?: boolean,
   ) {
     return this.part(
       this.scene,
@@ -747,6 +837,8 @@ export class BunkerScene {
       ),
       mat,
       [x, y, z],
+      [0, 0, 0],
+      castShadow,
     );
   }
   private cylinder(
@@ -757,10 +849,11 @@ export class BunkerScene {
     h: number,
     mat: T.Material,
     axis = 'y',
+    castShadow?: boolean,
   ) {
     return this.part(
       this.scene,
-      new T.CylinderGeometry(r, r, h, 16),
+      worldCylinderUV(new T.CylinderGeometry(r, r, h, 16), r, h),
       mat,
       [x, y, z],
       axis === 'x'
@@ -768,6 +861,7 @@ export class BunkerScene {
         : axis === 'z'
           ? [Math.PI / 2, 0, 0]
           : [0, 0, 0],
+      castShadow,
     );
   }
   private lamp(x: number, z: number, y: number) {
@@ -778,30 +872,25 @@ export class BunkerScene {
       this.dark,
       [x, y, z],
     );
-    this.part(this.scene, this.bulbGeo, this.bulbMat, [x, y - 0.09, z]);
+    const bulb = this.part(
+      this.scene,
+      this.bulbGeo,
+      this.bulbMat,
+      [x, y - 0.09, z],
+      [0, 0, 0],
+      false,
+    );
+    bulb.receiveShadow = false;
     const light = new T.SpotLight('#ffd7a1', 75, 12, 1.15, 0.7, 2);
     light.target.position.set(x, 0, z);
-    light.castShadow = this.detailShadows && (z === 4 || z === -1);
-    light.shadow.mapSize.set(512, 512);
-    light.shadow.bias = -0.0005;
+    light.castShadow = false;
     this.scene.add(light.target);
     const bounce = new T.PointLight('#ffcf93', 4, 6, 2);
     bounce.position.set(x, y - 0.4, z);
     this.scene.add(bounce);
     light.position.set(x, y - 0.25, z);
     this.scene.add(light);
-    this.cylinder(
-      x,
-      y - 0.1,
-      z,
-      0.16,
-      0.24,
-      new T.MeshStandardMaterial({
-        color: '#b78c58',
-        transparent: true,
-        opacity: 0.22,
-      }),
-    );
+    this.cylinder(x, y - 0.1, z, 0.16, 0.24, this.lampGlowMat, 'y', false);
   }
   private gun(equipment: BunkerEquipment) {
     this.cylinder(-4.7, 0.15, 8.5, 1.75, 0.3, this.dark);
@@ -817,7 +906,7 @@ export class BunkerScene {
     ].map(([x, y]) => new T.Vector2(x, y));
     equipment.mesh(
       machinery,
-      new T.LatheGeometry(profile, 48),
+      worldLatheUV(new T.LatheGeometry(profile, 48), profile),
       this.metal,
       [-4.7, 0.3, 8.5],
     );
@@ -938,6 +1027,8 @@ export class BunkerScene {
       new T.PlaneGeometry(w, w / 5.12),
       new T.MeshStandardMaterial({ map: texture, roughness: 1 }),
       [x, y, z],
+      [0, 0, 0],
+      false,
     );
   }
   private async loadGuards() {
@@ -1256,7 +1347,10 @@ export class BunkerScene {
       b.z,
     );
     this.camera.rotation.order = 'YXZ';
-    this.mobileLights?.update(this.camera.position);
+    const nearEmbrasure = b.z >= -12 && b.x <= 10;
+    this.embrasureSun.visible = nearEmbrasure;
+    this.embrasureSun.castShadow = this.detailShadows && nearEmbrasure;
+    this.mobileLights.update(this.camera.position, frame);
     this.camera.rotation.set(
       b.pitch + (steady ? 0 : Math.sin(b.time * 71) * b.blastShake * 0.024),
       b.yaw,
@@ -1572,6 +1666,7 @@ export class BunkerScene {
     this.grenadeCapMat.dispose();
     this.bulbGeo.dispose();
     this.bulbMat.dispose();
+    this.lampGlowMat.dispose();
     this.post?.dispose();
     this.environment.dispose();
     this.renderer.dispose();

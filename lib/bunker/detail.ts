@@ -7,10 +7,87 @@ export function worldUV(geometry: T.BufferGeometry) {
     n = geometry.getAttribute('normal'),
     uv = geometry.getAttribute('uv');
   for (let i = 0; i < p.count; i++) {
-    if (Math.abs(n.getX(i)) > 0.5) uv.setXY(i, p.getZ(i), p.getY(i));
-    else if (Math.abs(n.getY(i)) > 0.5) uv.setXY(i, p.getX(i), p.getZ(i));
+    const ax = Math.abs(n.getX(i)),
+      ay = Math.abs(n.getY(i)),
+      az = Math.abs(n.getZ(i));
+    if (ax >= ay && ax >= az) uv.setXY(i, p.getZ(i), p.getY(i));
+    else if (ay >= ax && ay >= az) uv.setXY(i, p.getX(i), p.getZ(i));
     else uv.setXY(i, p.getX(i), p.getY(i));
   }
+  uv.needsUpdate = true;
+  return geometry;
+}
+
+export function worldCylinderUV(
+  geometry: T.BufferGeometry,
+  radius: number,
+  height: number,
+) {
+  const uv = geometry.getAttribute('uv');
+  if (!uv) return geometry;
+  const circ = Math.max(0.05, 2 * Math.PI * Math.abs(radius));
+  const span = Math.max(0.05, Math.abs(height));
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * circ, uv.getY(i) * span);
+  }
+  uv.needsUpdate = true;
+  return geometry;
+}
+
+export function worldTubeUV(
+  geometry: T.BufferGeometry,
+  length: number,
+  radius: number,
+) {
+  const uv = geometry.getAttribute('uv');
+  if (!uv) return geometry;
+  const len = Math.max(0.05, length);
+  const circ = Math.max(0.05, 2 * Math.PI * Math.abs(radius));
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * len, uv.getY(i) * circ);
+  }
+  uv.needsUpdate = true;
+  return geometry;
+}
+
+export function worldLatheUV(geometry: T.BufferGeometry, profile: T.Vector2[]) {
+  const uv = geometry.getAttribute('uv');
+  if (!uv || profile.length === 0) return geometry;
+  let arcLen = 0;
+  let radiusSum = profile[0].x;
+  for (let i = 1; i < profile.length; i++) {
+    arcLen += profile[i].distanceTo(profile[i - 1]);
+    radiusSum += profile[i].x;
+  }
+  const circ = Math.max(0.05, 2 * Math.PI * (radiusSum / profile.length));
+  const span = Math.max(0.05, arcLen);
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * circ, uv.getY(i) * span);
+  }
+  uv.needsUpdate = true;
+  return geometry;
+}
+
+export function worldArchUV(
+  geometry: T.BufferGeometry,
+  spring: number,
+  radius: number,
+) {
+  const p = geometry.getAttribute('position'),
+    n = geometry.getAttribute('normal'),
+    uv = geometry.getAttribute('uv');
+  if (!p || !n || !uv) return geometry;
+  const r = Math.max(0.25, radius);
+  for (let i = 0; i < p.count; i++) {
+    const nz = Math.abs(n.getZ(i));
+    if (nz > 0.7) {
+      uv.setXY(i, p.getX(i), p.getY(i));
+    } else {
+      const theta = Math.atan2(p.getY(i) - spring, p.getX(i));
+      uv.setXY(i, theta * r, p.getZ(i));
+    }
+  }
+  uv.needsUpdate = true;
   return geometry;
 }
 
@@ -43,28 +120,40 @@ export function addBunkerDetail(
     d: number,
     m = metal,
   ) => mesh(worldUV(new T.BoxGeometry(w, h, d)), m, x, y, z);
-  const tube = (points: T.Vector3[], radius: number, m = dark) =>
-    mesh(
-      new T.TubeGeometry(new T.CatmullRomCurve3(points), 24, radius, 8, false),
+  const tube = (points: T.Vector3[], radius: number, m = dark) => {
+    const curve = new T.CatmullRomCurve3(points);
+    return mesh(
+      worldTubeUV(
+        new T.TubeGeometry(curve, 24, radius, 8, false),
+        curve.getLength(),
+        radius,
+      ),
       m,
       0,
       0,
       0,
     );
-  const grimeCanvas = document.createElement('canvas');
-  grimeCanvas.width = 256;
-  grimeCanvas.height = 512;
-  const ctx = grimeCanvas.getContext('2d')!;
-  for (let i = 0; i < 150; i++) {
-    const x = (i * 67) % 256,
-      h = 60 + ((i * 131) % 450);
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, 'rgba(20,26,18,.16)');
-    g.addColorStop(1, 'rgba(20,26,18,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x, 0, 1 + (i % 5), h);
+  };
+  let grime: T.Texture;
+  if (typeof document !== 'undefined') {
+    const grimeCanvas = document.createElement('canvas');
+    grimeCanvas.width = 256;
+    grimeCanvas.height = 512;
+    const ctx = grimeCanvas.getContext('2d')!;
+    for (let i = 0; i < 150; i++) {
+      const x = (i * 67) % 256,
+        h = 60 + ((i * 131) % 450);
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(20,26,18,.16)');
+      g.addColorStop(1, 'rgba(20,26,18,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, 0, 1 + (i % 5), h);
+    }
+    grime = new T.CanvasTexture(grimeCanvas);
+  } else {
+    grime = new T.DataTexture(new Uint8Array([20, 26, 18, 40]), 1, 1);
+    grime.needsUpdate = true;
   }
-  const grime = new T.CanvasTexture(grimeCanvas);
   const stain = new T.MeshStandardMaterial({
     map: grime,
     transparent: true,
@@ -78,8 +167,8 @@ export function addBunkerDetail(
   )) {
     const room = { x: wall.x, z: wall.z, w: wall.w, d: wall.d, h: wall.h };
     for (const side of [-1, 1]) {
-      // Water running down formwork, plus a chipped footing against the wall.
-      const x = room.x + side * (room.w / 2 + 0.008);
+      // Water running down formwork: +X faces need +PI/2, -X faces need -PI/2.
+      const x = room.x + side * (room.w / 2 + 0.012);
       const patch = mesh(
         new T.PlaneGeometry(room.d, room.h),
         stain,
@@ -87,9 +176,8 @@ export function addBunkerDetail(
         room.h / 2,
         room.z,
       );
-      patch.rotation.y = (-side * Math.PI) / 2;
+      patch.rotation.y = (side * Math.PI) / 2;
       patch.castShadow = false;
-      box(x, 0.12, room.z, 0.1, 0.24, room.d, concrete);
       for (
         let z = room.z - room.d / 2 + 0.6;
         z < room.z + room.d / 2;
@@ -99,11 +187,12 @@ export function addBunkerDetail(
           const hole = mesh(
             new T.CircleGeometry(0.026, 8),
             dark,
-            x - side * 0.006,
+            room.x + side * (room.w / 2 + 0.014),
             y,
             z,
           );
-          hole.rotation.y = (-side * Math.PI) / 2;
+          hole.rotation.y = (side * Math.PI) / 2;
+          hole.castShadow = false;
         }
       }
     }
@@ -212,7 +301,7 @@ export function addBunkerDetail(
         bolt.rotation.x = Math.PI / 2;
       }
     const trunnion = mesh(
-      new T.CylinderGeometry(0.23, 0.23, 0.18, 32),
+      worldCylinderUV(new T.CylinderGeometry(0.23, 0.23, 0.18, 32), 0.23, 0.18),
       dark,
       -4.8,
       1.65,
@@ -220,22 +309,6 @@ export function addBunkerDetail(
     );
     trunnion.rotation.x = Math.PI / 2;
   }
-  // Actual barrel vault: closed masonry ceiling instead of floating arch segments.
-  const vault = new T.CylinderGeometry(
-    1.72,
-    1.72,
-    11.9,
-    40,
-    1,
-    true,
-    0,
-    Math.PI,
-  );
-  vault.rotateZ(Math.PI / 2);
-  vault.rotateY(Math.PI / 2);
-  const vaultMat = (concrete as T.MeshStandardMaterial).clone();
-  vaultMat.side = T.DoubleSide;
-  mesh(vault, vaultMat, 0, 1.72, -4);
   // Cables droop between their mounting clips.
   for (const z of [14, 8, 3])
     tube(
@@ -249,7 +322,7 @@ export function addBunkerDetail(
   // Recoil cylinders, sliding breech rails, sight assembly and mechanical fittings.
   for (const z of [8.15, 8.85]) {
     const ram = mesh(
-      new T.CylinderGeometry(0.09, 0.09, 2.3, 24),
+      worldCylinderUV(new T.CylinderGeometry(0.09, 0.09, 2.3, 24), 0.09, 2.3),
       metal,
       -4.85,
       1.95,
@@ -257,7 +330,11 @@ export function addBunkerDetail(
     );
     ram.rotation.z = Math.PI / 2;
     const rod = mesh(
-      new T.CylinderGeometry(0.045, 0.045, 1.3, 20),
+      worldCylinderUV(
+        new T.CylinderGeometry(0.045, 0.045, 1.3, 20),
+        0.045,
+        1.3,
+      ),
       brass,
       -3.95,
       1.95,
@@ -385,7 +462,8 @@ export function addWeaponDetail(
   ) => {
     const o = new T.Mesh(g, m);
     o.position.set(x, y, z);
-    o.castShadow = o.receiveShadow = true;
+    o.castShadow = false;
+    o.receiveShadow = true;
     weapon.add(o);
     return o;
   };
