@@ -18,7 +18,10 @@ import {
   projectilePoint,
 } from './weapons';
 import { TOUCH_LAYOUT_QUERY } from '../touch-input';
-import type { AirBattle, AirEvent, Vec3 } from './types';
+import type { AirBattle, AirEvent, AirTarget, Vec3 } from './types';
+
+const WATER_KINDS = new Set(['craft', 'carrier', 'command']);
+const FRAME_RING_CAPACITY = 10000;
 
 export class AirScene {
   static live = 0;
@@ -47,6 +50,7 @@ export class AirScene {
   private observer: ResizeObserver;
   private width = 1;
   private height = 1;
+  onResize?: () => void;
   private touch = window.matchMedia(TOUCH_LAYOUT_QUERY);
   private disposed = false;
   private smokeTime = 0;
@@ -54,7 +58,18 @@ export class AirScene {
   private predictTime = -1;
   gun: Vec3 | null = null;
   bomb: Vec3 | null = null;
-  private frames: number[] = [];
+  private frames = new Float64Array(FRAME_RING_CAPACITY);
+  private frameWrite = 0;
+  private frameCount = 0;
+  private boats: AirTarget[] = [];
+  private liveTargetIds = new Set<string>();
+  private oceanShips: Array<{
+    x: number;
+    z: number;
+    heading: number;
+    length: number;
+    health: number;
+  }> = [];
   private lastCalls = 0;
   private maxCalls = 0;
   private maxEffects = 0;
@@ -140,6 +155,7 @@ export class AirScene {
     this.renderer.setSize(this.width, this.height);
     this.post?.setSize(this.width, this.height);
     this.predictTime = -1;
+    this.onResize?.();
   }
   event(e: AirEvent) {
     this.effects.event(e);
@@ -161,8 +177,9 @@ export class AirScene {
     const active = b.status === 'playing' ? dt : 0,
       f = b.aircraft;
     if (active && frameMs) {
-      this.frames.push(frameMs);
-      if (this.frames.length > 10000) this.frames.shift();
+      this.frames[this.frameWrite] = frameMs;
+      this.frameWrite = (this.frameWrite + 1) % FRAME_RING_CAPACITY;
+      if (this.frameCount < FRAME_RING_CAPACITY) this.frameCount++;
     }
     this.shake = Math.max(0, this.shake - active * 2);
     this.smokeTime += active;
@@ -184,24 +201,41 @@ export class AirScene {
     this.camera.rotateZ(
       reduced ? 0 : Math.sin(b.time * 61) * this.shake * 0.014,
     );
-    const boats = b.targets
-      .filter(
-        (t) => t.active && ['craft', 'carrier', 'command'].includes(t.kind),
-      )
-      .sort(
-        (a, c) =>
-          Math.hypot(a.position.x - f.position.x, a.position.z - f.position.z) -
-          Math.hypot(c.position.x - f.position.x, c.position.z - f.position.z),
-      )
-      .slice(0, 3);
+    this.boats.length = 0;
+    for (let i = 0; i < b.targets.length; i++) {
+      const t = b.targets[i];
+      if (t.active && WATER_KINDS.has(t.kind)) this.boats.push(t);
+    }
+    this.boats.sort(
+      (a, c) =>
+        Math.hypot(a.position.x - f.position.x, a.position.z - f.position.z) -
+        Math.hypot(c.position.x - f.position.x, c.position.z - f.position.z),
+    );
+    const boatCount = Math.min(3, this.boats.length);
+    this.oceanShips.length = boatCount;
+    for (let i = 0; i < boatCount; i++) {
+      const t = this.boats[i];
+      const len = t.kind === 'command' ? 124 : t.half.x * 2;
+      let ship = this.oceanShips[i];
+      if (!ship) {
+        ship = {
+          x: t.position.x,
+          z: t.position.z,
+          heading: t.heading,
+          length: len,
+          health: t.health,
+        };
+        this.oceanShips[i] = ship;
+      } else {
+        ship.x = t.position.x;
+        ship.z = t.position.z;
+        ship.heading = t.heading;
+        ship.length = len;
+        ship.health = t.health;
+      }
+    }
     this.ocean.update(b.time, {
-      ships: boats.map((t) => ({
-        x: t.position.x,
-        z: t.position.z,
-        heading: t.heading,
-        length: t.kind === 'command' ? 124 : t.half.x * 2,
-        health: t.health,
-      })),
+      ships: this.oceanShips,
     });
     this.sky.material.uniforms.time.value = b.time;
     this.atmosphere.update(b.time);
@@ -209,9 +243,13 @@ export class AirScene {
     const aheadX = f.position.x + Math.sin(f.heading) * 220;
     const aheadZ = f.position.z - Math.cos(f.heading) * 220;
     snapDirectionalShadow(this.sun, aheadX, 0, aheadZ, 800);
-    const live = new Set(b.targets.filter((t) => t.active).map((t) => t.id));
+    this.liveTargetIds.clear();
+    for (let i = 0; i < b.targets.length; i++) {
+      const t = b.targets[i];
+      if (t.active) this.liveTargetIds.add(t.id);
+    }
     for (const [id, m] of this.targets)
-      if (!live.has(id)) m.root.visible = false;
+      if (!this.liveTargetIds.has(id)) m.root.visible = false;
     for (const t of b.targets) {
       if (!t.active) continue;
       let model = this.targets.get(t.id);
@@ -226,7 +264,7 @@ export class AirScene {
         ),
         dead = t.health <= 0,
         age = t.destroyedAt === null ? 0 : b.time - t.destroyedAt;
-      const water = ['craft', 'carrier', 'command'].includes(t.kind);
+      const water = WATER_KINDS.has(t.kind);
       model.root.visible = range < 2200 && (!dead || !water || age < 24);
       model.detail.visible = range < 800;
       model.root.position.copy(t.position);
@@ -249,10 +287,8 @@ export class AirScene {
                 ? '#657047'
                 : '#687263',
       );
-      const ramp = model.root.getObjectByName('ramp');
-      if (ramp) ramp.rotation.x = t.velocity.x === 0 ? -0.75 : -0.15;
-      const wake = model.root.getObjectByName('wake');
-      if (wake) wake.visible = !dead && t.velocity.x !== 0;
+      if (model.ramp)
+        model.ramp.rotation.x = t.velocity.x === 0 ? -0.75 : -0.15;
       if (
         active &&
         this.smokeTime >= 0.32 &&
@@ -364,7 +400,11 @@ export class AirScene {
     this.maxEffects = Math.max(this.maxEffects, this.effects.count);
   }
   diagnostics() {
-    const sorted = [...this.frames].sort((a, b) => a - b);
+    const sorted = Array.from(
+      this.frameCount === FRAME_RING_CAPACITY
+        ? this.frames
+        : this.frames.subarray(0, this.frameCount),
+    ).sort((a, b) => a - b);
     return {
       frames: sorted.length,
       p50: sorted[Math.floor(sorted.length * 0.5)] ?? 0,
@@ -385,7 +425,8 @@ export class AirScene {
     this.bombs.count = 0;
     this.predictTime = -1;
     this.smokeTime = this.shake = 0;
-    this.frames = [];
+    this.frameWrite = 0;
+    this.frameCount = 0;
     this.maxCalls = this.maxEffects = 0;
     this.targets.forEach((t) => (t.root.visible = false));
   }
@@ -404,6 +445,9 @@ export class AirScene {
     this.splashes.dispose();
     this.ocean.dispose();
     this.environment.dispose();
+    this.scene.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh) o.dispose();
+    });
     this.sky.geometry.dispose();
     this.sky.material.dispose();
     this.atmosphere.dispose();

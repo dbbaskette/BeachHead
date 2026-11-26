@@ -18,25 +18,39 @@ export function BunkerFinaleView({
 }) {
   const { reducedMotion } = useSettings();
   const reducedRef = useRef(reducedMotion);
-  useEffect(() => {
-    reducedRef.current = reducedMotion;
-  }, [reducedMotion]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const callbacks = useRef({ onComplete, onBlast, onPause });
   useEffect(() => {
     callbacks.current = { onComplete, onBlast, onPause };
   }, [onComplete, onBlast, onPause]);
   const paused = useRef(false);
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
   const [isPaused, setPaused] = useState(false);
   const [caption, setCaption] = useState('Back on the landing beach');
   const toggle = (value: boolean) => {
     paused.current = value;
     setPaused(value);
     callbacks.current.onPause(value);
+    if (!value) wakeRef.current();
   };
+  useEffect(() => {
+    reducedRef.current = reducedMotion;
+    redrawRef.current();
+  }, [reducedMotion]);
   useEffect(() => {
     const film = new BunkerFinale();
     const element = canvas.current;
+    let raf = 0,
+      last = 0,
+      time = 0,
+      disposed = false,
+      blast = false,
+      completed = false;
+    const redraw = () => {
+      if (disposed || !canvas.current || raf) return;
+      film.render(canvas.current, time, reducedRef.current);
+    };
     const resize = () => {
       if (!element) return;
       const host = element.parentElement ?? element;
@@ -48,6 +62,7 @@ export function BunkerFinaleView({
       if (element.width !== width || element.height !== height) {
         element.width = width;
         element.height = height;
+        redraw();
       }
     };
     const observer = element ? new ResizeObserver(resize) : undefined;
@@ -55,11 +70,6 @@ export function BunkerFinaleView({
       observer?.observe(element.parentElement ?? element);
       resize();
     }
-    let raf = 0,
-      last = 0,
-      time = 0,
-      disposed = false,
-      blast = false;
     const visibility = () => {
       if (document.hidden) toggle(true);
     };
@@ -75,7 +85,7 @@ export function BunkerFinaleView({
     window.addEventListener('keydown', key);
     const tick = (stamp: number) => {
       if (disposed || !canvas.current) return;
-      const dt = Math.min(0.05, (stamp - (last || stamp)) / 1000);
+      const dt = last ? Math.min(0.05, (stamp - last) / 1000) : 0;
       last = stamp;
       if (!paused.current) time += dt;
       if (time >= DETONATION_TIME && !blast) {
@@ -85,16 +95,31 @@ export function BunkerFinaleView({
       }
       film.render(canvas.current, time, reducedRef.current);
       if (time >= FINALE_DURATION) {
+        completed = true;
+        raf = 0;
         callbacks.current.onComplete();
         return;
       }
+      if (!paused.current) raf = requestAnimationFrame(tick);
+      else {
+        raf = 0;
+        last = 0;
+      }
+    };
+    const wake = () => {
+      if (disposed || raf || completed || paused.current) return;
+      last = 0;
       raf = requestAnimationFrame(tick);
     };
+    wakeRef.current = wake;
+    redrawRef.current = redraw;
     // Decoding happens during the establishing shot; slow or missing images cannot stall victory.
     raf = requestAnimationFrame(tick);
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       observer?.disconnect();
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('blur', blur);

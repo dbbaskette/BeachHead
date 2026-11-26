@@ -37,15 +37,18 @@ export function beachHeight(x: number, z: number): number {
   return height + terrainRelief(x, z) + foxholeDepth(x, z);
 }
 
+const RELIEF_DUNES = [
+  [-30, -91, 15, 7, 2.5],
+  [29, -78, 14, 8, 2.8],
+  [-24, -48, 13, 7, 1.6],
+  [33, -35, 11, 8, 1.1],
+] as const;
+
 /** Long low dunes and drainage channels leave readable gaps through the beach. */
 export function terrainRelief(x: number, z: number) {
   let h = 0;
-  for (const [cx, cz, w, d, high] of [
-    [-30, -91, 15, 7, 2.5],
-    [29, -78, 14, 8, 2.8],
-    [-24, -48, 13, 7, 1.6],
-    [33, -35, 11, 8, 1.1],
-  ]) {
+  for (let i = 0; i < RELIEF_DUNES.length; i++) {
+    const [cx, cz, w, d, high] = RELIEF_DUNES[i];
     h +=
       high * Math.exp(-Math.pow((x - cx) / w, 2) - Math.pow((z - cz) / d, 2));
   }

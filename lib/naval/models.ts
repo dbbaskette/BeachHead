@@ -520,10 +520,9 @@ export function makeIsland(
 ) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
-  const geo = new THREE.PlaneGeometry(radius * 2, radius * 2, 180, 180);
+  const geo = new THREE.PlaneGeometry(radius * 2, radius * 2, 64, 64);
   geo.rotateX(-Math.PI / 2);
-  const p = geo.attributes.position,
-    colors = [];
+  const p = geo.attributes.position;
   const hash = (ix: number, iz: number) => {
     const n = Math.sin(ix * 127.1 + iz * 311.7 + seed * 74.7) * 43758.5453;
     return n - Math.floor(n);
@@ -560,35 +559,37 @@ export function makeIsland(
     return Math.max(-5, envelope * height * (0.5 + detail) - 4);
   };
   for (let i = 0; i < p.count; i++) {
+    p.setY(i, heightAt(p.getX(i), p.getZ(i)));
+  }
+  geo.computeVertexNormals();
+  const norm = geo.attributes.normal;
+  const colors = new Float32Array(p.count * 3);
+  const grassLow = new THREE.Color('#3c513d');
+  const grassHigh = new THREE.Color('#6a7059');
+  const rockColor = new THREE.Color('#77776b');
+  const sandColor = new THREE.Color('#a5a081');
+  const c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
     const px = p.getX(i),
-      pz = p.getZ(i),
-      h = heightAt(px, pz);
-    p.setY(i, h);
-    const dx = (heightAt(px + 3, pz) - heightAt(px - 3, pz)) / 6;
-    const dz = (heightAt(px, pz + 3) - heightAt(px, pz - 3)) / 6;
-    const slope = Math.hypot(dx, dz);
+      h = p.getY(i),
+      pz = p.getZ(i);
+    const ny = Math.max(0.05, norm.getY(i));
+    const slope = Math.hypot(norm.getX(i), norm.getZ(i)) / ny;
     const variation =
       0.5 +
       0.25 * Math.sin(px * 0.025 + Math.sin(pz * 0.014) * 2) +
       0.25 * Math.cos(pz * 0.032 + Math.sin(px * 0.009) * 2);
     // Blend vegetation, exposed rock and shoreline continuously instead of colour bands.
-    const c = new THREE.Color('#3c513d').lerp(
-      new THREE.Color('#6a7059'),
-      variation * 0.65,
-    );
-    c.lerp(
-      new THREE.Color('#77776b'),
-      THREE.MathUtils.smoothstep(slope, 0.2, 0.65),
-    );
-    c.lerp(
-      new THREE.Color('#a5a081'),
-      1 - THREE.MathUtils.smoothstep(h, 2, 13),
-    );
+    c.copy(grassLow).lerp(grassHigh, variation * 0.65);
+    c.lerp(rockColor, THREE.MathUtils.smoothstep(slope, 0.2, 0.65));
+    c.lerp(sandColor, 1 - THREE.MathUtils.smoothstep(h, 2, 13));
     c.multiplyScalar(0.88 + variation * 0.17);
-    colors.push(c.r, c.g, c.b);
+    const o = i * 3;
+    colors[o] = c.r;
+    colors[o + 1] = c.g;
+    colors[o + 2] = c.b;
   }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.computeVertexNormals();
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const terrain = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97 }),

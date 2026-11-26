@@ -32,7 +32,7 @@ export function makeOcean(options: OceanOptions = {}) {
   const ownsNormal = !options.normalMap;
   const normal =
     options.normalMap ??
-    new THREE.TextureLoader().load(assetUrl('/textures/water-normal.jpg'));
+    new THREE.TextureLoader().load(assetUrl('/textures/water-normal.webp'));
   normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
   normal.anisotropy = 8;
 

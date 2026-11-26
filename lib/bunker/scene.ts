@@ -252,6 +252,7 @@ export class BunkerScene {
   private signMat: T.MeshStandardMaterial;
   private pvsEntries: Array<{ object: T.Object3D; rooms: number[] }> = [];
   private disposed = false;
+  onResize?: () => void;
   private environment: T.WebGLRenderTarget;
   private resources = new Set<T.Texture>();
   private detailShadows = false;
@@ -360,16 +361,20 @@ export class BunkerScene {
       this.resources.add(tex);
       return tex;
     };
-    this.wood.map = loadPot('deck-color.jpg', 0.75, true);
-    this.wood.normalMap = loadPot('deck-normal.jpg', 0.75);
-    this.wood.roughnessMap = loadPot('deck-roughness.jpg', 0.75);
+    this.wood.map = loadPot('deck-color.webp', 0.75, true);
+    this.wood.normalMap = loadPot('deck-normal.webp', 0.75);
+    this.wood.roughnessMap = loadPot('deck-roughness.webp', 0.75);
     this.wood.normalScale.set(0.45, 0.45);
     this.wood.color.set('#b9a184');
     this.wood.roughness = 0.92;
 
-    const concreteDiffuse = loadPot('pillbox-concrete-diffuse.jpg', 0.55, true);
-    const concreteNormal = loadPot('pillbox-concrete-normal.jpg', 0.55);
-    const concreteRoughness = loadPot('pillbox-concrete-roughness.jpg', 0.55);
+    const concreteDiffuse = loadPot(
+      'pillbox-concrete-diffuse.webp',
+      0.55,
+      true,
+    );
+    const concreteNormal = loadPot('pillbox-concrete-normal.webp', 0.55);
+    const concreteRoughness = loadPot('pillbox-concrete-roughness.webp', 0.55);
     const concrete = new T.MeshStandardMaterial({
       map: concreteDiffuse,
       normalMap: concreteNormal,
@@ -474,7 +479,7 @@ export class BunkerScene {
       metalness: 0.35,
     });
     const waterNormal = new T.TextureLoader().load(
-      assetUrl('/textures/water-normal.jpg'),
+      assetUrl('/textures/water-normal.webp'),
     );
     waterNormal.wrapS = waterNormal.wrapT = T.RepeatWrapping;
     waterNormal.repeat.set(45, 45);
@@ -847,6 +852,7 @@ export class BunkerScene {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(host.clientWidth, host.clientHeight);
       this.post?.setSize(host.clientWidth, host.clientHeight);
+      this.onResize?.();
     };
     this.observer = new ResizeObserver(resize);
     this.observer.observe(host);
@@ -1577,10 +1583,13 @@ export class BunkerScene {
       const a = this.guards[i];
       if (!a) return;
       const inPvs = vis.has(roomIndexAt(g.x, g.z));
+      const motionSettled = a.ragdoll
+        ? a.ragdoll.sleeping
+        : a.motion
+          ? a.motion.settled
+          : g.down >= 1;
       const needsSettle =
-        g.health <= 0 &&
-        (!a.dropped?.settled ||
-          (a.ragdoll ? !a.ragdoll.sleeping : g.down < 2.6));
+        g.health <= 0 && (!a.dropped?.settled || !motionSettled);
       if (!inPvs && !needsSettle) {
         a.root.visible = false;
         if (a.dropped) a.rifle.visible = false;

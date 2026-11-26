@@ -100,6 +100,7 @@ type BloodDrop = {
   r: number;
   g: number;
   b: number;
+  settled?: boolean;
 };
 
 type BloodStain = {
@@ -128,6 +129,7 @@ type HelmetPiece = {
   svz: number;
   age: number;
   life: number;
+  settled?: boolean;
 };
 
 const MAX_FLASHES = 48;
@@ -291,6 +293,12 @@ export class PillboxScene {
   private geometries: THREE.BufferGeometry[] = [];
   private disposed = false;
   private environment: THREE.WebGLRenderTarget | null = null;
+  private cachedRect = { left: 0, top: 0, width: 1, height: 1 };
+  private aimNdc = new THREE.Vector2();
+  private aimWorld = new THREE.Vector3();
+  private projectVec = new THREE.Vector3();
+  private handleScroll = () => this.updateRect();
+  onResize?: () => void;
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -397,66 +405,19 @@ export class PillboxScene {
     this.camera.lookAt(0, 0, -48);
 
     const random = seeded(1944);
-    const sandMap = canvasTexture((ctx) => {
-      ctx.fillStyle = '#bba77b';
-      ctx.fillRect(0, 0, 512, 512);
-      for (let i = 0; i < 15000; i++) {
-        const v = 105 + Math.floor(random() * 90);
-        ctx.fillStyle = `rgba(${v + 20},${v + 9},${v - 12},${0.05 + random() * 0.15})`;
-        ctx.fillRect(
-          random() * 512,
-          random() * 512,
-          1 + random() * 3,
-          1 + random() * 2,
-        );
-      }
-      for (let y = 20; y < 512; y += 45) {
-        ctx.strokeStyle = 'rgba(80,70,45,.13)';
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.bezierCurveTo(130, y - 12, 340, y + 15, 512, y - 2);
-        ctx.stroke();
-      }
-    });
-    sandMap.repeat.set(12, 32);
-    const concreteMap = canvasTexture((ctx) => {
-      ctx.fillStyle = '#77776b';
-      ctx.fillRect(0, 0, 512, 512);
-      for (let i = 0; i < 9000; i++) {
-        const v = 70 + random() * 90;
-        ctx.fillStyle = `rgba(${v},${v},${v - 5},.18)`;
-        ctx.fillRect(
-          random() * 512,
-          random() * 512,
-          2 + random() * 7,
-          1 + random() * 3,
-        );
-      }
-      ctx.strokeStyle = 'rgba(42,44,39,.45)';
-      ctx.lineWidth = 4;
-      ctx.moveTo(330, 0);
-      ctx.lineTo(315, 205);
-      ctx.lineTo(354, 350);
-      ctx.stroke();
-    });
-    concreteMap.repeat.set(3, 2);
-    this.textures.push(sandMap, concreteMap);
     const material = (p: THREE.MeshStandardMaterialParameters) => {
       const m = new THREE.MeshStandardMaterial(p);
       this.materials.push(m);
       return m;
     };
-    // Keep the map's authored hue: tinting it tan again produced a burnt orange beach.
-    const sand = material({ color: '#eee9da', map: sandMap, roughness: 1 });
+    const sand = material({ color: '#eee9da', roughness: 1 });
     naturalSand(sand);
     const concrete = material({
       color: '#8b8a78',
-      map: concreteMap,
       roughness: 0.95,
     });
     const concreteDark = material({
       color: '#3b3e37',
-      map: concreteMap,
       roughness: 1,
     });
     const fabricMap = canvasTexture((ctx) => {
@@ -495,17 +456,39 @@ export class PillboxScene {
     });
     const steelMaps = proceduralSteelPbr();
     const woodGrainMap = canvasTexture((ctx) => {
-      ctx.fillStyle = '#755338';
-      ctx.fillRect(0, 0, 512, 512);
+      const img = ctx.createImageData(512, 512);
+      const data = img.data;
       for (let y = 0; y < 512; y++) {
         const g = Math.sin(y * 0.14 + Math.sin(y * 0.03) * 3) * 14;
-        ctx.fillStyle = `rgb(${Math.round(115 + g)},${Math.round(80 + g * 0.7)},${Math.round(52 + g * 0.45)})`;
-        ctx.fillRect(0, y, 512, 1);
+        const r = Math.round(115 + g);
+        const cg = Math.round(80 + g * 0.7);
+        const b = Math.round(52 + g * 0.45);
+        for (let x = 0; x < 512; x++) {
+          const o = (y * 512 + x) * 4;
+          data[o] = r;
+          data[o + 1] = cg;
+          data[o + 2] = b;
+          data[o + 3] = 255;
+        }
       }
       for (let i = 0; i < 4500; i++) {
-        ctx.fillStyle = i % 2 ? 'rgba(30,18,10,.12)' : 'rgba(180,140,100,.08)';
-        ctx.fillRect(random() * 512, random() * 512, 12 + random() * 48, 1);
+        const x0 = Math.max(0, Math.floor(random() * 512));
+        const py = Math.min(511, Math.floor(random() * 512));
+        const x1 = Math.min(512, Math.ceil(x0 + 12 + random() * 48));
+        const dark = i % 2 !== 0;
+        const alpha = dark ? 0.12 : 0.08;
+        const inv = 1 - alpha;
+        const sr = dark ? 30 : 180;
+        const sg = dark ? 18 : 140;
+        const sb = dark ? 10 : 100;
+        for (let px = x0; px < x1; px++) {
+          const o = (py * 512 + px) * 4;
+          data[o] = Math.round(data[o] * inv + sr * alpha);
+          data[o + 1] = Math.round(data[o + 1] * inv + sg * alpha);
+          data[o + 2] = Math.round(data[o + 2] * inv + sb * alpha);
+        }
       }
+      ctx.putImageData(img, 0, 0);
     });
     this.textures.push(
       steelMaps.map,
@@ -573,17 +556,35 @@ export class PillboxScene {
     this.scene.add(sandbags);
 
     const hullMap = canvasTexture((ctx) => {
-      ctx.fillStyle = '#abb1a8';
-      ctx.fillRect(0, 0, 512, 512);
-      for (let i = 0; i < 7000; i++) {
-        ctx.fillStyle = `rgba(59,48,35,${0.04 + random() * 0.16})`;
-        ctx.fillRect(
-          random() * 512,
-          random() * 512,
-          1 + random() * 3,
-          2 + random() * 16,
-        );
+      const img = ctx.createImageData(512, 512);
+      const data = img.data;
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = 0xab;
+        data[i + 1] = 0xb1;
+        data[i + 2] = 0xa8;
+        data[i + 3] = 255;
       }
+      for (let i = 0; i < 7000; i++) {
+        const x = random() * 512;
+        const y = random() * 512;
+        const w = 1 + random() * 3;
+        const h = 2 + random() * 16;
+        const alpha = 0.04 + random() * 0.16;
+        const inv = 1 - alpha;
+        const x0 = Math.max(0, Math.floor(x));
+        const y0 = Math.max(0, Math.floor(y));
+        const x1 = Math.min(512, Math.ceil(x + w));
+        const y1 = Math.min(512, Math.ceil(y + h));
+        for (let py = y0; py < y1; py++) {
+          for (let px = x0; px < x1; px++) {
+            const o = (py * 512 + px) * 4;
+            data[o] = Math.round(data[o] * inv + 59 * alpha);
+            data[o + 1] = Math.round(data[o + 1] * inv + 48 * alpha);
+            data[o + 2] = Math.round(data[o + 2] * inv + 35 * alpha);
+          }
+        }
+      }
+      ctx.putImageData(img, 0, 0);
       for (let y = 0; y < 512; y += 128) {
         ctx.fillStyle = 'rgba(24,31,29,.35)';
         ctx.fillRect(0, y, 512, 2);
@@ -690,7 +691,26 @@ export class PillboxScene {
 
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
+    window.addEventListener('scroll', this.handleScroll, { passive: true });
     this.resize();
+  }
+
+  private updateRect() {
+    if (this.disposed) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      this.cachedRect = {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+  }
+
+  getRect() {
+    if (this.cachedRect.width <= 1) this.updateRect();
+    return this.cachedRect;
   }
 
   private makeBeachDetails(
@@ -792,6 +812,11 @@ export class PillboxScene {
     wood: THREE.Material,
     brass: THREE.Material,
   ) {
+    const temps: THREE.BufferGeometry[] = [];
+    const temp = <T extends THREE.BufferGeometry>(g: T) => {
+      temps.push(g);
+      return g;
+    };
     this.gun.position.set(0, 3.1, 3.7);
     this.gun.add(this.gunCradle);
     this.gunCradle.add(
@@ -804,20 +829,20 @@ export class PillboxScene {
     );
     this.barrel.add(
       mesh(
-        geo(new RoundedBoxGeometry(1.45, 1.1, 3.5, 3, 0.08)),
+        temp(new RoundedBoxGeometry(1.45, 1.1, 3.5, 3, 0.08)),
         steel,
         [0, 0.45, -1],
       ),
-      mesh(geo(new THREE.BoxGeometry(0.75, 0.45, 2.1)), wood, [0, 0.15, 1.65]),
+      mesh(temp(new THREE.BoxGeometry(0.75, 0.45, 2.1)), wood, [0, 0.15, 1.65]),
       mesh(
-        geo(new THREE.CylinderGeometry(0.16, 0.2, 9.5, 32)),
+        temp(new THREE.CylinderGeometry(0.16, 0.2, 9.5, 32)),
         steel,
         [0, 0.5, -7],
         [Math.PI / 2, 0, 0],
       ),
     );
     const shroud = mesh(
-      geo(new THREE.CylinderGeometry(0.34, 0.34, 4.8, 32)),
+      temp(new THREE.CylinderGeometry(0.34, 0.34, 4.8, 32)),
       steel,
       [0, 0.5, -4.35],
       [Math.PI / 2, 0, 0],
@@ -848,64 +873,64 @@ export class PillboxScene {
     this.materials.push(inset, hardware);
     this.barrel.add(
       mesh(
-        geo(new RoundedBoxGeometry(1.31, 0.1, 2.95, 2, 0.035)),
+        temp(new RoundedBoxGeometry(1.31, 0.1, 2.95, 2, 0.035)),
         hardware,
         [0, 1.045, -0.9],
       ),
       mesh(
-        geo(new THREE.BoxGeometry(0.035, 0.26, 1.2)),
+        temp(new THREE.BoxGeometry(0.035, 0.26, 1.2)),
         inset,
         [0.735, 0.5, -0.9],
       ),
       mesh(
-        geo(new THREE.CylinderGeometry(0.075, 0.075, 0.65, 16)),
+        temp(new THREE.CylinderGeometry(0.075, 0.075, 0.65, 16)),
         hardware,
         [0.98, 0.47, 0.12],
         [0, 0, Math.PI / 2],
       ),
       mesh(
-        geo(new THREE.CylinderGeometry(0.12, 0.12, 0.38, 16)),
+        temp(new THREE.CylinderGeometry(0.12, 0.12, 0.38, 16)),
         inset,
         [1.25, 0.42, 0.12],
       ),
       mesh(
-        geo(new THREE.BoxGeometry(0.16, 0.52, 0.18)),
+        temp(new THREE.BoxGeometry(0.16, 0.52, 0.18)),
         steel,
         [0, 1.26, -2.35],
       ),
       mesh(
-        geo(new THREE.TorusGeometry(0.19, 0.036, 8, 24)),
+        temp(new THREE.TorusGeometry(0.19, 0.036, 8, 24)),
         hardware,
         [0, 1.56, -2.35],
       ),
       mesh(
-        geo(new THREE.BoxGeometry(0.07, 0.55, 0.12)),
+        temp(new THREE.BoxGeometry(0.07, 0.55, 0.12)),
         hardware,
         [0, 0.92, -10.9],
       ),
       mesh(
-        geo(new THREE.RingGeometry(0.095, 0.19, 24)),
+        temp(new THREE.RingGeometry(0.095, 0.19, 24)),
         hardware,
         [0, 0.5, -11.77],
         [0, Math.PI, 0],
       ),
       mesh(
-        geo(new THREE.CircleGeometry(0.094, 24)),
+        temp(new THREE.CircleGeometry(0.094, 24)),
         inset,
         [0, 0.5, -11.78],
         [0, Math.PI, 0],
       ),
     );
-    const screwGeometry = geo(
+    const screwGeometry = temp(
       new THREE.CylinderGeometry(0.046, 0.046, 0.025, 12),
     );
-    const slotGeometry = geo(new THREE.BoxGeometry(0.052, 0.006, 0.008));
+    const slotGeometry = temp(new THREE.BoxGeometry(0.052, 0.006, 0.008));
     for (const x of [-0.54, 0.54])
       for (const z of [-2.12, -1.4, -0.65, 0.32]) {
         this.barrel.add(mesh(screwGeometry, inset, [x, 1.11, z]));
         this.barrel.add(mesh(slotGeometry, hardware, [x, 1.126, z]));
       }
-    const ventGeometry = geo(new THREE.CircleGeometry(0.105, 14));
+    const ventGeometry = temp(new THREE.CircleGeometry(0.105, 14));
     for (let i = 0; i < 11; i++)
       for (const side of [-1, 1])
         this.barrel.add(
@@ -918,7 +943,7 @@ export class PillboxScene {
         );
     for (const z of [-6.8, -9.8])
       this.barrel.add(
-        mesh(geo(new THREE.TorusGeometry(0.205, 0.025, 8, 24)), hardware, [
+        mesh(temp(new THREE.TorusGeometry(0.205, 0.025, 8, 24)), hardware, [
           0,
           0.5,
           z,
@@ -944,7 +969,7 @@ export class PillboxScene {
     this.materials.push(markingMaterial);
     this.barrel.add(
       mesh(
-        geo(new THREE.PlaneGeometry(1.1, 1.1)),
+        temp(new THREE.PlaneGeometry(1.1, 1.1)),
         markingMaterial,
         [0, 1.106, -0.85],
         [-Math.PI / 2, 0, 0],
@@ -952,7 +977,7 @@ export class PillboxScene {
     );
     for (let i = 0; i < 6; i++)
       this.barrel.add(
-        mesh(geo(new THREE.BoxGeometry(0.5, 0.06, 0.22)), steel, [
+        mesh(temp(new THREE.BoxGeometry(0.5, 0.06, 0.22)), steel, [
           0,
           0.82,
           -2.7 - i * 0.62,
@@ -1003,6 +1028,7 @@ export class PillboxScene {
       originals.push(object);
     });
     originals.forEach((object) => object.removeFromParent());
+    temps.forEach((g) => g.dispose());
     for (const [mat, geometries] of batches) {
       const geometry = mergeGeometries(geometries);
       geometries.forEach((g) => g.dispose());
@@ -1061,31 +1087,38 @@ export class PillboxScene {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height, false);
     this.post?.setSize(this.width, this.height);
+    this.updateRect();
+    this.onResize?.();
   }
 
   aim(clientX: number, clientY: number): { x: number; z: number } | null {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
+    const rect = this.getRect();
+    this.aimNdc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.setFromCamera(this.aimNdc, this.camera);
     const craft = this.landingCraft.pick(this.raycaster);
     if (craft) return craft;
     const vehicle = this.vehicles.pick(this.raycaster);
     if (vehicle) return vehicle;
     const soldier = this.infantry.pick(this.raycaster);
     if (soldier) return soldier;
-    const hit = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.aimPlane, hit)) return null;
-    if (hit.z > -9 || hit.z < -215 || Math.abs(hit.x) > 70) return null;
-    return { x: hit.x, z: hit.z };
+    if (!this.raycaster.ray.intersectPlane(this.aimPlane, this.aimWorld))
+      return null;
+    if (
+      this.aimWorld.z > -9 ||
+      this.aimWorld.z < -215 ||
+      Math.abs(this.aimWorld.x) > 70
+    )
+      return null;
+    return { x: this.aimWorld.x, z: this.aimWorld.z };
   }
 
   project(x: number, z: number): PillboxScreenPoint {
-    const p = new THREE.Vector3(x, beachHeight(x, z) + 1, z).project(
-      this.camera,
-    );
+    const p = this.projectVec
+      .set(x, beachHeight(x, z) + 1, z)
+      .project(this.camera);
     return {
       x: (p.x * 0.5 + 0.5) * this.width,
       y: (-p.y * 0.5 + 0.5) * this.height,
@@ -1345,7 +1378,7 @@ export class PillboxScene {
       0,
       this.muzzleLight.intensity - activeDt * 420,
     );
-    const target = new THREE.Vector3(battle.aimX, 1, battle.aimZ);
+    const target = this.scratchVec.set(battle.aimX, 1, battle.aimZ);
     this.gunCradle.rotation.y = Math.atan2(-target.x, -target.z);
     this.barrel.rotation.x = -Math.atan2(
       target.y - 3.6,
@@ -1472,21 +1505,24 @@ export class PillboxScene {
       const drop = this.bloodDrops[i];
       drop.age += activeDt;
       if (drop.age >= drop.life) continue;
-      drop.x += drop.vx * activeDt;
-      drop.y += drop.vy * activeDt;
-      drop.z += drop.vz * activeDt;
-      drop.vy -= activeDt * 9.8;
-      const ground = beachHeight(drop.x, drop.z) + 0.08;
-      if (drop.y < ground) {
-        drop.y = ground;
-        if (drop.vy < -1) {
-          drop.vy *= -0.25;
-          drop.vx *= 0.45;
-          drop.vz *= 0.45;
-        } else {
-          drop.vx = 0;
-          drop.vy = 0;
-          drop.vz = 0;
+      if (!drop.settled) {
+        drop.x += drop.vx * activeDt;
+        drop.y += drop.vy * activeDt;
+        drop.z += drop.vz * activeDt;
+        drop.vy -= activeDt * 9.8;
+        const ground = beachHeight(drop.x, drop.z) + 0.08;
+        if (drop.y < ground) {
+          drop.y = ground;
+          if (drop.vy < -1) {
+            drop.vy *= -0.25;
+            drop.vx *= 0.45;
+            drop.vz *= 0.45;
+          } else {
+            drop.vx = 0;
+            drop.vy = 0;
+            drop.vz = 0;
+            drop.settled = true;
+          }
         }
       }
       const u = drop.age / drop.life;
@@ -1541,30 +1577,33 @@ export class PillboxScene {
       const h = this.helmets[i];
       h.age += activeDt;
       if (h.age >= h.life) continue;
-      h.x += h.vx * activeDt;
-      h.y += h.vy * activeDt;
-      h.z += h.vz * activeDt;
-      h.vy -= activeDt * 9.8;
-      h.rx += h.svx * activeDt;
-      h.ry += h.svy * activeDt;
-      h.rz += h.svz * activeDt;
-      const ground = beachHeight(h.x, h.z) + 0.12;
-      if (h.y < ground) {
-        h.y = ground;
-        if (h.vy < -1) {
-          h.vy *= -0.28;
-          h.vx *= 0.5;
-          h.vz *= 0.5;
-          h.svx *= 0.45;
-          h.svy *= 0.45;
-          h.svz *= 0.45;
-        } else {
-          h.vx = 0;
-          h.vy = 0;
-          h.vz = 0;
-          h.svx = 0;
-          h.svy = 0;
-          h.svz = 0;
+      if (!h.settled) {
+        h.x += h.vx * activeDt;
+        h.y += h.vy * activeDt;
+        h.z += h.vz * activeDt;
+        h.vy -= activeDt * 9.8;
+        h.rx += h.svx * activeDt;
+        h.ry += h.svy * activeDt;
+        h.rz += h.svz * activeDt;
+        const ground = beachHeight(h.x, h.z) + 0.12;
+        if (h.y < ground) {
+          h.y = ground;
+          if (h.vy < -1) {
+            h.vy *= -0.28;
+            h.vx *= 0.5;
+            h.vz *= 0.5;
+            h.svx *= 0.45;
+            h.svy *= 0.45;
+            h.svz *= 0.45;
+          } else {
+            h.vx = 0;
+            h.vy = 0;
+            h.vz = 0;
+            h.svx = 0;
+            h.svy = 0;
+            h.svz = 0;
+            h.settled = true;
+          }
         }
       }
       const s = Math.min(1, (h.life - h.age) / 0.8);
@@ -1586,6 +1625,7 @@ export class PillboxScene {
     if (this.disposed) return;
     this.disposed = true;
     this.observer.disconnect();
+    window.removeEventListener('scroll', this.handleScroll);
     this.infantry.dispose();
     this.vehicles.dispose();
     this.landingCraft.dispose();
@@ -1607,6 +1647,7 @@ export class PillboxScene {
     this.bloodStainMesh.dispose();
     this.helmetMesh.dispose();
     this.scene.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh) o.dispose();
       if (o instanceof THREE.DirectionalLight) o.shadow.dispose();
     });
     new Set(this.geometries).forEach((g) => g.dispose());

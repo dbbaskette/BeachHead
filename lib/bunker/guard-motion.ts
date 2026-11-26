@@ -5,6 +5,41 @@ import { angleDifference, type Box, type Guard } from './simulation';
 import type { GuardActor } from './guard-animation';
 import { GuardHitSpring } from './ragdoll';
 
+const _gmVecA = new T.Vector3();
+const _gmVecB = new T.Vector3();
+const _gmVecC = new T.Vector3();
+const _gmOrigin = new T.Vector3();
+const _gmUp = new T.Vector3(0, 1, 0);
+const _gmMat = new T.Matrix4();
+const _gmQuatA = new T.Quaternion();
+const _gmQuatB = new T.Quaternion();
+
+const SUPPORT_CLEARANCES: ReadonlyArray<readonly [string, number]> = [
+  ['LeftFoot', 0.075],
+  ['RightFoot', 0.075],
+  ['LeftToeBase', 0.075],
+  ['RightToeBase', 0.075],
+  ['Head', 0.13],
+  ['Spine2', 0.13],
+];
+
+const TARGET_NAMES = [
+  'Head',
+  'Spine',
+  'Spine2',
+  'Hips',
+  'LeftArm',
+  'RightArm',
+  'LeftForeArm',
+  'RightForeArm',
+  'LeftUpLeg',
+  'RightUpLeg',
+  'LeftLeg',
+  'RightLeg',
+  'LeftFoot',
+  'RightFoot',
+] as const;
+
 export async function loadGuardMotions() {
   const response = await fetch(assetUrl('/models/bunker/guard-motions.json'));
   if (!response.ok)
@@ -23,6 +58,19 @@ export class GuardMotion {
   private hitSeen = 0;
   private kick = new GuardHitSpring();
   private dead = false;
+  private hipsBone!: T.Object3D;
+  private spine2Bone?: T.Object3D;
+  private headBone?: T.Object3D;
+  private rightHandBone!: T.Object3D;
+  private leftHandBone!: T.Object3D;
+  private supportBones: { bone: T.Object3D; clearance: number }[] = [];
+  private obstacleBones: T.Object3D[] = [];
+  private targetSpecs: {
+    bone: T.Object3D;
+    childBone?: T.Object3D;
+    r: number;
+    region: 'head' | 'leg' | 'torso';
+  }[] = [];
   private rest: {
     bone: T.Object3D;
     position: T.Vector3;
@@ -34,6 +82,14 @@ export class GuardMotion {
     quaternion: T.Quaternion;
   }[] = [];
   floorImpact = false;
+  get settled(): boolean {
+    return (
+      this.dead &&
+      this.active !== undefined &&
+      this.active.time >= this.active.getClip().duration - 1e-4 &&
+      this.active.getEffectiveWeight() >= 0.999
+    );
+  }
   constructor(
     private actor: GuardActor,
     clips: T.AnimationClip[],
@@ -51,6 +107,34 @@ export class GuardMotion {
       position: r.position.clone(),
       quaternion: r.quaternion.clone(),
     }));
+    this.hipsBone = actor.model.getObjectByName('Hips')!;
+    this.spine2Bone = actor.model.getObjectByName('Spine2');
+    this.headBone = actor.model.getObjectByName('Head');
+    this.rightHandBone = actor.model.getObjectByName('RightHand')!;
+    this.leftHandBone = actor.model.getObjectByName('LeftHand')!;
+    for (const [name, clearance] of SUPPORT_CLEARANCES) {
+      const bone = actor.model.getObjectByName(name);
+      if (bone) this.supportBones.push({ bone, clearance });
+    }
+    for (const name of ['Hips', 'Spine2', 'Head']) {
+      const bone = actor.model.getObjectByName(name);
+      if (bone) this.obstacleBones.push(bone);
+    }
+    for (const name of TARGET_NAMES) {
+      const bone = actor.model.getObjectByName(name)!;
+      const region =
+        name === 'Head' ? 'head' : /Leg|Foot/.test(name) ? 'leg' : 'torso';
+      const r =
+        name === 'Head'
+          ? 0.14
+          : name.includes('Arm')
+            ? 0.09
+            : /Leg|Foot/.test(name)
+              ? 0.105
+              : 0.17;
+      const childBone = bone.children.find((child) => child instanceof T.Bone);
+      this.targetSpecs.push({ bone, childBone, r, region });
+    }
     for (const clip of clips)
       this.actions.set(clip.name, actor.mixer.clipAction(clip));
     actor.idle.stop();
@@ -68,6 +152,10 @@ export class GuardMotion {
     this.active = next;
   }
   update(g: Guard, dt: number, obstacles: Box[]) {
+    if (this.settled && g.bodyTargets) {
+      this.previous = { x: g.x, z: g.z, yaw: g.yaw };
+      return;
+    }
     const a = this.actor;
     if (!this.dead && g.health <= 0) {
       this.dead = true;
@@ -119,35 +207,23 @@ export class GuardMotion {
       pose.quaternion.copy(pose.bone.quaternion);
     }
     if (!this.dead) {
-      const chest = a.model.getObjectByName('Spine2');
-      chest?.rotateX(this.kick.angle.x * 0.3 - g.flash * 0.12);
-      chest?.rotateZ(this.kick.angle.z * 0.3);
-      const head = a.model.getObjectByName('Head');
-      head?.rotateY(g.headYaw);
+      this.spine2Bone?.rotateX(this.kick.angle.x * 0.3 - g.flash * 0.12);
+      this.spine2Bone?.rotateZ(this.kick.angle.z * 0.3);
+      this.headBone?.rotateY(g.headYaw);
     }
     a.root.updateMatrixWorld(true);
-    const hip = a.model.getObjectByName('Hips')!;
+    const hip = this.hipsBone;
     // Retargeted body proportions differ from Mixamo's mannequin. Correct only
     // the pelvis height rather than stretching any leg or foot to the floor.
     let support = 0;
-    for (const name of [
-      'LeftFoot',
-      'RightFoot',
-      'LeftToeBase',
-      'RightToeBase',
-      'Head',
-      'Spine2',
-    ]) {
-      const bone = a.model.getObjectByName(name);
-      if (bone)
-        support = Math.max(
-          support,
-          (name === 'Head' ? 0.13 : name === 'Spine2' ? 0.13 : 0.075) -
-            bone.getWorldPosition(new T.Vector3()).y,
-        );
+    for (const entry of this.supportBones) {
+      support = Math.max(
+        support,
+        entry.clearance - entry.bone.getWorldPosition(_gmVecA).y,
+      );
     }
     if (support > 0) {
-      const p = hip.getWorldPosition(new T.Vector3());
+      const p = hip.getWorldPosition(_gmVecA);
       p.y += support;
       hip.position.copy(hip.parent!.worldToLocal(p));
       hip.updateMatrixWorld(true);
@@ -155,10 +231,8 @@ export class GuardMotion {
     if (!this.dead) this.holdRifle(g);
     else {
       // Keep authored root motion clear of solid walls and closed doors.
-      for (const name of ['Hips', 'Spine2', 'Head']) {
-        const p = a.model
-          .getObjectByName(name)!
-          .getWorldPosition(new T.Vector3());
+      for (const bone of this.obstacleBones) {
+        const p = bone.getWorldPosition(_gmVecA);
         for (const box of obstacles) {
           if (p.y < box.y - box.h / 2 - 0.14 || p.y > box.y + box.h / 2 + 0.14)
             continue;
@@ -170,84 +244,53 @@ export class GuardMotion {
             if (ox < oz) a.root.position.x += (dx < 0 ? -1 : 1) * ox;
             else a.root.position.z += (dz < 0 ? -1 : 1) * oz;
             a.root.updateMatrixWorld(true);
+            bone.getWorldPosition(p);
           }
         }
       }
-      const chest = a.model
-        .getObjectByName('Spine2')!
-        .getWorldPosition(new T.Vector3());
-      this.floorImpact ||= chest.y < 0.28;
+      if (this.spine2Bone) {
+        this.floorImpact ||= this.spine2Bone.getWorldPosition(_gmVecA).y < 0.28;
+      }
     }
     g.bodyTargets = this.targets();
     this.previous = { x: g.x, z: g.z, yaw: g.yaw };
   }
   private holdRifle(g: Guard) {
     const a = this.actor;
-    const right = a.model
-      .getObjectByName('RightHand')!
-      .getWorldPosition(new T.Vector3());
-    const left = a.model
-      .getObjectByName('LeftHand')!
-      .getWorldPosition(new T.Vector3());
-    const direction = left.clone().sub(right).normalize();
+    const right = this.rightHandBone.getWorldPosition(_gmVecA);
+    const left = this.leftHandBone.getWorldPosition(_gmVecB);
+    const direction = _gmVecC.subVectors(left, right).normalize();
     a.rifle.position.copy(
       a.body.worldToLocal(
-        right.clone().addScaledVector(direction, 0.08 - g.flash * 0.06),
+        right.addScaledVector(direction, 0.08 - g.flash * 0.06),
       ),
     );
-    const q = new T.Quaternion().setFromRotationMatrix(
-      new T.Matrix4().lookAt(
-        new T.Vector3(),
-        direction,
-        new T.Vector3(0, 1, 0),
-      ),
-    );
-    a.rifle.quaternion.copy(
-      a.body.getWorldQuaternion(new T.Quaternion()).invert().multiply(q),
-    );
+    _gmQuatA.setFromRotationMatrix(_gmMat.lookAt(_gmOrigin, direction, _gmUp));
+    a.body.getWorldQuaternion(_gmQuatB).invert().multiply(_gmQuatA);
+    a.rifle.quaternion.copy(_gmQuatB);
   }
   private targets(): NonNullable<Guard['bodyTargets']> {
     const result: NonNullable<Guard['bodyTargets']> = [];
-    for (const name of [
-      'Head',
-      'Spine',
-      'Spine2',
-      'Hips',
-      'LeftArm',
-      'RightArm',
-      'LeftForeArm',
-      'RightForeArm',
-      'LeftUpLeg',
-      'RightUpLeg',
-      'LeftLeg',
-      'RightLeg',
-      'LeftFoot',
-      'RightFoot',
-    ]) {
-      const bone = this.actor.model.getObjectByName(name)!;
-      const p = bone.getWorldPosition(new T.Vector3());
-      const region =
-        name === 'Head' ? 'head' : /Leg|Foot/.test(name) ? 'leg' : 'torso';
+    for (const spec of this.targetSpecs) {
+      const p = spec.bone.getWorldPosition(_gmVecA);
       result.push({
         x: p.x,
         y: p.y,
         z: p.z,
-        r:
-          name === 'Head'
-            ? 0.14
-            : name.includes('Arm')
-              ? 0.09
-              : /Leg|Foot/.test(name)
-                ? 0.105
-                : 0.17,
-        region,
+        r: spec.r,
+        region: spec.region,
       });
-      const child = bone.children.find((child) => child instanceof T.Bone);
-      if (child) {
-        const end = child.getWorldPosition(new T.Vector3());
+      if (spec.childBone) {
+        const end = spec.childBone.getWorldPosition(_gmVecB);
         if (end.distanceTo(p) > 0.18) {
-          const mid = p.clone().lerp(end, 0.5);
-          result.push({ x: mid.x, y: mid.y, z: mid.z, r: 0.13, region });
+          const mid = _gmVecC.copy(p).lerp(end, 0.5);
+          result.push({
+            x: mid.x,
+            y: mid.y,
+            z: mid.z,
+            r: 0.13,
+            region: spec.region,
+          });
         }
       }
     }

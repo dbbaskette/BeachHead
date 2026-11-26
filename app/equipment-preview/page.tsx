@@ -60,8 +60,8 @@ export default function EquipmentPreview() {
     rim.position.set(3, 3, -3);
     scene.add(rim);
     const loader = new T.TextureLoader();
-    const steel = loader.load(assetUrl('/textures/bunker-worn-steel.jpg'));
-    const woodMap = loader.load(assetUrl('/textures/bunker-timber.jpg'));
+    const steel = loader.load(assetUrl('/textures/bunker-worn-steel.webp'));
+    const woodMap = loader.load(assetUrl('/textures/bunker-timber.webp'));
     for (const tex of [steel, woodMap]) {
       tex.colorSpace = T.SRGBColorSpace;
       tex.wrapS = tex.wrapT = T.RepeatWrapping;

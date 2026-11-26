@@ -365,15 +365,29 @@ export function aircraftSkin() {
   shade.addColorStop(1, '#4b5a58');
   c.fillStyle = shade;
   c.fillRect(0, 0, 1024, 512);
+  const skinImg = c.getImageData(0, 0, 1024, 512);
+  const skinData = skinImg.data;
   let seed = 8201;
   for (let i = 0; i < 9000; i++) {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const x = seed % 1024;
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     const y = seed % 512;
-    c.fillStyle = i % 3 ? '#181d1510' : '#d3d0ad25';
-    c.fillRect(x, y, 1 + (i % 3), 1);
+    const dark = i % 3 !== 0;
+    const alpha = dark ? 16 / 255 : 37 / 255;
+    const inv = 1 - alpha;
+    const sr = dark ? 24 : 211;
+    const sg = dark ? 29 : 208;
+    const sb = dark ? 21 : 173;
+    const span = Math.min(1024 - x, 1 + (i % 3));
+    for (let dx = 0; dx < span; dx++) {
+      const o = (y * 1024 + x + dx) * 4;
+      skinData[o] = Math.round(skinData[o] * inv + sr * alpha);
+      skinData[o + 1] = Math.round(skinData[o + 1] * inv + sg * alpha);
+      skinData[o + 2] = Math.round(skinData[o + 2] * inv + sb * alpha);
+    }
   }
+  c.putImageData(skinImg, 0, 0);
   // Angular gray-green splinter camouflage, with no Allied invasion stripes.
   c.fillStyle = '#4d5d57';
   for (const points of [

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { rooms } from './simulation';
+import { createBunker, rooms, worldSolids } from './simulation';
 import { roomIndexAt, visibleRooms } from './pvs';
 import { batchBunkerScenery } from './static-batches';
 
@@ -91,4 +91,19 @@ void test('batchBunkerScenery bins world-baked meshes by geometry bounding-box c
     if (child instanceof THREE.Mesh) child.geometry.dispose();
   }
   mat.dispose();
+});
+
+void test('worldSolids reuses cached array and updates changed blast door positions in place', () => {
+  const b = createBunker();
+  const first = worldSolids(b);
+  assert.equal(worldSolids(b), first);
+
+  const firstDoorIndex = first.length - b.doors.length;
+  const closedX = b.doors[0].x;
+  assert.equal(first[firstDoorIndex].x, closedX);
+
+  b.doors[0].progress = 1;
+  const updated = worldSolids(b);
+  assert.equal(updated, first);
+  assert.equal(updated[firstDoorIndex].x, closedX + 3);
 });

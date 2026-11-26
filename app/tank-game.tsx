@@ -36,9 +36,21 @@ import {
 } from '@/lib/tank/simulation';
 import { TankAudio } from '@/lib/tank/audio';
 import { settings, useSettings } from '@/lib/settings';
+import { shallowEqual } from '@/lib/hud-utils';
 import type { TankScene } from '@/lib/tank/scene';
 import './tank.css';
-const read = (s: TankState) => ({
+
+type HouseSummary = {
+  id: number;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  health: number;
+};
+const EMPTY_HOUSES: HouseSummary[] = [];
+
+const read = (s: TankState, includeHouses: boolean) => ({
   status: s.status,
   health: Math.ceil(s.health),
   weapon: s.weapon,
@@ -59,7 +71,18 @@ const read = (s: TankState) => ({
   speed: s.speed,
   supplied: s.supplied,
   time: s.time,
-  houses: s.cover.filter((c) => c.kind === 'house').map((c) => ({ ...c })),
+  houses: includeHouses
+    ? s.cover
+        .filter((c) => c.kind === 'house')
+        .map((c) => ({
+          id: c.id,
+          x: c.x,
+          z: c.z,
+          w: c.w,
+          d: c.d,
+          health: c.health,
+        }))
+    : EMPTY_HOUSES,
 });
 export default function TankGame({ onReturn }: { onReturn: () => void }) {
   const root = useRef<HTMLElement>(null),
@@ -73,7 +96,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     reduced = useRef(false),
     repairRef = useRef(false),
     mousePoint = useRef<{ x: number; y: number } | null>(null);
-  const [hud, setHud] = useState(() => read(createTank())),
+  const [hud, setHud] = useState(() => read(createTank(), true)),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState(''),
     [zoom, setZoom] = useState(false),
@@ -85,12 +108,50 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     [repairing, setRepairing] = useState(false);
   const { muted, reducedMotion: steady } = useSettings();
   const touch = useTouchLayout();
-  const publish = () => setHud(read(battle.current));
-  const stick = () =>
-    setSticks({
-      move: { ...controls.current.stick },
-      aim: { ...controls.current.aimStick },
-    });
+  const mapRef = useRef(false);
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
+  const lastHudRef = useRef<ReturnType<typeof read> | null>(null);
+  const publish = () => {
+    const s = battle.current;
+    const includeHouses = mapRef.current || s.status === 'ready';
+    const next = read(s, includeHouses);
+    const prev = lastHudRef.current;
+    if (prev) {
+      const { houses: prevHouses, ...prevScalars } = prev;
+      const { houses: nextHouses, ...nextScalars } = next;
+      const sameScalars = shallowEqual(prevScalars, nextScalars);
+      let sameHouses = prevHouses === nextHouses;
+      if (!sameHouses && prevHouses.length === nextHouses.length) {
+        sameHouses = nextHouses.every(
+          (h, i) => h.health === prevHouses[i].health,
+        );
+      }
+      if (sameScalars && sameHouses) return;
+    }
+    lastHudRef.current = next;
+    setHud(next);
+  };
+  const setMapOpen = (next: boolean) => {
+    mapRef.current = next;
+    setMap(next);
+    if (next) publish();
+  };
+  const stick = () => {
+    const nextMove = controls.current.stick;
+    const nextAim = controls.current.aimStick;
+    setSticks((cur) =>
+      cur.move.x === nextMove.x &&
+      cur.move.y === nextMove.y &&
+      cur.aim.x === nextAim.x &&
+      cur.aim.y === nextAim.y
+        ? cur
+        : {
+            move: { x: nextMove.x, y: nextMove.y },
+            aim: { x: nextAim.x, y: nextAim.y },
+          },
+    );
+  };
   const clear = () => {
     controls.current.clear();
     mousePoint.current = null;
@@ -109,6 +170,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
       clear();
       audio.current?.setPaused(true);
       publish();
+      redrawRef.current();
     }
   };
   const start = (retry = false) => {
@@ -121,6 +183,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     audio.current?.start();
     audio.current?.setPaused(false);
     publish();
+    wakeRef.current();
     focus();
   };
   const swap = () => {
@@ -132,6 +195,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
   const toggleZoom = () => {
     zoomRef.current = !zoomRef.current;
     setZoom(zoomRef.current);
+    redrawRef.current();
     focus();
   };
   const aim = (x: number, y: number) => {
@@ -178,12 +242,19 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     );
     const move = (e: PointerEvent) => {
       if (e.pointerType === 'mouse' && !e.buttons) {
-        controls.current.end(e.pointerId);
+        if (controls.current.end(e.pointerId)) stick();
         return;
       }
+      const prevMove = controls.current.stick;
+      const prevAim = controls.current.aimStick;
       const delta = controls.current.move(e.pointerId, e.clientX, e.clientY);
       if (delta) aim(delta.x, delta.y);
-      else stick();
+      else if (
+        controls.current.stick !== prevMove ||
+        controls.current.aimStick !== prevAim
+      ) {
+        stick();
+      }
     };
     const down = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest('button')) return;
@@ -196,7 +267,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
       if (!e.repeat) {
         if (e.code === 'KeyQ') swap();
         if (e.code === 'KeyZ') toggleZoom();
-        if (e.code === 'KeyM') setMap((v) => !v);
+        if (e.code === 'KeyM') setMapOpen(!mapRef.current);
         if (e.code === 'KeyC') battle.current.turret = battle.current.yaw;
         if (e.code === 'Space') controls.current.queueShot();
       }
@@ -224,6 +295,10 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     window.addEventListener('pointermove', move, true);
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
+    const redraw = () => {
+      if (cancelled || !scene.current || frame) return;
+      scene.current.render(battle.current, zoomRef.current, reduced.current);
+    };
     const tick = (stamp: number) => {
       if (cancelled) return;
       const dt = Math.min(0.1, (stamp - (last || stamp)) / 1000);
@@ -273,13 +348,26 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
         publish();
       }
       scene.current?.render(s, zoomRef.current, reduced.current);
-      publishTime += dt;
-      if (publishTime > 0.1) {
+      if (s.status === 'playing') {
+        publishTime += dt;
+        if (publishTime > 0.1) {
+          publishTime = 0;
+          publish();
+        }
+        frame = requestAnimationFrame(tick);
+      } else {
         publishTime = 0;
-        publish();
+        frame = 0;
+        last = 0;
       }
+    };
+    const wake = () => {
+      if (cancelled || frame) return;
+      last = 0;
       frame = requestAnimationFrame(tick);
     };
+    wakeRef.current = wake;
+    redrawRef.current = redraw;
     void import('@/lib/tank/scene')
       .then(({ TankScene }) => {
         if (cancelled || !host.current) return;
@@ -291,8 +379,8 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
             pause();
           },
         );
+        scene.current.onResize = redraw;
         setLoaded(true);
-        frame = requestAnimationFrame(tick);
       })
       .catch(() =>
         setError(
@@ -302,6 +390,8 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       release();
       interruptions();
       window.removeEventListener('pointermove', move, true);
@@ -321,58 +411,60 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
   }, [muted]);
   useEffect(() => {
     reduced.current = steady;
+    redrawRef.current();
   }, [steady]);
   const playing = hud.status === 'playing',
     finished = hud.status === 'won' || hud.status === 'lost';
-  const routeMap = (
-    <svg
-      viewBox="-90 -380 165 425"
-      aria-label="Village map: high street down the center, orchard lane west, repair supplies halfway down orchard lane, bridge north"
-    >
-      <rect x="-87" y="-376" width="161" height="410" fill="#303e36" />
-      <path d="M-85 -322H70" stroke="#779b9e" strokeWidth="24" />
-      <path
-        d="M0 20V-365M0 -18H-44V-280H0"
-        stroke="#c6b89b"
-        strokeWidth="7"
-        fill="none"
-      />
-      {hud.houses.map((c) => (
-        <rect
-          key={c.id}
-          x={c.x - c.w / 2}
-          y={c.z - c.d / 2}
-          width={c.w}
-          height={c.d}
-          fill={c.health > 0 ? '#8e8b78' : '#53594e'}
-        />
-      ))}
-      <path d="M0 -307V-338" stroke="#e9deba" strokeWidth="12" />
-      <circle
-        cx="17"
-        cy="-297"
-        r="5"
-        fill={hud.phase === 'advance' ? '#d88b61' : '#9fc3a0'}
-      />
-      <text x="18" y="-283" fontSize="6" fill="#fff3d5">
-        Post
-      </text>
-      <text x="8" y="-349" fontSize="7" fill="#fff3d5">
-        Bridge
-      </text>
-      <text x="-68" y="-163" fontSize="6" fill="#bbdbbd">
-        Repairs
-      </text>
-      {!hud.supplied && (
-        <path d="M-47 -172h8m-4 -4v8" stroke="#bbdbbd" strokeWidth="2" />
-      )}
-      <g
-        transform={`translate(${hud.x} ${hud.z}) rotate(${(hud.yaw * 180) / Math.PI})`}
+  const routeMap =
+    map || hud.status === 'ready' ? (
+      <svg
+        viewBox="-90 -380 165 425"
+        aria-label="Village map: high street down the center, orchard lane west, repair supplies halfway down orchard lane, bridge north"
       >
-        <path d="M0 -6L4 4H-4Z" fill="#ffe2a1" />
-      </g>
-    </svg>
-  );
+        <rect x="-87" y="-376" width="161" height="410" fill="#303e36" />
+        <path d="M-85 -322H70" stroke="#779b9e" strokeWidth="24" />
+        <path
+          d="M0 20V-365M0 -18H-44V-280H0"
+          stroke="#c6b89b"
+          strokeWidth="7"
+          fill="none"
+        />
+        {hud.houses.map((c) => (
+          <rect
+            key={c.id}
+            x={c.x - c.w / 2}
+            y={c.z - c.d / 2}
+            width={c.w}
+            height={c.d}
+            fill={c.health > 0 ? '#8e8b78' : '#53594e'}
+          />
+        ))}
+        <path d="M0 -307V-338" stroke="#e9deba" strokeWidth="12" />
+        <circle
+          cx="17"
+          cy="-297"
+          r="5"
+          fill={hud.phase === 'advance' ? '#d88b61' : '#9fc3a0'}
+        />
+        <text x="18" y="-283" fontSize="6" fill="#fff3d5">
+          Post
+        </text>
+        <text x="8" y="-349" fontSize="7" fill="#fff3d5">
+          Bridge
+        </text>
+        <text x="-68" y="-163" fontSize="6" fill="#bbdbbd">
+          Repairs
+        </text>
+        {!hud.supplied && (
+          <path d="M-47 -172h8m-4 -4v8" stroke="#bbdbbd" strokeWidth="2" />
+        )}
+        <g
+          transform={`translate(${hud.x} ${hud.z}) rotate(${(hud.yaw * 180) / Math.PI})`}
+        >
+          <path d="M0 -6L4 4H-4Z" fill="#ffe2a1" />
+        </g>
+      </svg>
+    ) : null;
   return (
     <main
       ref={root}
@@ -433,7 +525,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
             aria-label="Show route map"
             aria-pressed={map}
             onClick={() => {
-              setMap(!map);
+              setMapOpen(!mapRef.current);
               focus();
             }}
           >
@@ -567,7 +659,7 @@ export default function TankGame({ onReturn }: { onReturn: () => void }) {
           {map && (
             <aside className="tank-map">
               {routeMap}
-              <button onClick={() => setMap(false)}>Close map</button>
+              <button onClick={() => setMapOpen(false)}>Close map</button>
             </aside>
           )}
         </>

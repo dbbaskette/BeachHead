@@ -53,6 +53,7 @@ import { PillboxAudio } from '@/lib/pillbox/audio';
 import { GuardVoiceDirector } from '@/lib/bunker/guard-voices';
 import { BunkerVoiceAudio } from '@/lib/bunker/voice-audio';
 import { settings, useSettings } from '@/lib/settings';
+import { shallowEqual } from '@/lib/hud-utils';
 import type { BunkerScene } from '@/lib/bunker/scene';
 
 const snapshot = (b: BunkerState) => ({
@@ -108,7 +109,15 @@ export default function BunkerGame({
     setAimStick({ ...controls.current.aimStick });
   };
   const touch = useTouchLayout();
-  const publish = () => setHud(snapshot(battle.current));
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
+  const lastHudRef = useRef<ReturnType<typeof snapshot> | null>(null);
+  const publish = () => {
+    const next = snapshot(battle.current);
+    if (lastHudRef.current && shallowEqual(lastHudRef.current, next)) return;
+    lastHudRef.current = next;
+    setHud(next);
+  };
   const focusKeyboard = () => {
     if (!window.matchMedia(TOUCH_LAYOUT_QUERY).matches)
       root.current?.focus({ preventScroll: true });
@@ -131,6 +140,7 @@ export default function BunkerGame({
     voices.current?.setPaused(true);
     unlock();
     publish();
+    redrawRef.current();
   };
   const lock = () => {
     if (touch || !surface.current?.requestPointerLock) return;
@@ -158,6 +168,7 @@ export default function BunkerGame({
     void voices.current?.start();
     void audio.current?.start();
     publish();
+    wakeRef.current();
     focusKeyboard();
     lock();
   };
@@ -262,6 +273,16 @@ export default function BunkerGame({
     window.addEventListener('mousemove', mouse);
     window.addEventListener('pointermove', pointermove, true);
     document.addEventListener('pointerlockchange', lockChange);
+    const redraw = () => {
+      if (
+        cancelled ||
+        !scene.current ||
+        frame ||
+        battle.current.status === 'cinematic'
+      )
+        return;
+      scene.current.render(battle.current, 0, [], reduced.current);
+    };
     const tick = (stamp: number) => {
       if (cancelled) return;
       const dt = Math.min(0.05, (stamp - (last || stamp)) / 1000);
@@ -303,13 +324,26 @@ export default function BunkerGame({
       }
       if (battle.current.status !== 'cinematic')
         scene.current?.render(battle.current, dt, events, reduced.current);
-      hudClock += dt;
-      if (hudClock > 0.1) {
-        publish();
+      if (battle.current.status === 'playing') {
+        hudClock += dt;
+        if (hudClock > 0.1) {
+          publish();
+          hudClock = 0;
+        }
+        frame = requestAnimationFrame(tick);
+      } else {
         hudClock = 0;
+        frame = 0;
+        last = 0;
       }
+    };
+    const wake = () => {
+      if (cancelled || frame) return;
+      last = 0;
       frame = requestAnimationFrame(tick);
     };
+    wakeRef.current = wake;
+    redrawRef.current = redraw;
     void import('@/lib/bunker/scene')
       .then(async ({ BunkerScene }) => {
         if (cancelled || !host.current) return;
@@ -317,11 +351,12 @@ export default function BunkerGame({
           host.current,
           window.matchMedia(TOUCH_LAYOUT_QUERY).matches,
         );
+        view.onResize = redraw;
         scene.current = view;
         await view.ready;
         if (cancelled) return;
+        redraw();
         setLoaded(true);
-        frame = requestAnimationFrame(tick);
       })
       .catch(() => {
         if (!cancelled) {
@@ -335,6 +370,8 @@ export default function BunkerGame({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       window.removeEventListener('keydown', keydown);
       window.removeEventListener('keyup', keyup);
       window.removeEventListener('mousemove', mouse);
@@ -358,6 +395,7 @@ export default function BunkerGame({
   }, [muted]);
   useEffect(() => {
     reduced.current = steady;
+    redrawRef.current();
   }, [steady]);
   const beginPointer = (
     role: ControlRole,

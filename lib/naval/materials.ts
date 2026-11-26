@@ -12,6 +12,45 @@ export function createNavalMaterials() {
     textures.push(t);
     return t;
   };
+  const fillPixelBase = (
+    data: Uint8ClampedArray,
+    r: number,
+    g: number,
+    b: number,
+  ) => {
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = r;
+      data[i + 1] = g;
+      data[i + 2] = b;
+      data[i + 3] = 255;
+    }
+  };
+  const stampRect = (
+    data: Uint8ClampedArray,
+    size: number,
+    x: number,
+    y: number,
+    rw: number,
+    rh: number,
+    r: number,
+    g: number,
+    b: number,
+    alpha: number,
+  ) => {
+    const x0 = Math.max(0, Math.floor(x));
+    const y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(size, Math.ceil(x + rw));
+    const y1 = Math.min(size, Math.ceil(y + rh));
+    const inv = 1 - alpha;
+    for (let py = y0; py < y1; py++) {
+      for (let px = x0; px < x1; px++) {
+        const o = (py * size + px) * 4;
+        data[o] = Math.round(data[o] * inv + r * alpha);
+        data[o + 1] = Math.round(data[o + 1] * inv + g * alpha);
+        data[o + 2] = Math.round(data[o + 2] * inv + b * alpha);
+      }
+    }
+  };
   const paint = document.createElement('canvas');
   paint.width = paint.height = 1024;
   const ctx = paint.getContext('2d')!;
@@ -20,18 +59,24 @@ export function createNavalMaterials() {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 4294967296;
   };
-  ctx.fillStyle = '#869698';
-  ctx.fillRect(0, 0, 1024, 1024);
+  const paintImg = ctx.createImageData(1024, 1024);
+  fillPixelBase(paintImg.data, 0x86, 0x96, 0x98);
   for (let i = 0; i < 40000; i++) {
     const n = Math.floor(100 + random() * 80);
-    ctx.fillStyle = `rgba(${n},${n + 8},${n + 9},${0.03 + random() * 0.1})`;
-    ctx.fillRect(
+    stampRect(
+      paintImg.data,
+      1024,
       random() * 1024,
       random() * 1024,
       1 + random() * 9,
       1 + random() * 3,
+      n,
+      n + 8,
+      n + 9,
+      0.03 + random() * 0.1,
     );
   }
+  ctx.putImageData(paintImg, 0, 0);
   // Welded panels, salt streaks and localized chipped paint.
   for (const y of [0, 512]) {
     ctx.fillStyle = '#384a4e';
@@ -59,13 +104,16 @@ export function createNavalMaterials() {
   const relief = document.createElement('canvas');
   relief.width = relief.height = 512;
   const rc = relief.getContext('2d')!;
-  rc.fillStyle = '#888';
-  rc.fillRect(0, 0, 512, 512);
+  const reliefImg = rc.createImageData(512, 512);
+  fillPixelBase(reliefImg.data, 0x88, 0x88, 0x88);
   for (let i = 0; i < 20000; i++) {
     const n = Math.round(90 + random() * 80);
-    rc.fillStyle = `rgb(${n},${n},${n})`;
-    rc.fillRect(random() * 512, random() * 512, 1, 1);
+    const px = Math.min(511, Math.floor(random() * 512));
+    const py = Math.min(511, Math.floor(random() * 512));
+    const o = (py * 512 + px) * 4;
+    reliefImg.data[o] = reliefImg.data[o + 1] = reliefImg.data[o + 2] = n;
   }
+  rc.putImageData(reliefImg, 0, 0);
   rc.fillStyle = '#444';
   rc.fillRect(0, 0, 512, 2);
   rc.fillRect(0, 256, 512, 2);
@@ -73,18 +121,24 @@ export function createNavalMaterials() {
   const roughCanvas = document.createElement('canvas');
   roughCanvas.width = roughCanvas.height = 512;
   const rctx = roughCanvas.getContext('2d')!;
-  rctx.fillStyle = '#c4c4c4';
-  rctx.fillRect(0, 0, 512, 512);
+  const roughImg = rctx.createImageData(512, 512);
+  fillPixelBase(roughImg.data, 0xc4, 0xc4, 0xc4);
   for (let i = 0; i < 16000; i++) {
     const v = Math.round(145 + random() * 68);
-    rctx.fillStyle = `rgb(${v},${v},${v})`;
-    rctx.fillRect(
+    stampRect(
+      roughImg.data,
+      512,
       random() * 512,
       random() * 512,
       1 + random() * 4,
       1 + random() * 2,
+      v,
+      v,
+      v,
+      1,
     );
   }
+  rctx.putImageData(roughImg, 0, 0);
   const aoCanvas = document.createElement('canvas');
   aoCanvas.width = aoCanvas.height = 512;
   const actx = aoCanvas.getContext('2d')!;
@@ -147,10 +201,10 @@ export function createNavalMaterials() {
   });
   const deck = new THREE.MeshStandardMaterial({
     color: '#a7b1a3',
-    map: load('deck-color.jpg', true),
-    normalMap: load('deck-normal.jpg'),
+    map: load('deck-color.webp', true),
+    normalMap: load('deck-normal.webp'),
     normalScale: new THREE.Vector2(0.6, 0.6),
-    roughnessMap: load('deck-roughness.jpg'),
+    roughnessMap: load('deck-roughness.webp'),
     roughness: 0.92,
     metalness: 0.4,
   });

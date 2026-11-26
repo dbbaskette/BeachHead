@@ -22,6 +22,7 @@ import type { AirBattle } from '@/lib/air/types';
 import type { AirScene } from '@/lib/air/scene';
 import type { AirAudio } from '@/lib/air/audio';
 import { settings, useSettings } from '@/lib/settings';
+import { shallowEqual } from '@/lib/hud-utils';
 
 const passes = ['Across the bay', 'Along the beach', 'Break the landing'];
 function snapshot(b: AirBattle) {
@@ -71,7 +72,15 @@ export default function AirGame({
     [diagnostics, setDiagnostics] = useState('');
   const { muted, reducedMotion: steady } = useSettings();
   const touch = useTouchLayout();
-  const publish = () => setHud(snapshot(battle.current));
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
+  const lastHudRef = useRef<ReturnType<typeof snapshot> | null>(null);
+  const publish = () => {
+    const next = snapshot(battle.current);
+    if (lastHudRef.current && shallowEqual(lastHudRef.current, next)) return;
+    lastHudRef.current = next;
+    setHud(next);
+  };
   const resetInput = () => {
     controls.current.reset();
     drag.current.clear();
@@ -86,6 +95,8 @@ export default function AirGame({
     resetInput();
     audio.current?.setPaused(b.status === 'paused');
     publish();
+    if (b.status === 'playing') wakeRef.current();
+    else redrawRef.current();
     root.current?.focus();
   };
   const start = () => {
@@ -95,6 +106,7 @@ export default function AirGame({
     audio.current?.reset();
     void audio.current?.start();
     publish();
+    wakeRef.current();
     root.current?.focus();
   };
   const leave = () => {
@@ -174,12 +186,20 @@ export default function AirGame({
           audio.current.setMuted(settings.get().muted);
           void audio.current.preload();
           setLoaded(true);
+          const redraw = () => {
+            if (cancelled || !scene.current || frame) return;
+            scene.current.render(battle.current, 0, reduced.current, 0);
+            if (gunSight.current) gunSight.current.style.visibility = 'hidden';
+            if (bombSight.current)
+              bombSight.current.style.visibility = 'hidden';
+          };
           const tick = (now: number) => {
             if (cancelled) return;
             const frameMs = last ? now - last : 0,
               dt = Math.min(frameMs / 1000, 0.1);
             last = now;
             const b = battle.current;
+            const before = b.status;
             if (b.status === 'playing') {
               accumulator += dt;
               while (accumulator >= 1 / 60) {
@@ -202,22 +222,27 @@ export default function AirGame({
               reduced.current,
               frameMs,
             );
+            const showSights = b.status === 'playing' && b.phase === 'attack';
             for (const [element, point] of [
               [gunSight.current, scene.current?.gun],
               [bombSight.current, scene.current?.bomb],
             ] as const) {
               if (!element) continue;
-              const p = point ? scene.current!.project(point) : null;
-              element.style.visibility =
-                p?.visible && b.status === 'playing' && b.phase === 'attack'
-                  ? 'visible'
-                  : 'hidden';
-              if (p) {
-                element.style.left = `${p.x}px`;
-                element.style.top = `${p.y}px`;
+              if (!showSights || !point) {
+                element.style.visibility = 'hidden';
+                continue;
               }
+              const p = scene.current!.project(point);
+              if (p.visible) {
+                element.style.transform = `translate3d(${p.x}px, ${p.y}px, 0) translate(-50%, -50%)`;
+              }
+              element.style.visibility = p.visible ? 'visible' : 'hidden';
             }
-            if (now - hudTime > 100) {
+            const statusChanged = b.status !== before;
+            if (
+              statusChanged ||
+              (b.status === 'playing' && now - hudTime > 100)
+            ) {
               hudTime = now;
               publish();
               if (debug)
@@ -234,9 +259,21 @@ export default function AirGame({
                   }),
                 );
             }
+            if (b.status === 'playing') frame = requestAnimationFrame(tick);
+            else {
+              frame = 0;
+              last = 0;
+            }
+          };
+          const wake = () => {
+            if (cancelled || frame) return;
+            last = 0;
             frame = requestAnimationFrame(tick);
           };
-          frame = requestAnimationFrame(tick);
+          wakeRef.current = wake;
+          redrawRef.current = redraw;
+          scene.current.onResize = redraw;
+          redraw();
         } catch {
           setError(
             'The flight scene could not start. Check that hardware acceleration is enabled, then return to the menu.',
@@ -251,6 +288,8 @@ export default function AirGame({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       window.removeEventListener('keydown', keydown);
       window.removeEventListener('keyup', keyup);
       window.removeEventListener('blur', blur);
@@ -269,6 +308,7 @@ export default function AirGame({
   }, [muted]);
   useEffect(() => {
     reduced.current = steady;
+    redrawRef.current();
   }, [steady]);
   const playing = hud.status === 'playing',
     ready = hud.status === 'ready',

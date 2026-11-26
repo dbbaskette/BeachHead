@@ -52,17 +52,44 @@ function panelTexture(a: AirArt) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 512;
   const c = canvas.getContext('2d')!;
-  c.fillStyle = '#a9aaa1';
-  c.fillRect(0, 0, 512, 512);
+  const img = c.createImageData(512, 512);
+  const data = img.data;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 0xa9;
+    data[i + 1] = 0xaa;
+    data[i + 2] = 0xa1;
+    data[i + 3] = 255;
+  }
   let seed = 710;
   const rand = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 4294967296;
   };
   for (let i = 0; i < 13000; i++) {
-    c.fillStyle = `rgba(${rand() > 0.4 ? '20,25,18' : '240,235,207'},${rand() * 0.14})`;
-    c.fillRect(rand() * 512, rand() * 512, rand() * 3 + 0.4, rand() * 5 + 0.2);
+    const dark = rand() > 0.4;
+    const alpha = rand() * 0.14;
+    const inv = 1 - alpha;
+    const sr = dark ? 20 : 240;
+    const sg = dark ? 25 : 235;
+    const sb = dark ? 18 : 207;
+    const x = rand() * 512;
+    const y = rand() * 512;
+    const rw = rand() * 3 + 0.4;
+    const rh = rand() * 5 + 0.2;
+    const x0 = Math.max(0, Math.floor(x));
+    const y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(512, Math.ceil(x + rw));
+    const y1 = Math.min(512, Math.ceil(y + rh));
+    for (let py = y0; py < y1; py++) {
+      for (let px = x0; px < x1; px++) {
+        const o = (py * 512 + px) * 4;
+        data[o] = Math.round(data[o] * inv + sr * alpha);
+        data[o + 1] = Math.round(data[o + 1] * inv + sg * alpha);
+        data[o + 2] = Math.round(data[o + 2] * inv + sb * alpha);
+      }
+    }
   }
+  c.putImageData(img, 0, 0);
   c.lineWidth = 1;
   c.strokeStyle = '#50574d';
   for (let row = 0; row < 4; row++)
@@ -235,7 +262,7 @@ export class FlakArt extends AirArt {
     this.brass.metalness = 0.85;
   }
 }
-function fuselage(a: FlakArt, transport: boolean) {
+function fuselage(transport: boolean) {
   const length = transport ? 19.5 : 16.1;
   const profile = [
     [0, 0.12],
@@ -248,17 +275,15 @@ function fuselage(a: FlakArt, transport: boolean) {
     [0.97, 0.2],
     [1, 0.03],
   ];
-  const geo = a.geo(
-    new T.LatheGeometry(
-      profile.map(([t, r]) => new T.Vector2(r, (t - 0.5) * length)),
-      24,
-    ),
+  const geo = new T.LatheGeometry(
+    profile.map(([t, r]) => new T.Vector2(r, (t - 0.5) * length)),
+    24,
   );
   geo.rotateX(Math.PI / 2);
   return geo;
 }
 /** Closed airfoil loft with tapered tips and slight dihedral; coordinates in metres. */
-function wing(a: FlakArt, span: number, chord: number) {
+function wing(span: number, chord: number) {
   const vertices: number[] = [],
     indices: number[] = [],
     uv: number[] = [];
@@ -286,7 +311,7 @@ function wing(a: FlakArt, span: number, chord: number) {
   g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
   g.setIndex(indices);
   g.computeVertexNormals();
-  return a.geo(g);
+  return g;
 }
 function insignia(a: FlakArt) {
   if (a.insigniaMat) return a.insigniaMat;
@@ -344,18 +369,35 @@ function fighter(a: FlakArt) {
   const root = new T.Group(),
     body = new T.Group(),
     prop = new T.Group();
+  const temps: T.BufferGeometry[] = [];
+  const temp = <G extends T.BufferGeometry>(g: G) => {
+    temps.push(g);
+    return g;
+  };
   prop.name = 'prop-0';
-  a.mesh(body, fuselage(a, false), a.olivePaint, [0, 0, 0], [0.63, 0.68, 0.62]);
+  a.mesh(
+    body,
+    temp(fuselage(false)),
+    a.olivePaint,
+    [0, 0, 0],
+    [0.63, 0.68, 0.62],
+  );
   a.mesh(body, a.sphere, a.belly, [0, -0.27, -0.4], [0.7, 0.55, 3.8]);
-  a.mesh(body, wing(a, 11.2, 2.65), a.olivePaint, [0, -0.28, -0.6], [1, 1, 1]);
-  a.mesh(body, wing(a, 4.4, 1.65), a.olivePaint, [0, 0.2, 3.6], [1, 1, 1]);
+  a.mesh(
+    body,
+    temp(wing(11.2, 2.65)),
+    a.olivePaint,
+    [0, -0.28, -0.6],
+    [1, 1, 1],
+  );
+  a.mesh(body, temp(wing(4.4, 1.65)), a.olivePaint, [0, 0.2, 3.6], [1, 1, 1]);
   a.fighterFinGeo ??= a.geo(finGeometry(2.1, 1.0, 2.25, 0.14));
   a.mesh(body, a.fighterFinGeo, a.olivePaint, [0, 0.08, 3.65], [1, 1, 1]);
   a.mesh(body, a.sphere, a.canopy, [0, 0.8, -0.45], [0.57, 0.62, 1.2]);
   for (const z of [-1.1, -0.35, 0.4]) {
     const frame = a.mesh(
       body,
-      a.geo(new T.TorusGeometry(0.57, 0.035, 6, 16, Math.PI)),
+      temp(new T.TorusGeometry(0.57, 0.035, 6, 16, Math.PI)),
       a.olivePaint,
       [0, 0.81, z],
       [1, 1, 1],
@@ -449,6 +491,7 @@ function fighter(a: FlakArt) {
   a.fighterBlurGeo ??= a.geo(new T.CircleGeometry(1.65, 32));
   a.mesh(body, a.fighterBlurGeo, blurDisc(a), [0, 0, -4.86], [1, 1, 1]);
   consolidate(body, a);
+  temps.forEach((g) => g.dispose());
   root.add(body, prop);
   return { root, props: [prop] };
 }
@@ -457,21 +500,26 @@ export function aircraft(a: FlakArt, kind: 'bomber' | 'transport' | 'fighter') {
   const root = new T.Group(),
     body = new T.Group(),
     props: T.Group[] = [];
+  const temps: T.BufferGeometry[] = [];
+  const temp = <G extends T.BufferGeometry>(g: G) => {
+    temps.push(g);
+    return g;
+  };
   const transport = kind === 'transport',
     length = transport ? 19.5 : 16.1,
     span = transport ? 29.1 : 20.6;
-  a.mesh(body, fuselage(a, transport), a.olivePaint, [0, 0, 0], [1, 1, 1]);
+  a.mesh(body, temp(fuselage(transport)), a.olivePaint, [0, 0, 0], [1, 1, 1]);
   a.mesh(body, a.sphere, a.belly, [0, -0.32, -0.4], [1.18, 0.82, length * 0.4]);
   a.mesh(
     body,
-    wing(a, span, transport ? 4.5 : 4),
+    temp(wing(span, transport ? 4.5 : 4)),
     a.olivePaint,
     [0, -0.32, -0.7],
     [1, 1, 1],
   );
   a.mesh(
     body,
-    wing(a, transport ? 8.5 : 7, 2.6),
+    temp(wing(transport ? 8.5 : 7, 2.6)),
     a.olivePaint,
     [0, 0.35, length * 0.39],
     [1, 1, 1],
@@ -607,6 +655,7 @@ export function aircraft(a: FlakArt, kind: 'bomber' | 'transport' | 'fighter') {
     );
   }
   consolidate(body, a);
+  temps.forEach((g) => g.dispose());
   root.add(body, ...props);
   return { root, props };
 }
@@ -712,10 +761,13 @@ export function gun(a: FlakArt) {
     }
   a.block(yaw, steel, [0, -0.6, 0.8], [0.8, 0.12, 0.65]);
   a.block(yaw, a.black, [0, -0.48, 0.85], [0.62, 0.09, 0.55]);
+  const handwheelGeos: T.BufferGeometry[] = [];
   for (const side of [-1, 1]) {
+    const wheelGeo = new T.TorusGeometry(0.27, 0.023, 6, 24);
+    handwheelGeos.push(wheelGeo);
     const wheel = a.mesh(
       yaw,
-      a.geo(new T.TorusGeometry(0.27, 0.023, 6, 24)),
+      wheelGeo,
       a.dark,
       [side * 0.8, -0.35, 1],
       [1, 1, 1],
@@ -735,6 +787,7 @@ export function gun(a: FlakArt) {
   consolidate(base, a);
   consolidate(yaw, a);
   consolidate(cradle, a);
+  handwheelGeos.forEach((g) => g.dispose());
   yaw.add(cradle);
   yaw.position.set(0, 5.9, 4);
   base.add(yaw);
