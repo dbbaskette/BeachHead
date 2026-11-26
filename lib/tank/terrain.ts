@@ -76,6 +76,17 @@ function paving(a: TankArt) {
   return texture;
 }
 
+const GROUND_BANDS: ReadonlyArray<readonly [number, number, number]> = [
+  [-750, -390, 60],
+  [-390, -320, 18],
+  [-320, -250, 18],
+  [-250, -180, 18],
+  [-180, -110, 18],
+  [-110, -40, 18],
+  [-40, 30, 18],
+  [30, 450, 70],
+];
+
 export function buildTerrain(
   a: TankArt,
   scene: T.Scene,
@@ -164,21 +175,34 @@ export function buildTerrain(
     );
   };
   ground.customProgramCacheKey = () => 'breakout-terrain-v2';
-  const geometry = a.geo(
-    new T.PlaneGeometry(1200, 1200, touch ? 120 : 200, 300),
-  );
-  geometry.rotateX(-Math.PI / 2);
-  geometry.translate(0, 0, -150);
-  const position = geometry.attributes.position;
-  for (let i = 0; i < position.count; i++) {
-    const x = position.getX(i),
-      z = position.getZ(i);
-    position.setY(i, terrainHeight(x, z));
+  for (const [zMin, zMax, zSegs] of GROUND_BANDS) {
+    const geometry = a.geo(
+      new T.PlaneGeometry(1200, zMax - zMin, touch ? 120 : 200, zSegs),
+    );
+    geometry.rotateX(-Math.PI / 2);
+    geometry.translate(0, 0, (zMin + zMax) / 2);
+    const position = geometry.attributes.position;
+    const normal = geometry.attributes.normal;
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i),
+        z = position.getZ(i);
+      position.setY(i, terrainHeight(x, z));
+      uv.setXY(i, (x + 600) / 1200, (450 - z) / 1200);
+      const dhdx = terrainHeight(x + 0.5, z) - terrainHeight(x - 0.5, z);
+      const dhdz = terrainHeight(x, z + 0.5) - terrainHeight(x, z - 0.5);
+      const invLen = 1 / Math.hypot(dhdx, 1, dhdz);
+      normal.setXYZ(i, -dhdx * invLen, invLen, -dhdz * invLen);
+    }
+    position.needsUpdate = true;
+    normal.needsUpdate = true;
+    uv.needsUpdate = true;
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const mesh = new T.Mesh(geometry, ground);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
   }
-  geometry.computeVertexNormals();
-  const mesh = new T.Mesh(geometry, ground);
-  mesh.receiveShadow = true;
-  scene.add(mesh);
 
   // Small silhouettes at verge level make the ground read in depth, including on mobile.
   const blades = new T.BufferGeometry();
@@ -226,7 +250,8 @@ export function buildTerrain(
   const grassMat = a.mat('#bfc3a1', 1);
   grassMat.side = T.DoubleSide;
   const count = touch ? 3200 : 6400;
-  const grass = new T.InstancedMesh(blades, grassMat, count);
+  const grassBuckets: Array<{ matrix: T.Matrix4; color: T.Color }[]> =
+    Array.from({ length: 6 }, () => []);
   const rocks = new T.InstancedMesh(
     a.geo(new T.IcosahedronGeometry(1, 0)),
     a.stone,
@@ -255,13 +280,17 @@ export function buildTerrain(
     transform.rotation.set(0, random(i + 6) * 6.28, 0);
     transform.scale.setScalar(0.65 + random(i + 11) * 0.8);
     transform.updateMatrix();
-    grass.setMatrixAt(n, transform.matrix);
     color.setHSL(
       0.19 + random(i + 2) * 0.05,
       0.22 + random(i + 3) * 0.16,
       0.21 + random(i + 4) * 0.13,
     );
-    grass.setColorAt(n++, color);
+    const band = Math.max(0, Math.min(5, Math.floor((z + 372) / 67)));
+    grassBuckets[band].push({
+      matrix: transform.matrix.clone(),
+      color: color.clone(),
+    });
+    n++;
     if (r < 380 && distance < 4.5 && i % 3 === 0) {
       transform.position.y += 0.035;
       transform.rotation.set(i, 0.3 * i, 0.7 * i);
@@ -274,13 +303,25 @@ export function buildTerrain(
       rocks.setMatrixAt(r++, transform.matrix);
     }
   }
-  grass.count = n;
+  for (const entries of grassBuckets) {
+    if (entries.length === 0) continue;
+    const bandGrass = new T.InstancedMesh(blades, grassMat, entries.length);
+    for (let j = 0; j < entries.length; j++) {
+      bandGrass.setMatrixAt(j, entries[j].matrix);
+      bandGrass.setColorAt(j, entries[j].color);
+    }
+    bandGrass.instanceMatrix.needsUpdate = true;
+    if (bandGrass.instanceColor) bandGrass.instanceColor.needsUpdate = true;
+    bandGrass.receiveShadow = true;
+    bandGrass.computeBoundingBox();
+    bandGrass.computeBoundingSphere();
+    scene.add(bandGrass);
+  }
   rocks.count = r;
-  grass.receiveShadow = true;
   rocks.receiveShadow = true;
-  grass.computeBoundingSphere();
+  rocks.computeBoundingBox();
   rocks.computeBoundingSphere();
-  scene.add(grass, rocks);
+  scene.add(rocks);
 
   // Shallow irregular puddles and damp margins lie in orchard wheel ruts.
   const wet = a.mat('#454c42', 0.17);

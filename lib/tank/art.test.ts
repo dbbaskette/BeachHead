@@ -103,7 +103,18 @@ void test('makeTank enables shadow casting and receiving across turret, barrel, 
       assert.equal(o.receiveShadow, true);
     }
   });
+  let directOpaqueTurretMeshes = 0;
+  for (const child of tank.turret.children) {
+    if (
+      child instanceof T.Mesh &&
+      !Array.isArray(child.material) &&
+      !child.material.transparent
+    ) {
+      directOpaqueTurretMeshes++;
+    }
+  }
   assert.ok(opaqueTurretMeshes > 0);
+  assert.ok(directOpaqueTurretMeshes <= 3);
   assert.equal(markingMeshes, 2);
 
   let barrelMeshes = 0;
@@ -114,12 +125,11 @@ void test('makeTank enables shadow casting and receiving across turret, barrel, 
       assert.equal(o.receiveShadow, true);
     }
   });
-  assert.ok(barrelMeshes > 0);
-  assert.equal(tank.wheels.length, 12);
-  for (const wheel of tank.wheels) {
-    assert.equal(wheel.castShadow, true);
-    assert.equal(wheel.receiveShadow, true);
-  }
+  assert.ok(barrelMeshes > 0 && barrelMeshes <= 2);
+  assert.ok(tank.wheelMesh instanceof T.InstancedMesh);
+  assert.equal(tank.wheelMesh.count, 12);
+  assert.equal(tank.wheelMesh.castShadow, true);
+  assert.equal(tank.wheelMesh.receiveShadow, true);
   assert.equal(tank.tracks.castShadow, true);
   assert.equal(tank.tracks.receiveShadow, true);
   assert.equal(tank.sprockets.length, 4);
@@ -130,6 +140,7 @@ void test('makeTank enables shadow casting and receiving across turret, barrel, 
     assert.ok(Math.abs(sprocket.position.y - 0.62) < 1e-6);
     assert.ok(Math.abs(Math.abs(sprocket.position.z) - 2.15) < 1e-6);
   }
+  tank.wheelMesh.dispose();
   tank.tracks.dispose();
   a.dispose();
 });
@@ -218,12 +229,17 @@ void test('world-space UVs scale scaled house panels while preserving alpha-test
     panzerBarrelBox.min.z < shermanBarrelBox.min.z - 0.4,
     'Panzer high-velocity barrel extends noticeably further forward than Sherman',
   );
+  sherman.wheelMesh.dispose();
   sherman.tracks.dispose();
+  panzer.wheelMesh.dispose();
   panzer.tracks.dispose();
 
-  // Allied infantry GI has separate articulated leg/arm groups for walk animation.
+  // Allied infantry GI has separate articulated leg/arm groups for walk animation and reuses shared materials.
   const gi = makeAlly(a);
   assert.ok(gi.leftLeg.children.length > 0 && gi.rightLeg.children.length > 0);
   assert.ok(gi.leftArm.children.length > 0 && gi.rightArm.children.length > 0);
+  const matsAfterFirstAlly = a.materials.size;
+  makeAlly(a);
+  assert.equal(a.materials.size, matsAfterFirstAlly);
   a.dispose();
 });

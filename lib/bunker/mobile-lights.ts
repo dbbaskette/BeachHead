@@ -78,16 +78,23 @@ export class BunkerMobileLights {
     }
   }
 
-  update(position: T.Vector3, dt = 0) {
+  update(
+    position: T.Vector3,
+    dt = 0,
+    isVisible?: (sourcePosition: T.Vector3) => boolean,
+  ) {
     const smooth = dt > 0 ? Math.min(1, dt * 8) : 1;
     for (const { isSpot, sources, slots, assigned } of this.sets) {
       // Static source positions are world-space scene children. Light fixtures stay visible.
-      sources.sort(
+      const candidates = isVisible
+        ? sources.filter((source) => isVisible(source.position))
+        : sources;
+      candidates.sort(
         (a, b) =>
           a.position.distanceToSquared(position) -
           b.position.distanceToSquared(position),
       );
-      const desired = sources.slice(0, slots.length);
+      const desired = candidates.slice(0, slots.length);
       const desiredSet = new Set(desired);
       const kept = new Set<LocalLight>();
 

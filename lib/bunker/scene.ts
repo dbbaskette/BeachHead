@@ -1,7 +1,9 @@
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { roomIndexAt, roomsOverlappingBox, visibleRooms } from './pvs';
 import {
   addBunkerDetail,
   addWeaponDetail,
@@ -105,6 +107,87 @@ const MAX_FIRE = 24;
 const MAX_DEBRIS = 160;
 const MAX_STAINS = 32;
 
+const SIGN_ATLAS_COLS = 2;
+const SIGN_ATLAS_ROWS = 8;
+const SIGN_TILES = [
+  'FUNKRAUM / RADIO',
+  'TRANSMITTER',
+  'RADIO CONTROL',
+  'RADIO  ↑',
+  'QUARTERS  →',
+  'INFIRMARY',
+  'RECORDS',
+  'RADIO  ←',
+  'STORES / RETURN',
+  'VERMITTLUNG',
+  'MASCHINENRAUM',
+  'EXIT / BEACH',
+  'EXIT  ↑',
+  'MUNITIONS',
+  '04  /  KASEMATTE',
+];
+
+function createClothLeatherTexture(kind: 'wool' | 'leather') {
+  const size = 128;
+  const data = new Uint8Array(size * size * 4);
+  let seed = kind === 'wool' ? 51203 : 88193;
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      const pattern =
+        kind === 'wool'
+          ? ((x + (y & 1)) & 1 ? 10 : -10) + ((y + (x & 1)) & 1 ? 8 : -8)
+          : Math.sin(x * 0.35 + y * 0.25) * Math.cos(x * 0.2 - y * 0.3) * 18;
+      const v = Math.max(
+        115,
+        Math.min(250, Math.round(196 + pattern + (rand() - 0.5) * 26)),
+      );
+      data[idx] = data[idx + 1] = data[idx + 2] = v;
+      data[idx + 3] = 255;
+    }
+  }
+  const tex = new T.DataTexture(data, size, size, T.RGBAFormat);
+  tex.wrapS = tex.wrapT = T.RepeatWrapping;
+  tex.repeat.set(3, 3);
+  tex.colorSpace = T.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function buildSignAtlas() {
+  const tileW = 512;
+  const tileH = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = tileW * SIGN_ATLAS_COLS;
+  canvas.height = tileH * SIGN_ATLAS_ROWS;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#242b27';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < SIGN_TILES.length; i++) {
+    const col = i % SIGN_ATLAS_COLS;
+    const row = Math.floor(i / SIGN_ATLAS_COLS);
+    const ox = col * tileW;
+    const oy = row * tileH;
+    ctx.fillStyle = '#242b27';
+    ctx.fillRect(ox, oy, tileW, tileH);
+    ctx.strokeStyle = '#b4b09a';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(ox + 6, oy + 14, tileW - 12, tileH - 28);
+    ctx.font = 'bold 36px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#d4ccac';
+    ctx.fillText(SIGN_TILES[i], ox + tileW / 2, oy + tileH / 2 + 13);
+  }
+  const texture = new T.CanvasTexture(canvas);
+  texture.colorSpace = T.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 export class BunkerScene {
   private scene = new T.Scene();
   private camera = new T.PerspectiveCamera(68, 1, 0.05, 180);
@@ -165,6 +248,9 @@ export class BunkerScene {
     emissiveIntensity: 1.8,
   });
   private sea: T.Mesh;
+  private sky: Sky;
+  private signMat: T.MeshStandardMaterial;
+  private pvsEntries: Array<{ object: T.Object3D; rooms: number[] }> = [];
   private disposed = false;
   private environment: T.WebGLRenderTarget;
   private resources = new Set<T.Texture>();
@@ -240,7 +326,15 @@ export class BunkerScene {
     sky.material.uniforms.turbidity.value = 8;
     sky.material.uniforms.rayleigh.value = 0.6;
     sky.material.uniforms.sunPosition.value.set(-1, 0.35, 0.4);
+    this.sky = sky;
     this.scene.add(sky);
+
+    const signAtlas = buildSignAtlas();
+    this.resources.add(signAtlas);
+    this.signMat = new T.MeshStandardMaterial({
+      map: signAtlas,
+      roughness: 1,
+    });
 
     const loader = new T.TextureLoader();
     const steelMaps = this.createSteelPbr();
@@ -597,11 +691,25 @@ export class BunkerScene {
         [0, 0.045, z],
       );
     }
+    const woolTex = createClothLeatherTexture('wool');
+    const leatherTex = createClothLeatherTexture('leather');
+    this.resources.add(woolTex);
+    this.resources.add(leatherTex);
     const sleeve = new T.MeshStandardMaterial({
-        color: '#4a5141',
-        roughness: 1,
+        color: '#5a6350',
+        map: woolTex,
+        bumpMap: woolTex,
+        bumpScale: 0.012,
+        roughness: 0.96,
       }),
-      glove = new T.MeshStandardMaterial({ color: '#493d2e', roughness: 0.95 });
+      glove = new T.MeshStandardMaterial({
+        color: '#594a38',
+        map: leatherTex,
+        bumpMap: leatherTex,
+        bumpScale: 0.015,
+        roughness: 0.62,
+        metalness: 0.06,
+      });
     this.part(
       this.weapon,
       new T.CapsuleGeometry(0.054, 0.22, 4, 10),
@@ -639,16 +747,37 @@ export class BunkerScene {
     this.muzzleLight.position.set(0.1, -0.1, -0.7);
     this.camera.add(this.muzzleLight);
     // Shadow and ambient-occlusion passes resubmit the scene, so desktop gains most from batching.
-    batchBunkerScenery(this.scene, [
+    const dynamicRoots = new Set<T.Object3D>([
       this.camera,
       this.sea,
+      this.sky,
       this.medkit,
       ...this.doors,
       ...this.missionProps.charges,
       ...this.missionProps.supplies,
     ]);
+    batchBunkerScenery(this.scene, [...dynamicRoots]);
     for (const door of this.doors) batchBunkerScenery(door, []);
     batchBunkerScenery(this.weapon, [this.muzzle]);
+    for (const child of this.scene.children) {
+      if (dynamicRoots.has(child) || child instanceof T.Light) continue;
+      let hasMesh = false;
+      child.traverse((o) => {
+        if (o instanceof T.Mesh) hasMesh = true;
+      });
+      if (!hasMesh) continue;
+      const box =
+        (child.userData.worldBounds as T.Box3 | undefined) ??
+        new T.Box3().setFromObject(child);
+      if (box.isEmpty()) continue;
+      const overlap = roomsOverlappingBox(box, 0.75);
+      if (overlap.length > 0) {
+        this.pvsEntries.push({ object: child, rooms: overlap });
+      } else if (box.max.x < -7.2) {
+        // Exterior embrasure rocks are only visible from Room 0.
+        this.pvsEntries.push({ object: child, rooms: [0] });
+      }
+    }
 
     this.dustPool = new BillboardPool(this.scene, MAX_DUST, {
       blending: 'normal',
@@ -1006,26 +1135,26 @@ export class BunkerScene {
     }
   }
   private sign(text: string, x: number, y: number, z: number, w: number) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 100;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = '#242b27';
-    ctx.fillRect(0, 0, 512, 100);
-    ctx.strokeStyle = '#b4b09a';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(5, 5, 502, 90);
-    ctx.font = 'bold 36px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#d4ccac';
-    ctx.fillText(text, 256, 63);
-    const texture = new T.CanvasTexture(canvas);
-    texture.colorSpace = T.SRGBColorSpace;
-    this.resources.add(texture);
+    const idx = Math.max(0, SIGN_TILES.indexOf(text));
+    const col = idx % SIGN_ATLAS_COLS;
+    const row = Math.floor(idx / SIGN_ATLAS_COLS);
+    const padU = 2 / (512 * SIGN_ATLAS_COLS);
+    const padV = 12 / (128 * SIGN_ATLAS_ROWS);
+    const u0 = col / SIGN_ATLAS_COLS + padU;
+    const u1 = (col + 1) / SIGN_ATLAS_COLS - padU;
+    const v1 = 1 - row / SIGN_ATLAS_ROWS - padV;
+    const v0 = 1 - (row + 1) / SIGN_ATLAS_ROWS + padV;
+    const geo = new T.PlaneGeometry(w, w / 5.12);
+    const uv = geo.getAttribute('uv');
+    uv.setXY(0, u0, v1);
+    uv.setXY(1, u1, v1);
+    uv.setXY(2, u0, v0);
+    uv.setXY(3, u1, v0);
+    uv.needsUpdate = true;
     return this.part(
       this.scene,
-      new T.PlaneGeometry(w, w / 5.12),
-      new T.MeshStandardMaterial({ map: texture, roughness: 1 }),
+      geo,
+      this.signMat,
       [x, y, z],
       [0, 0, 0],
       false,
@@ -1045,6 +1174,8 @@ export class BunkerScene {
     ]);
     if (this.disposed) {
       material.map?.dispose();
+      material.roughnessMap?.dispose();
+      material.metalnessMap?.dispose();
       material.dispose();
       this.release(gltf.scene);
       return;
@@ -1059,6 +1190,47 @@ export class BunkerScene {
       }
     });
     const [idleClip, walkClip] = guardClips(gltf.scene);
+    const colorizeRiflePart = (
+      geo: T.BufferGeometry,
+      c: T.Color,
+    ): T.BufferGeometry => {
+      const nonIndexed = geo.index ? geo.toNonIndexed() : geo;
+      if (nonIndexed !== geo) geo.dispose();
+      const count = nonIndexed.getAttribute('position').count;
+      const colors = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        colors[i * 3] = c.r;
+        colors[i * 3 + 1] = c.g;
+        colors[i * 3 + 2] = c.b;
+      }
+      nonIndexed.setAttribute('color', new T.BufferAttribute(colors, 3));
+      return nonIndexed;
+    };
+    const rifleParts = [
+      colorizeRiflePart(
+        new T.BoxGeometry(0.085, 0.095, 0.48).translate(0, 0, 0.1),
+        new T.Color('#8f7556'),
+      ),
+      colorizeRiflePart(
+        new T.CylinderGeometry(0.023, 0.023, 0.55, 12)
+          .rotateX(Math.PI / 2)
+          .translate(0, 0.04, -0.24),
+        new T.Color('#28302f'),
+      ),
+      colorizeRiflePart(
+        new T.BoxGeometry(0.045, 0.18, 0.075).translate(0, -0.13, 0.12),
+        new T.Color('#5c6662'),
+      ),
+    ];
+    const sharedRifleGeo = mergeGeometries(rifleParts, false)!;
+    rifleParts.forEach((p) => p.dispose());
+    const sharedRifleMat = new T.MeshStandardMaterial({
+      vertexColors: true,
+      normalMap: this.metal.normalMap,
+      roughnessMap: this.metal.roughnessMap,
+      roughness: 0.65,
+      metalness: 0.35,
+    });
     for (let i = 0; i < guardSpawns.length; i++) {
       const root = new T.Group(),
         model = clone(gltf.scene),
@@ -1101,27 +1273,7 @@ export class BunkerScene {
       );
       const rifle = new T.Group();
       body.add(rifle);
-      this.part(
-        rifle,
-        new T.BoxGeometry(0.085, 0.095, 0.48),
-        this.wood,
-        [0, 1.25, -0.25],
-      );
-      this.part(
-        rifle,
-        new T.CylinderGeometry(0.023, 0.023, 0.55, 12),
-        this.dark,
-        [0, 1.29, -0.59],
-        [Math.PI / 2, 0, 0],
-      );
-      this.part(
-        rifle,
-        new T.BoxGeometry(0.045, 0.18, 0.075),
-        this.metal,
-        [0, 1.12, -0.23],
-      );
-      for (const child of rifle.children)
-        child.position.sub(new T.Vector3(0, 1.25, -0.35));
+      this.part(rifle, sharedRifleGeo, sharedRifleMat, [0, 0, 0]);
       rifle.position.set(0, 1.25, -0.35);
       rifle.add(flash);
       flash.position.set(0, 0.04, -0.55);
@@ -1182,7 +1334,11 @@ export class BunkerScene {
     this.firePool.clear();
     this.debrisMesh.count = 0;
     this.stainMesh.count = 0;
-    this.guards.forEach(resetGuardActor);
+    this.guards.forEach((a) => {
+      resetGuardActor(a);
+      a.root.visible = true;
+      a.rifle.visible = true;
+    });
   }
   private stain(
     x: number,
@@ -1347,10 +1503,18 @@ export class BunkerScene {
       b.z,
     );
     this.camera.rotation.order = 'YXZ';
+    const vis = visibleRooms(roomIndexAt(b.x, b.z), b.doors);
+    for (const entry of this.pvsEntries) {
+      entry.object.visible = entry.rooms.some((r) => vis.has(r));
+    }
+    this.sea.visible = vis.has(0);
+    this.sky.visible = vis.has(0);
     const nearEmbrasure = b.z >= -12 && b.x <= 10;
     this.embrasureSun.visible = nearEmbrasure;
     this.embrasureSun.castShadow = this.detailShadows && nearEmbrasure;
-    this.mobileLights.update(this.camera.position, frame);
+    this.mobileLights.update(this.camera.position, frame, (pos) =>
+      vis.has(roomIndexAt(pos.x, pos.z)),
+    );
     this.camera.rotation.set(
       b.pitch + (steady ? 0 : Math.sin(b.time * 71) * b.blastShake * 0.024),
       b.yaw,
@@ -1412,12 +1576,28 @@ export class BunkerScene {
     b.guards.forEach((g, i) => {
       const a = this.guards[i];
       if (!a) return;
+      const inPvs = vis.has(roomIndexAt(g.x, g.z));
+      const needsSettle =
+        g.health <= 0 &&
+        (!a.dropped?.settled ||
+          (a.ragdoll ? !a.ragdoll.sleeping : g.down < 2.6));
+      if (!inPvs && !needsSettle) {
+        a.root.visible = false;
+        if (a.dropped) a.rifle.visible = false;
+        return;
+      }
       animateGuard(a, g, frame, this.scene, active, obstacles);
       // Skinned submeshes have frustumCulled=false because bind-pose bounds
       // cannot follow animated limbs. Cull their whole actor conservatively.
       this.guardBounds.center.copy(a.root.position);
       this.guardBounds.radius = g.health > 0 ? 3 : 6;
-      a.root.visible = this.guardFrustum.intersectsSphere(this.guardBounds);
+      a.root.visible =
+        inPvs && this.guardFrustum.intersectsSphere(this.guardBounds);
+      if (a.dropped) {
+        a.rifle.visible = vis.has(
+          roomIndexAt(a.rifle.position.x, a.rifle.position.z),
+        );
+      }
       if (active && a.ragdoll?.wallImpact) {
         const p = a.ragdoll.wallImpact;
         this.impactDust(p.x, p.y, p.z, true);

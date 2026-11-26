@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { FlakArt, aircraft, gun, paratrooper, consolidate } from './art';
+import { coastalMaterial } from '../air/surfaces';
 import { makeOcean, makeSky } from '../naval/ocean';
 import { bakeCoastalEnvironment, COASTAL_SUN } from '../naval/daylight';
 import { TOUCH_LAYOUT_QUERY } from '../touch-input';
@@ -52,17 +53,27 @@ export class FlakScene {
   private serial = 0;
   private object = new T.Object3D();
   private planes = (['bomber', 'transport', 'fighter'] as const).flatMap(
-    (kind) =>
-      Array.from({ length: 3 }, () => ({
-        id: -1,
-        ...aircraft(this.art, kind),
-        kind,
-      })),
+    (kind) => {
+      const proto = aircraft(this.art, kind);
+      return Array.from({ length: 3 }, (_, idx) => {
+        if (idx === 0) return { id: -1, ...proto, kind };
+        const root = proto.root.clone();
+        const props = proto.props.map(
+          (_, pIdx) => root.getObjectByName(`prop-${pIdx}`) as T.Group,
+        );
+        return { id: -1, root, props, kind };
+      });
+    },
   );
-  private troops = Array.from({ length: 20 }, () => ({
-    id: -1,
-    ...paratrooper(this.art),
-  }));
+  private troops = (() => {
+    const proto = paratrooper(this.art);
+    return Array.from({ length: 20 }, (_, idx) => {
+      if (idx === 0) return { id: -1, ...proto };
+      const root = proto.root.clone();
+      const canopy = root.getObjectByName('canopy') as T.Group;
+      return { id: -1, root, canopy };
+    });
+  })();
   private tracers: TracerPool;
   private bombs: T.InstancedMesh;
   private shells: T.InstancedMesh;
@@ -208,33 +219,25 @@ export class FlakScene {
   private buildCoast() {
     const a = this.art,
       root = new T.Group();
-    const sand = a.mat('#b5ad91', 0.98);
-    sand.vertexColors = true;
-    sand.map = a.texture('pillbox-sand-diffuse.jpg', true);
-    sand.normalMap = a.texture('pillbox-sand-normal.jpg');
-    sand.roughnessMap = a.texture('pillbox-sand-roughness.jpg');
-    for (const t of [sand.map, sand.normalMap, sand.roughnessMap])
-      t.repeat.set(500, 295);
-    sand.normalScale.set(0.7, 0.7);
+    const sandMap = a.texture('pillbox-sand-diffuse.jpg', true);
+    const sandNormal = a.texture('pillbox-sand-normal.jpg');
+    const sand = coastalMaterial(sandMap, sandNormal, {
+      shoreAxis: 'z',
+      shoreOffset: -82,
+      grassStart: 36,
+      grassEnd: 135,
+      roadOffset: 9999,
+    });
+    a.materials.add(sand);
     const g = a.geo(new T.PlaneGeometry(3500, 2000, 100, 80));
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position;
-    const colors = new Float32Array(pos.count * 3);
-    const dry = new T.Color('#ffffff');
-    const wet = new T.Color('#8a7e63');
-    const tint = new T.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i),
         z = pos.getZ(i) + 860,
         h = flakCoastHeight(x, z);
       pos.setXYZ(i, x, h, z);
-      const wetness = 1 - T.MathUtils.smoothstep(h, -0.2, 1.1);
-      tint.copy(dry).lerp(wet, wetness);
-      colors[i * 3] = tint.r;
-      colors[i * 3 + 1] = tint.g;
-      colors[i * 3 + 2] = tint.b;
     }
-    g.setAttribute('color', new T.BufferAttribute(colors, 3));
     g.computeVertexNormals();
     const terrain = a.mesh(this.scene, g, sand, [0, 0, 0], [1, 1, 1]);
     terrain.castShadow = false;
@@ -273,12 +276,57 @@ export class FlakScene {
       a.block(root, concrete, [x, 3.5, 20], [2.5, 3.4, 3]);
       a.block(root, a.dark, [x, 4, 18.45], [1.2, 0.65, 0.02]);
     }
-    // Layered canvas sandbags, with flattened seams and irregular fabric folds.
-    const bagMaterial = a.mat('#92876b', 0.98);
-    bagMaterial.map = a.texture('pillbox-sand-diffuse.jpg', true);
-    bagMaterial.normalMap = a.texture('pillbox-sand-normal.jpg');
-    bagMaterial.normalScale.set(0.22, 0.22);
+    // Layered canvas sandbags, with woven burlap bump and flattened seams.
+    const burlapSize = 128;
+    const burlapColor = new Uint8Array(burlapSize * burlapSize * 4);
+    const burlapBump = new Uint8Array(burlapSize * burlapSize * 4);
+    let bagSeed = 7717;
+    for (let y = 0; y < burlapSize; y++) {
+      for (let x = 0; x < burlapSize; x++) {
+        bagSeed = (Math.imul(bagSeed, 1664525) + 1013904223) >>> 0;
+        const weave =
+          ((x + (y & 1)) & 1 ? 14 : -14) + ((y + (x & 1)) & 1 ? 10 : -10);
+        const grain = ((bagSeed >>> 24) - 128) * 0.18;
+        const v = Math.max(120, Math.min(250, Math.round(196 + weave + grain)));
+        const idx = (y * burlapSize + x) * 4;
+        burlapColor[idx] = v;
+        burlapColor[idx + 1] = Math.round(v * 0.94);
+        burlapColor[idx + 2] = Math.round(v * 0.78);
+        burlapColor[idx + 3] = 255;
+        burlapBump[idx] =
+          burlapBump[idx + 1] =
+          burlapBump[idx + 2] =
+            Math.max(0, Math.min(255, Math.round(128 + weave * 3 + grain)));
+        burlapBump[idx + 3] = 255;
+      }
+    }
+    const bagColorTex = new T.DataTexture(
+      burlapColor,
+      burlapSize,
+      burlapSize,
+      T.RGBAFormat,
+    );
+    bagColorTex.wrapS = bagColorTex.wrapT = T.RepeatWrapping;
+    bagColorTex.repeat.set(3, 2);
+    bagColorTex.colorSpace = T.SRGBColorSpace;
+    bagColorTex.needsUpdate = true;
+    const bagBumpTex = new T.DataTexture(
+      burlapBump,
+      burlapSize,
+      burlapSize,
+      T.RGBAFormat,
+    );
+    bagBumpTex.wrapS = bagBumpTex.wrapT = T.RepeatWrapping;
+    bagBumpTex.repeat.set(3, 2);
+    bagBumpTex.needsUpdate = true;
+    a.textures.add(bagColorTex);
+    a.textures.add(bagBumpTex);
+    const bagMaterial = a.mat('#a89b7c', 0.98);
+    bagMaterial.map = bagColorTex;
+    bagMaterial.bumpMap = bagBumpTex;
+    bagMaterial.bumpScale = 0.04;
     const bagGeometry = a.geo(new T.SphereGeometry(1, 16, 10));
+    const seamGeometry = a.geo(new T.TorusGeometry(1, 0.01, 4, 24));
     const bp = bagGeometry.attributes.position;
     for (let i = 0; i < bp.count; i++) {
       const x = bp.getX(i),
@@ -307,7 +355,7 @@ export class FlakScene {
         bag.rotation.y = angle;
         const seam = a.mesh(
           root,
-          a.geo(new T.TorusGeometry(1, 0.01, 4, 24)),
+          seamGeometry,
           a.wood,
           [Math.sin(angle) * 7.3, 5.65 + row * 0.3, 4 + Math.cos(angle) * 7.3],
           [0.65, 0.18, 0.35],
@@ -327,25 +375,79 @@ export class FlakScene {
     }
     consolidate(root, a);
     this.scene.add(root);
-    const grassMat = a.mat('#676b48', 1),
-      grass = new T.InstancedMesh(
-        a.geo(new T.ConeGeometry(0.18, 1.2, 3)),
-        grassMat,
-        900,
+    const tuftPositions: number[] = [];
+    for (let b = 0; b < 3; b++) {
+      const ang = (b * Math.PI) / 3;
+      const dx = Math.cos(ang) * 0.28;
+      const dz = Math.sin(ang) * 0.28;
+      const nx = -Math.sin(ang) * 0.07;
+      const nz = Math.cos(ang) * 0.07;
+      tuftPositions.push(
+        -dx,
+        0,
+        -dz,
+        dx,
+        0,
+        dz,
+        dx * 0.55 + nx,
+        1,
+        dz * 0.55 + nz,
+        -dx,
+        0,
+        -dz,
+        dx * 0.55 + nx,
+        1,
+        dz * 0.55 + nz,
+        -dx * 0.55 + nx,
+        1,
+        -dz * 0.55 + nz,
       );
-    for (let i = 0; i < 900; i++) {
-      const x = Math.sin(i * 52.31) * 120,
-        z = -55 + (i % 97) * 1.8,
-        gy = flakCoastHeight(x, z);
-      if (Math.hypot(x, z - 4) < 12 || gy < 0.7) {
-        this.object.scale.set(0, 0, 0);
-      } else
-        this.object.scale.set(0.6 + (i % 4) * 0.2, 0.3 + (i % 7) * 0.13, 0.6);
-      this.object.position.set(x, gy + 0.5, z);
-      this.object.rotation.set(0.1, i, 0.15);
-      this.object.updateMatrix();
-      grass.setMatrixAt(i, this.object.matrix);
     }
+    const tuftGeo = new T.BufferGeometry();
+    tuftGeo.setAttribute(
+      'position',
+      new T.Float32BufferAttribute(tuftPositions, 3),
+    );
+    tuftGeo.computeVertexNormals();
+    const grassMat = a.mat('#ffffff', 0.98);
+    grassMat.side = T.DoubleSide;
+    const grass = new T.InstancedMesh(a.geo(tuftGeo), grassMat, 900);
+    const grassColor = new T.Color();
+    let grassSeed = 42019;
+    const grassRand = () => {
+      grassSeed = (Math.imul(grassSeed, 1664525) + 1013904223) >>> 0;
+      return grassSeed / 4294967296;
+    };
+    let placed = 0;
+    for (let i = 0; i < 1600 && placed < 900; i++) {
+      const x = (grassRand() - 0.5) * 260;
+      const z = -70 + grassRand() * 205;
+      const gy = flakCoastHeight(x, z);
+      if (Math.hypot(x, z - 4) < 13.5 || gy < 0.75) continue;
+      this.object.position.set(x, gy - 0.02, z);
+      this.object.scale.set(
+        0.75 + grassRand() * 0.75,
+        0.45 + grassRand() * 0.85,
+        0.75 + grassRand() * 0.75,
+      );
+      this.object.rotation.set(
+        0,
+        grassRand() * Math.PI * 2,
+        (grassRand() - 0.5) * 0.25,
+      );
+      this.object.updateMatrix();
+      grass.setMatrixAt(placed, this.object.matrix);
+      grassColor.setHSL(
+        0.19 + grassRand() * 0.06,
+        0.24 + grassRand() * 0.16,
+        0.24 + grassRand() * 0.14,
+      );
+      grass.setColorAt(placed, grassColor);
+      placed++;
+    }
+    grass.count = placed;
+    grass.instanceMatrix.needsUpdate = true;
+    if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
     this.scene.add(grass);
   }
   private resize() {

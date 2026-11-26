@@ -8,25 +8,78 @@ function randomGenerator(seed: number) {
     (state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296;
 }
 
+function aircraftPanelTextures() {
+  const size = 64;
+  const colorData = new Uint8Array(size * size * 4);
+  const roughData = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const seam = x % 32 === 0 || y % 16 === 0;
+      const rivet =
+        !seam &&
+        (x % 8 === 2 || x % 8 === 6) &&
+        (y % 16 === 2 || y % 16 === 14);
+      const grain = Math.sin(x * 1.9 + y * 3.1) * 10;
+      const c = Math.max(
+        130,
+        Math.min(255, Math.round((seam ? 168 : rivet ? 228 : 216) + grain)),
+      );
+      const r = Math.max(
+        85,
+        Math.min(235, Math.round((seam ? 205 : rivet ? 115 : 165) - grain)),
+      );
+      const idx = (y * size + x) * 4;
+      colorData[idx] = colorData[idx + 1] = colorData[idx + 2] = c;
+      colorData[idx + 3] = 255;
+      roughData[idx] = roughData[idx + 1] = roughData[idx + 2] = r;
+      roughData[idx + 3] = 255;
+    }
+  }
+  const map = new THREE.DataTexture(colorData, size, size, THREE.RGBAFormat);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(3, 3);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.needsUpdate = true;
+  const roughnessMap = new THREE.DataTexture(
+    roughData,
+    size,
+    size,
+    THREE.RGBAFormat,
+  );
+  roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
+  roughnessMap.repeat.set(3, 3);
+  roughnessMap.needsUpdate = true;
+  return { map, roughnessMap };
+}
+
 /** A tapered, low-wing piston aircraft, modelled in metres, nose toward -Z. */
 export function makeAircraft() {
   const root = new THREE.Group();
+  const surface = aircraftPanelTextures();
   const paint = new THREE.MeshStandardMaterial({
-    color: '#586052',
-    roughness: 0.66,
-    metalness: 0.3,
+    color: '#5c6456',
+    map: surface.map,
+    roughnessMap: surface.roughnessMap,
+    roughness: 0.72,
+    metalness: 0.34,
   });
   const underside = new THREE.MeshStandardMaterial({
-    color: '#858e8c',
-    roughness: 0.58,
-    metalness: 0.35,
+    color: '#88918f',
+    map: surface.map,
+    roughnessMap: surface.roughnessMap,
+    roughness: 0.64,
+    metalness: 0.38,
   });
   const glass = new THREE.MeshPhysicalMaterial({
     color: '#839ca1',
-    roughness: 0.13,
-    metalness: 0.15,
+    roughness: 0.08,
+    metalness: 0.1,
+    reflectivity: 0.9,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06,
+    ior: 1.5,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.72,
   });
   const parts: THREE.Mesh[] = [];
   const add = (
@@ -127,7 +180,7 @@ export function makeAircraft() {
     const merged = mergeGeometries(geometries, false)!;
     geometries.forEach((g) => g.dispose());
     const mesh = new THREE.Mesh(merged, mat);
-    mesh.castShadow = true;
+    mesh.castShadow = !mat.transparent;
     root.add(mesh);
   }
   const prop = new THREE.Mesh(
@@ -149,12 +202,20 @@ export function makeAircraft() {
 export class CoastalAtmosphere {
   readonly root = new THREE.Group();
   private banks: {
-    mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
     x: number;
+    y: number;
     z: number;
+    sx: number;
+    sy: number;
     phase: number;
     speed: number;
   }[] = [];
+  private mistMesh: THREE.InstancedMesh<
+    THREE.PlaneGeometry,
+    THREE.ShaderMaterial
+  >;
+  private densityAttr: THREE.InstancedBufferAttribute;
+  private dummy = new THREE.Object3D();
   private aircraft: THREE.Group[] = [];
   private seed: number;
   private disposed = false;
@@ -169,62 +230,71 @@ export class CoastalAtmosphere {
     const random = randomGenerator(seed);
     const scale = setting === 'naval' ? 9 : 1;
     const fogGeometry = new THREE.PlaneGeometry(1, 1);
+    const phases = new Float32Array(10);
+    const densities = new Float32Array(10);
+    const phaseAttr = new THREE.InstancedBufferAttribute(phases, 1);
+    this.densityAttr = new THREE.InstancedBufferAttribute(densities, 1);
+    this.densityAttr.setUsage(THREE.DynamicDrawUsage);
+    fogGeometry.setAttribute('aPhase', phaseAttr);
+    fogGeometry.setAttribute('aDensity', this.densityAttr);
+    const material = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: true,
+      uniforms: THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        {
+          time: { value: 0 },
+          density: { value: 0.2 },
+        },
+      ]),
+      vertexShader: `attribute float aPhase;attribute float aDensity;varying vec2 vUv;varying float vPhase;varying float vDensity;
+        #include <common>
+        #include <fog_pars_vertex>
+        void main(){vUv=uv;vPhase=aPhase;vDensity=aDensity;vec4 mvPosition=modelViewMatrix*instanceMatrix*vec4(position,1.);gl_Position=projectionMatrix*mvPosition;#include <fog_vertex>}`,
+      fragmentShader: `varying vec2 vUv;varying float vPhase;varying float vDensity;uniform float time;uniform float density;
+        #include <common>
+        #include <fog_pars_fragment>
+        float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+        float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
+        void main(){vec2 p=vUv*vec2(5.,3.)+vec2(-time*.015+vPhase,time*.004);
+          float n=noise(p)*.57+noise(p*2.03)*.28+noise(p*4.07)*.15;
+          vec2 edge=abs(vUv*2.-1.);
+          float bottomFade=smoothstep(0.,0.35,vUv.y)*(1.-smoothstep(.55,1.,vUv.y));
+          float falloff=(1.-smoothstep(.35,1.,edge.x))*bottomFade;
+          float activeDensity=mix(density,vDensity,step(0.001,vDensity));
+          float alpha=(1.-exp(-max(0.,n-.23)*activeDensity))*falloff;
+          gl_FragColor=vec4(mix(vec3(.55,.63,.65),vec3(.81,.83,.79),n),alpha);
+          #include <fog_fragment>
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.mistMesh = new THREE.InstancedMesh(fogGeometry, material, 10);
+    this.mistMesh.name = 'drifting-sea-mist';
+    this.mistMesh.frustumCulled = false;
+    this.mistMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < 10; i++) {
       const phase = random() * Math.PI * 2;
-      const material = new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        fog: true,
-        uniforms: THREE.UniformsUtils.merge([
-          THREE.UniformsLib.fog,
-          {
-            time: { value: 0 },
-            phase: { value: phase },
-            density: { value: 0 },
-          },
-        ]),
-        vertexShader: `varying vec2 vUv;
-          #include <common>
-          #include <fog_pars_vertex>
-          void main(){vUv=uv;vec4 mvPosition=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mvPosition;#include <fog_vertex>}`,
-        fragmentShader: `varying vec2 vUv;uniform float time;uniform float phase;uniform float density;
-          #include <common>
-          #include <fog_pars_fragment>
-          float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-          float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
-          void main(){vec2 p=vUv*vec2(5.,3.)+vec2(-time*.015+phase,time*.004);
-            float n=noise(p)*.57+noise(p*2.03)*.28+noise(p*4.07)*.15;
-            vec2 edge=abs(vUv*2.-1.);
-            float bottomFade=smoothstep(0.,0.35,vUv.y)*(1.-smoothstep(.55,1.,vUv.y));
-            float falloff=(1.-smoothstep(.35,1.,edge.x))*bottomFade;
-            float alpha=(1.-exp(-max(0.,n-.23)*density))*falloff;
-            gl_FragColor=vec4(mix(vec3(.55,.63,.65),vec3(.81,.83,.79),n),alpha);
-            #include <fog_fragment>
-            #include <tonemapping_fragment>
-            #include <colorspace_fragment>
-          }`,
-      });
-      const mesh = new THREE.Mesh(fogGeometry, material);
-      mesh.name = 'drifting-sea-mist';
-      mesh.scale.set(
-        (38 + random() * 35) * scale,
-        (7 + random() * 8) * scale,
-        1,
-      );
-      const x = (random() - 0.5) * 250 * scale,
-        z =
-          setting === 'beach' ? -112 - random() * 90 : -1200 - random() * 1100;
-      mesh.position.set(x, mesh.scale.y * 0.32, z);
-      this.root.add(mesh);
+      const sx = (38 + random() * 35) * scale;
+      const sy = (7 + random() * 8) * scale;
+      const x = (random() - 0.5) * 250 * scale;
+      const z =
+        setting === 'beach' ? -112 - random() * 90 : -1200 - random() * 1100;
+      const y = sy * 0.32;
+      phases[i] = phase;
       this.banks.push({
-        mesh,
         x,
+        y,
         z,
+        sx,
+        sy,
         phase,
         speed: (0.3 + random() * 0.3) * scale,
       });
     }
+    this.root.add(this.mistMesh);
     const plane = makeAircraft();
     for (let i = 0; i < 3; i++) {
       const aircraft = i === 0 ? plane : plane.clone();
@@ -235,19 +305,28 @@ export class CoastalAtmosphere {
     this.update(0);
   }
   update(time: number) {
-    for (const bank of this.banks) {
-      bank.mesh.position.x =
+    this.mistMesh.material.uniforms.time.value = time;
+    for (let i = 0; i < this.banks.length; i++) {
+      const bank = this.banks[i];
+      const px =
         bank.x +
         Math.sin(time * 0.009 + bank.phase) *
           28 *
           (this.setting === 'naval' ? 9 : 1) +
         Math.sin(time * bank.speed * 0.012) * 18;
-      bank.mesh.material.uniforms.time.value = time;
+      this.dummy.position.set(px, bank.y, bank.z);
+      this.dummy.scale.set(bank.sx, bank.sy, 1);
+      this.dummy.updateMatrix();
+      this.mistMesh.setMatrixAt(i, this.dummy.matrix);
       // Independent slow weather pulses, never an opaque screen-wide fog wall.
-      bank.mesh.material.uniforms.density.value =
+      const density =
         0.2 +
         0.36 * Math.pow(0.5 + 0.5 * Math.sin(time * 0.035 + bank.phase), 2);
+      this.densityAttr.setX(i, density);
+      if (i === 0) this.mistMesh.material.uniforms.density.value = density;
     }
+    this.mistMesh.instanceMatrix.needsUpdate = true;
+    this.densityAttr.needsUpdate = true;
     const period = 52 + (this.seed % 13),
       phase = (time + 11) % period;
     const speed = 83,
@@ -273,16 +352,22 @@ export class CoastalAtmosphere {
     if (this.disposed) return;
     this.disposed = true;
     const geometries = new Set<THREE.BufferGeometry>(),
-      materials = new Set<THREE.Material>();
+      materials = new Set<THREE.Material>(),
+      textures = new Set<THREE.Texture>();
     this.root.traverse((o) => {
       if (o instanceof THREE.Mesh) {
         geometries.add(o.geometry);
-        for (const m of Array.isArray(o.material) ? o.material : [o.material])
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
           materials.add(m);
+          for (const v of Object.values(m))
+            if (v instanceof THREE.Texture) textures.add(v);
+        }
       }
     });
+    this.mistMesh.dispose();
     geometries.forEach((g) => g.dispose());
     materials.forEach((m) => m.dispose());
+    textures.forEach((t) => t.dispose());
     this.root.removeFromParent();
   }
 }

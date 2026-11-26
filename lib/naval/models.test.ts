@@ -1,0 +1,114 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import * as THREE from 'three';
+import type { NavalMaterials } from './materials';
+import { makePlayerDeck, makeShip } from './models';
+
+function createMockNavalMaterials(): NavalMaterials {
+  const extra: THREE.Material[] = [];
+  const labelCache = new Map<string, THREE.MeshStandardMaterial>();
+  const base = {
+    steel: new THREE.MeshStandardMaterial({ color: '#a0aeb0' }),
+    dark: new THREE.MeshStandardMaterial({ color: '#364b55' }),
+    deck: new THREE.MeshStandardMaterial({ color: '#a7b1a3' }),
+    gunmetal: new THREE.MeshStandardMaterial({ color: '#46535c' }),
+    black: new THREE.MeshStandardMaterial({ color: '#111c22' }),
+    brass: new THREE.MeshStandardMaterial({ color: '#b09556' }),
+    glass: new THREE.MeshPhysicalMaterial({ color: '#243e4c' }),
+    red: new THREE.MeshStandardMaterial({ color: '#843f2a' }),
+    ivory: new THREE.MeshStandardMaterial({ color: '#d6d5bb' }),
+  };
+  return {
+    ...base,
+    label(text: string) {
+      let mat = labelCache.get(text);
+      if (!mat) {
+        mat = new THREE.MeshStandardMaterial({
+          color: '#e4e4d0',
+          transparent: true,
+          depthWrite: false,
+        });
+        labelCache.set(text, mat);
+        extra.push(mat);
+      }
+      return mat;
+    },
+    dispose() {
+      for (const mat of Object.values(base)) mat.dispose();
+      for (const mat of extra) mat.dispose();
+    },
+  };
+}
+
+function disposeObjectResources(root: THREE.Object3D) {
+  root.traverse((o) => {
+    if (o instanceof THREE.InstancedMesh) {
+      o.geometry.dispose();
+      o.dispose();
+    } else if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
+      o.geometry.dispose();
+      if (o instanceof THREE.Line) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach((m) => m.dispose());
+      }
+    }
+  });
+}
+
+void test('makeShip orients deck upward without DoubleSide and batches cables into LineSegments', () => {
+  const materials = createMockNavalMaterials();
+  assert.equal(materials.deck.side, THREE.FrontSide);
+
+  const ship = makeShip(120, 18, materials, '42');
+  assert.equal(materials.deck.side, THREE.FrontSide);
+
+  let deckMeshCount = 0;
+  let lineSegments = 0;
+  let standaloneLines = 0;
+  ship.traverse((o) => {
+    if (o instanceof THREE.Mesh && o.material === materials.deck) {
+      deckMeshCount++;
+      const normal = o.geometry.getAttribute('normal');
+      assert.ok(normal && normal.count > 0);
+      for (let i = 0; i < normal.count; i++) {
+        assert.ok(normal.getY(i) > 0.99);
+      }
+    }
+    if (o instanceof THREE.LineSegments) lineSegments++;
+    else if (o instanceof THREE.Line) standaloneLines++;
+  });
+  assert.equal(deckMeshCount, 1);
+  assert.equal(lineSegments, 1);
+  assert.equal(standaloneLines, 0);
+
+  disposeObjectResources(ship);
+  materials.dispose();
+});
+
+void test('makePlayerDeck instances 45 turret bolts, bakes guns cleanly, and batches cables', () => {
+  const materials = createMockNavalMaterials();
+  const deck = makePlayerDeck(materials);
+
+  const boltMeshes: THREE.InstancedMesh[] = [];
+  let lineSegments = 0;
+  let standaloneLines = 0;
+  deck.root.traverse((o) => {
+    if (o instanceof THREE.InstancedMesh) boltMeshes.push(o);
+    if (o instanceof THREE.LineSegments) lineSegments++;
+    else if (o instanceof THREE.Line) standaloneLines++;
+  });
+  assert.equal(boltMeshes.length, 1);
+  assert.equal(boltMeshes[0].count, 45);
+  assert.equal(lineSegments, 1);
+  assert.equal(standaloneLines, 0);
+  assert.equal(deck.muzzles.length, 2);
+
+  let gunMeshes = 0;
+  deck.guns.traverse((o) => {
+    if (o instanceof THREE.Mesh) gunMeshes++;
+  });
+  assert.ok(gunMeshes > 0 && gunMeshes <= 4);
+
+  disposeObjectResources(deck.root);
+  materials.dispose();
+});

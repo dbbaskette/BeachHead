@@ -277,6 +277,7 @@ export class TankArt extends AirArt {
   leaf = this.mat('#81906b', 0.94);
   foliage = this.geo(new T.PlaneGeometry(1, 1));
   leaves = this.mat('#99a982', 0.97);
+  private cachedMaterials?: Map<string, T.MeshStandardMaterial>;
   constructor() {
     super();
     if (typeof document !== 'undefined') {
@@ -348,13 +349,25 @@ export class TankArt extends AirArt {
   soft(root: T.Object3D, mat: T.Material, p: number[], size: number[]) {
     return this.mesh(root, this.rounded, mat, p, size);
   }
+  cachedMat(color: string, roughness: number) {
+    this.cachedMaterials ??= new Map();
+    const key = `${color}:${roughness}`;
+    let mat = this.cachedMaterials.get(key);
+    if (!mat) {
+      mat = this.mat(color, roughness);
+      this.cachedMaterials.set(key, mat);
+    }
+    return mat;
+  }
 }
+
+export const TANK_WHEEL_Z = [-1.55, -0.93, -0.31, 0.31, 0.93, 1.55] as const;
+
 export function makeTank(a: TankArt, enemy = false) {
   const root = new T.Group(),
     body = new T.Group(),
     turret = new T.Group(),
     barrel = new T.Group(),
-    wheels: T.Mesh[] = [],
     sprockets: T.Mesh[] = [];
   const paint = enemy ? (a.enemyPaint ?? a.mat('#797663', 0.76)) : a.olive;
 
@@ -500,19 +513,20 @@ export function makeTank(a: TankArt, enemy = false) {
     barrel.position.set(0, 0.4, -1.03);
   }
 
+  const wheelMesh = new T.InstancedMesh(a.cylinder, a.rubber, 12);
+  wheelMesh.castShadow = true;
+  wheelMesh.receiveShadow = true;
+  wheelMesh.instanceMatrix.setUsage(T.DynamicDrawUsage);
+  const wheelObj = new T.Object3D();
+  let wi = 0;
   for (const side of [-1, 1]) {
     // 6 road wheels rest inside the lower track run (y = 0.52, r = 0.40 -> bottom at y = 0.12).
-    for (let i = 0; i < 6; i++) {
-      const z = -1.55 + i * 0.62;
-      const wheel = a.mesh(
-        root,
-        a.cylinder,
-        a.rubber,
-        [side * 1.43, 0.52, z],
-        [0.4, 0.28, 0.4],
-      );
-      wheel.rotation.z = Math.PI / 2;
-      wheels.push(wheel);
+    for (const z of TANK_WHEEL_Z) {
+      wheelObj.position.set(side * 1.43, 0.52, z);
+      wheelObj.rotation.set(0, 0, Math.PI / 2);
+      wheelObj.scale.set(0.4, 0.28, 0.4);
+      wheelObj.updateMatrix();
+      wheelMesh.setMatrixAt(wi++, wheelObj.matrix);
     }
     // Front drive sprocket & rear idler aligned with the track arc centers at y = 0.62, z = ±2.15.
     for (const z of [-2.15, 2.15]) {
@@ -529,7 +543,14 @@ export function makeTank(a: TankArt, enemy = false) {
       sprockets.push(sprocket);
     }
   }
+  wheelMesh.instanceMatrix.needsUpdate = true;
+  wheelMesh.computeBoundingBox();
+  wheelMesh.computeBoundingSphere();
+  root.add(wheelMesh);
+
   turret.position.set(0, 2, 0);
+  consolidateTank(barrel, a);
+  consolidateTank(turret, a);
   turret.add(barrel);
   // Raised bolts, tow eyes and rolled canvas break up the silhouette.
   for (const x of [-1, 1])
@@ -624,10 +645,6 @@ export function makeTank(a: TankArt, enemy = false) {
       o.receiveShadow = true;
     }
   });
-  for (const wheel of wheels) {
-    wheel.castShadow = true;
-    wheel.receiveShadow = true;
-  }
   // Keep barrel and turret independent from the static hull.
   root.add(body, turret);
   const tracks = new T.InstancedMesh(a.rounded, a.dark, 88);
@@ -636,7 +653,7 @@ export function makeTank(a: TankArt, enemy = false) {
   tracks.instanceMatrix.setUsage(T.DynamicDrawUsage);
   tracks.frustumCulled = false;
   root.add(tracks);
-  return { root, turret, barrel, wheels, sprockets, tracks };
+  return { root, turret, barrel, wheelMesh, sprockets, tracks };
 }
 export function makeCover(a: TankArt, c: Cover) {
   const root = new T.Group(),
@@ -996,12 +1013,12 @@ export function makeEnemy(a: TankArt, kind: EnemyKind) {
     a.mesh(weapon, a.cylinder, a.steel, [0, 1.68, 0], [0.04, 0.7, 0.04]);
     a.soft(weapon, a.wood, [0, 2.01, 0], [0.65, 0.1, 0.1]);
   } else {
-    const uniform = a.mat('#5c6255', 0.96);
+    const uniform = a.cachedMat('#5c6255', 0.96);
     a.mesh(soldier, a.round, uniform, [0, 0.9, 0], [0.34, 0.52, 0.22]);
     a.mesh(
       soldier,
       a.round,
-      a.mat('#a58b70', 0.94),
+      a.cachedMat('#a58b70', 0.94),
       [0, 1.56, -0.03],
       [0.17, 0.23, 0.17],
     );
@@ -1050,11 +1067,11 @@ export function makeAlly(a: TankArt) {
   const leftArm = new T.Group();
   const rightArm = new T.Group();
 
-  const khaki = a.mat('#6f6a4f', 0.95);
-  const trousers = a.mat('#615c46', 0.96);
-  const helmet = a.mat('#4c563f', 0.78);
-  const pack = a.mat('#9b8e6c', 0.95);
-  const skin = a.mat('#ab8e72', 0.92);
+  const khaki = a.cachedMat('#6f6a4f', 0.95);
+  const trousers = a.cachedMat('#615c46', 0.96);
+  const helmet = a.cachedMat('#4c563f', 0.78);
+  const pack = a.cachedMat('#9b8e6c', 0.95);
+  const skin = a.cachedMat('#ab8e72', 0.92);
 
   a.mesh(torso, a.round, khaki, [0, 1.0, 0], [0.32, 0.48, 0.21]);
   a.soft(torso, pack, [0, 0.98, 0.16], [0.28, 0.38, 0.14]);

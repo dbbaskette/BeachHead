@@ -83,6 +83,75 @@ function offLane(x: number, clearance = 5.5) {
   return LANES.every((lane) => Math.abs(x - lane) > clearance);
 }
 
+function detailSurfaceTexture(
+  seed: number,
+  contrast: number,
+  streaks = false,
+  repeat = 2,
+) {
+  const size = 128;
+  const data = new Uint8Array(size * size * 4);
+  let state = seed >>> 0;
+  const rand = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const wave = streaks
+        ? Math.sin(x * 0.45 + Math.sin(y * 0.08) * 3.2) * contrast * 0.7
+        : (Math.sin(x * 0.22 + y * 0.17) + Math.cos(x * 0.11 - y * 0.29)) *
+          contrast *
+          0.35;
+      const grain = (rand() - 0.5) * contrast;
+      const v = Math.max(95, Math.min(250, Math.round(198 + wave + grain)));
+      const i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function warningSignTexture() {
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const c = canvas.getContext('2d')!;
+    c.fillStyle = '#979180';
+    c.fillRect(0, 0, 512, 256);
+    for (let i = 0; i < 1800; i++) {
+      c.fillStyle = i % 3 ? '#5f5b4f26' : '#c6beab24';
+      c.fillRect((i * 73) % 512, (i * 137) % 256, 3, 2);
+    }
+    c.strokeStyle = '#292722';
+    c.lineWidth = 10;
+    c.strokeRect(18, 18, 476, 220);
+    c.fillStyle = '#201e1a';
+    c.textAlign = 'center';
+    c.font = 'bold 54px monospace';
+    c.fillText('ACHTUNG MINEN', 256, 108);
+    c.font = 'bold 30px monospace';
+    c.fillText('STRANDSEKTOR 4', 256, 174);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    return tex;
+  }
+  const data = new Uint8Array(64 * 32 * 4);
+  data.fill(150);
+  const tex = new THREE.DataTexture(data, 64, 32, THREE.RGBAFormat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 /** Static, deterministic battlefield dressing for the Stage 3 beach. */
 export class BeachDetail {
   private root = new THREE.Group();
@@ -90,6 +159,7 @@ export class BeachDetail {
   private materials: THREE.Material[] = [];
   private textures: THREE.Texture[] = [];
   private dustMaterial?: THREE.ShaderMaterial;
+  private grassUniforms = { uTime: { value: 0 } };
 
   constructor(scene: THREE.Scene) {
     this.root.name = 'beach-battlefield-detail';
@@ -105,21 +175,72 @@ export class BeachDetail {
       this.materials.push(value);
       return value;
     };
+    const texture = (tex: THREE.Texture) => {
+      this.textures.push(tex);
+      return tex;
+    };
+    const stoneMap = texture(detailSurfaceTexture(0x411, 52, false, 2));
+    const concreteMap = texture(detailSurfaceTexture(0x822, 42, false, 2));
+    const rustMap = texture(detailSurfaceTexture(0xc33, 60, true, 2));
+    const woodMap = texture(detailSurfaceTexture(0xf44, 48, true, 3));
     const sandDark = material({ color: '#574936', roughness: 1 });
-    const stone = material({ color: '#625f51', roughness: 0.97 });
-    const concrete = material({ color: '#77766a', roughness: 1 });
-    const concreteFace = material({ color: '#969184', roughness: 0.96 });
-    const rust = material({
-      color: '#4b3024',
-      roughness: 0.8,
-      metalness: 0.45,
+    const stone = material({
+      color: '#797567',
+      map: stoneMap,
+      bumpMap: stoneMap,
+      bumpScale: 0.04,
+      roughness: 0.96,
     });
-    const wood = material({ color: '#51402d', roughness: 1 });
+    const concrete = material({
+      color: '#8c8b7d',
+      map: concreteMap,
+      bumpMap: concreteMap,
+      bumpScale: 0.035,
+      roughness: 0.98,
+    });
+    const concreteFace = material({
+      color: '#aaa596',
+      map: concreteMap,
+      bumpMap: concreteMap,
+      bumpScale: 0.03,
+      roughness: 0.95,
+    });
+    const rust = material({
+      color: '#634131',
+      map: rustMap,
+      bumpMap: rustMap,
+      bumpScale: 0.03,
+      roughness: 0.78,
+      metalness: 0.48,
+    });
+    const wood = material({
+      color: '#6e5b46',
+      map: woodMap,
+      bumpMap: woodMap,
+      bumpScale: 0.035,
+      roughness: 0.96,
+    });
     const grass = material({
-      color: '#596044',
+      color: '#ffffff',
       roughness: 1,
       side: THREE.DoubleSide,
     });
+    grass.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = this.grassUniforms.uTime;
+      shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec4 gWorld = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          float gPhase = uTime * 1.9 + gWorld.x * 0.27 + gWorld.z * 0.19;
+          float gBend = position.y * position.y;
+          transformed.x += (sin(gPhase) * 0.14 + sin(gPhase * 2.3) * 0.04) * gBend;
+          transformed.z += cos(gPhase * 0.85) * 0.07 * gBend;
+        #endif`,
+      );
+    };
+    grass.customProgramCacheKey = () => 'beach-grass-wind-v1';
 
     const rockData = Array.from({ length: 62 }, () => {
       let x = 0;
@@ -224,12 +345,26 @@ export class BeachDetail {
       .setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4]);
     bladeGeometry.computeVertexNormals();
     const blade = geometry(bladeGeometry);
+    const grassTint = new THREE.Color();
     for (const quarterTurn of [false, true]) {
-      this.addInstances(blade, grass, grassData, ([x, z, scale], object) => {
-        object.position.set(x, scale * 0.65, z);
-        object.rotation.y = (quarterTurn ? Math.PI / 2 : 0) + random() * 0.35;
-        object.scale.set(scale, scale, scale);
-      });
+      const grassMesh = this.addInstances(
+        blade,
+        grass,
+        grassData,
+        ([x, z, scale], object, index) => {
+          object.position.set(x, 0, z);
+          object.rotation.y = (quarterTurn ? Math.PI / 2 : 0) + random() * 0.35;
+          object.scale.set(scale, scale, scale);
+          const jitter = ((index * 17) % 13) / 12;
+          grassTint.setHSL(
+            0.2 + jitter * 0.055,
+            0.24 + jitter * 0.12,
+            0.24 + jitter * 0.14,
+          );
+          return grassTint;
+        },
+      );
+      if (grassMesh.instanceColor) grassMesh.instanceColor.needsUpdate = true;
     }
 
     // Flat, dark paired impressions suggest churned boot traffic along each route.
@@ -272,7 +407,12 @@ export class BeachDetail {
         object.rotation.y = yaw;
       },
     );
-    this.addSigns(geometry, concreteFace, rust);
+    const warningTex = texture(warningSignTexture());
+    const warningMat = material({
+      map: warningTex,
+      roughness: 0.92,
+    });
+    this.addSigns(geometry, warningMat, rust);
     this.addDust(geometry, random);
   }
 
@@ -280,7 +420,11 @@ export class BeachDetail {
     geometry: THREE.BufferGeometry,
     material: THREE.Material,
     data: T[],
-    place: (datum: T, object: THREE.Object3D, index: number) => void,
+    place: (
+      datum: T,
+      object: THREE.Object3D,
+      index: number,
+    ) => THREE.Color | void,
     shadows = true,
   ) {
     const mesh = new THREE.InstancedMesh(geometry, material, data.length);
@@ -289,14 +433,16 @@ export class BeachDetail {
       object.position.set(0, 0, 0);
       object.rotation.set(0, 0, 0);
       object.scale.set(1, 1, 1);
-      place(datum, object, index);
+      const color = place(datum, object, index);
       object.position.y += beachHeight(object.position.x, object.position.z);
       object.updateMatrix();
       mesh.setMatrixAt(index, object.matrix);
+      if (color) mesh.setColorAt(index, color);
     });
     mesh.castShadow = shadows;
     mesh.receiveShadow = shadows;
     this.root.add(mesh);
+    return mesh;
   }
 
   private addSigns(
@@ -390,6 +536,7 @@ export class BeachDetail {
   }
 
   update(time: number, pixelRatio = 1) {
+    this.grassUniforms.uTime.value = time;
     if (!this.dustMaterial) return;
     this.dustMaterial.uniforms.uTime.value = time;
     this.dustMaterial.uniforms.uPixelRatio.value = pixelRatio;

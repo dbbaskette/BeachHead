@@ -17,6 +17,17 @@ type DamageState = {
   secondary: boolean;
 };
 
+const MAX_DEBRIS = 30;
+
+type DebrisPiece = {
+  position: THREE.Vector3;
+  rotation: THREE.Euler;
+  scale: THREE.Vector3;
+  velocity: THREE.Vector3;
+  age: number;
+  seed: number;
+};
+
 /** Owns deck scars, flooding presentation and a bounded field of floating debris. */
 export class ShipDamageVisuals {
   private states = new Map<string, DamageState>();
@@ -55,16 +66,23 @@ export class ShipDamageVisuals {
     roughness: 0.88,
     metalness: 0.25,
   });
-  private debris: Array<{
-    mesh: THREE.Mesh;
-    velocity: THREE.Vector3;
-    age: number;
-    seed: number;
-  }> = [];
+  private debrisMesh: THREE.InstancedMesh;
+  private dummy = new THREE.Object3D();
+  private debris: DebrisPiece[] = [];
   constructor(
     private scene: THREE.Scene,
     private effects: DamageEffects,
-  ) {}
+  ) {
+    this.debrisMesh = new THREE.InstancedMesh(
+      this.debrisGeometry,
+      this.debrisMaterial,
+      MAX_DEBRIS,
+    );
+    this.debrisMesh.name = 'floating-wreckage';
+    this.debrisMesh.count = 0;
+    this.debrisMesh.frustumCulled = false;
+    this.debrisMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  }
 
   updateShip(ship: EnemyShip, mesh: THREE.Group, dt: number) {
     let state = this.states.get(ship.id);
@@ -138,17 +156,35 @@ export class ShipDamageVisuals {
     }
   }
 
+  private syncDebrisMesh() {
+    this.debrisMesh.count = this.debris.length;
+    if (this.debris.length === 0) {
+      this.debrisMesh.removeFromParent();
+      return;
+    }
+    if (!this.debrisMesh.parent) this.scene.add(this.debrisMesh);
+    for (let i = 0; i < this.debris.length; i++) {
+      const p = this.debris[i];
+      this.dummy.position.copy(p.position);
+      this.dummy.rotation.copy(p.rotation);
+      this.dummy.scale.copy(p.scale);
+      this.dummy.updateMatrix();
+      this.debrisMesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.debrisMesh.instanceMatrix.needsUpdate = true;
+  }
+
   private scatter(point: THREE.Vector3) {
-    for (let i = 0; i < 10 && this.debris.length < 30; i++) {
-      const mesh = new THREE.Mesh(this.debrisGeometry, this.debrisMaterial);
-      mesh.name = 'floating-wreckage';
-      mesh.position.copy(point);
-      mesh.scale.set(1.3 + (i % 3), 0.35 + (i % 2) * 0.3, 2 + (i % 4));
-      mesh.rotation.set(i, i * 2.399, 0);
-      this.scene.add(mesh);
+    for (let i = 0; i < 10 && this.debris.length < MAX_DEBRIS; i++) {
       const angle = i * 2.399;
       this.debris.push({
-        mesh,
+        position: point.clone(),
+        rotation: new THREE.Euler(i, angle, 0),
+        scale: new THREE.Vector3(
+          1.3 + (i % 3),
+          0.35 + (i % 2) * 0.3,
+          2 + (i % 4),
+        ),
         velocity: new THREE.Vector3(
           Math.cos(angle) * (4 + i),
           8 + (i % 5),
@@ -158,39 +194,43 @@ export class ShipDamageVisuals {
         seed: i,
       });
     }
+    this.syncDebrisMesh();
   }
   update(dt: number) {
-    if (dt <= 0) return;
-    for (const p of this.debris) {
+    if (dt <= 0 || this.debris.length === 0) return;
+    let write = 0;
+    for (let i = 0; i < this.debris.length; i++) {
+      const p = this.debris[i];
       p.age += dt;
-      if (p.mesh.position.y > 0.5) {
+      if (p.age >= 24) continue;
+      if (p.position.y > 0.5) {
         p.velocity.y -= dt * 9.81;
-        p.mesh.position.addScaledVector(p.velocity, dt);
-        p.mesh.position.y = Math.max(0.45, p.mesh.position.y);
-        p.mesh.rotation.x += dt * 2;
+        p.position.addScaledVector(p.velocity, dt);
+        p.position.y = Math.max(0.45, p.position.y);
+        p.rotation.x += dt * 2;
       } else {
-        p.mesh.position.x += dt * 0.8;
-        p.mesh.position.z += dt * 0.3;
-        p.mesh.position.y = 0.32 + Math.sin(p.age * 1.8 + p.seed) * 0.08;
-        p.mesh.rotation.z = Math.sin(p.age + p.seed) * 0.14;
+        p.position.x += dt * 0.8;
+        p.position.z += dt * 0.3;
+        p.position.y = 0.32 + Math.sin(p.age * 1.8 + p.seed) * 0.08;
+        p.rotation.z = Math.sin(p.age + p.seed) * 0.14;
       }
-      if (p.age > 20) p.mesh.scale.multiplyScalar(Math.exp(-dt * 0.8));
+      if (p.age > 20) p.scale.multiplyScalar(Math.exp(-dt * 0.8));
+      this.debris[write++] = p;
     }
-    this.debris = this.debris.filter((p) => {
-      if (p.age < 24) return true;
-      p.mesh.removeFromParent();
-      return false;
-    });
+    this.debris.length = write;
+    this.syncDebrisMesh();
   }
   reset() {
     for (const state of this.states.values())
       for (const scar of state.scars) scar.removeFromParent();
     this.states.clear();
-    for (const p of this.debris) p.mesh.removeFromParent();
-    this.debris = [];
+    this.debris.length = 0;
+    this.debrisMesh.count = 0;
+    this.debrisMesh.removeFromParent();
   }
   dispose() {
     this.reset();
+    this.debrisMesh.dispose();
     this.scars.dispose();
     this.scarMaterial.dispose();
     this.debrisGeometry.dispose();

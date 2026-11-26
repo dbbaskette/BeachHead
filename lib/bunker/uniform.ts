@@ -17,24 +17,72 @@ export async function uniformMaterial() {
   ctx.drawImage(detailed.image, 0, 0, canvas.width, canvas.height);
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const d = pixels.data;
+  const roughPixels = ctx.createImageData(canvas.width, canvas.height);
+  const rd = roughPixels.data;
+  const metalPixels = ctx.createImageData(canvas.width, canvas.height);
+  const md = metalPixels.data;
+  const width = canvas.width;
+  const setPbr = (i: number, r: number, m: number) => {
+    rd[i] = rd[i + 1] = rd[i + 2] = r;
+    rd[i + 3] = 255;
+    md[i] = md[i + 1] = md[i + 2] = m;
+    md[i + 3] = 255;
+  };
   for (let i = 0; i < d.length; i += 4) {
-    if (mask[i] > 7 && mask[i] < 40 && Math.abs(mask[i] - mask[i + 1]) < 8) {
-      const grain = (((i / 4) * 73) % 17) - 8;
+    const px = (i / 4) % width;
+    const py = Math.floor(i / 4 / width);
+    const mr = mask[i],
+      mg = mask[i + 1],
+      mb = mask[i + 2];
+    const hash = Math.sin(px * 127.1 + py * 311.7) * 43758.5453;
+    const grain = (hash - Math.floor(hash) - 0.5) * 14;
+    if (mr > 7 && mr < 40 && Math.abs(mr - mg) < 8) {
+      // Field-grey wool cloth: matte fabric response with smooth 2D grain.
       const luminance = (d[i] + d[i + 1] + d[i + 2]) / 3;
       const shade = 0.65 + Math.min(100, luminance) / 150;
       d[i] = 69 * shade + grain;
       d[i + 1] = 77 * shade + grain;
       d[i + 2] = 64 * shade + grain;
+      setPbr(i, 236, 0);
+    } else if (mr <= 18 && mg <= 18 && mb <= 18) {
+      // Leather boots, belt, and chin strap.
+      setPbr(i, 108, 22);
+    } else if (mr > mb + 18 && mr > 80) {
+      // Face and hands skin.
+      setPbr(i, 174, 0);
+    } else {
+      // Painted steel helmet, buckle, and hardware.
+      setPbr(i, 118, 108);
     }
   }
   ctx.putImageData(pixels, 0, 0);
   detailed.dispose();
   original.dispose();
-  const map = new T.CanvasTexture(canvas);
-  map.flipY = true;
-  map.colorSpace = T.SRGBColorSpace;
-  map.anisotropy = 8;
-  return new T.MeshStandardMaterial({ map, roughness: 0.9, metalness: 0 });
+  const makeTex = (data: ImageData | HTMLCanvasElement, srgb: boolean) => {
+    let source = canvas;
+    if (data instanceof ImageData) {
+      const c = document.createElement('canvas');
+      c.width = data.width;
+      c.height = data.height;
+      c.getContext('2d')!.putImageData(data, 0, 0);
+      source = c;
+    }
+    const t = new T.CanvasTexture(source);
+    t.flipY = true;
+    if (srgb) t.colorSpace = T.SRGBColorSpace;
+    t.anisotropy = srgb ? 8 : 4;
+    return t;
+  };
+  const map = makeTex(canvas, true);
+  const roughnessMap = makeTex(roughPixels, false);
+  const metalnessMap = makeTex(metalPixels, false);
+  return new T.MeshStandardMaterial({
+    map,
+    roughnessMap,
+    metalnessMap,
+    roughness: 1,
+    metalness: 1,
+  });
 }
 
 /** Subtle breathing and a short, planted patrol stride on the authored skeleton. */

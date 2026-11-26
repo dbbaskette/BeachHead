@@ -3,7 +3,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { AirArt } from './art';
 import { GUNS, RACKS } from './flight';
 import { CONVERGENCE } from './weapons';
-import { instrumentTexture, aircraftSkin } from './surfaces';
+import {
+  instrumentTexture,
+  aircraftSkin,
+  aircraftSurfaceMaps,
+} from './surfaces';
 
 /** Smooth elliptical sections give the cowling and tail a continuous silhouette. */
 function fuselageGeometry() {
@@ -97,6 +101,12 @@ export function makeAirframe(a: AirArt) {
     [1, 1, 1],
   );
   body.name = 'shaped-fuselage';
+  const surfaceMaps = aircraftSurfaceMaps();
+  a.textures.add(surfaceMaps.normalMap);
+  a.textures.add(surfaceMaps.roughnessMap);
+  paint.normalMap = surfaceMaps.normalMap;
+  paint.roughnessMap = surfaceMaps.roughnessMap;
+  paint.normalScale.set(0.28, 0.28);
   // Short, broad radial-engine housing with a recessed cooling ring.
   const cooling = a.mesh(
     root,
@@ -129,6 +139,9 @@ export function makeAirframe(a: AirArt) {
   }
   const wingPaint = a.mat('#ffffff', 0.68),
     skin = aircraftSkin();
+  wingPaint.normalMap = surfaceMaps.normalMap;
+  wingPaint.roughnessMap = surfaceMaps.roughnessMap;
+  wingPaint.normalScale.set(0.28, 0.28);
   if (skin) {
     a.textures.add(skin);
     wingPaint.map = skin;
@@ -241,22 +254,33 @@ export function makeAirframe(a: AirArt) {
       ]);
     }
   }
-  const glazing = a.mat('#b6ceca', 0.12);
-  Object.assign(glazing, {
+  const glazing = new THREE.MeshPhysicalMaterial({
+    color: '#b6ceca',
+    roughness: 0.08,
+    metalness: 0.05,
+    reflectivity: 0.92,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06,
     transparent: true,
-    opacity: 0.055,
+    opacity: 0.14,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  a.materials.add(glazing);
+  const glazingGeos: THREE.BufferGeometry[] = [];
   function windowPane(points: number[][]) {
-    const geometry = a.geo(new THREE.BufferGeometry());
+    const geometry = new THREE.BufferGeometry();
     geometry.setAttribute(
       'position',
       new THREE.Float32BufferAttribute(points.flat(), 3),
     );
+    geometry.setAttribute(
+      'uv',
+      new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2),
+    );
     geometry.setIndex([0, 1, 2, 0, 2, 3]);
     geometry.computeVertexNormals();
-    a.mesh(root, geometry, glazing, [0, 0, 0], [1, 1, 1]);
+    glazingGeos.push(geometry);
   }
   // Front armored pane and angled quarter windows connect to the canopy above the pilot.
   const lower = 1.95,
@@ -353,6 +377,9 @@ export function makeAirframe(a: AirArt) {
   hoodGeometry.computeVertexNormals();
   const antiGlare = a.mat('#717e77', 0.78);
   antiGlare.map = a.paint;
+  antiGlare.normalMap = surfaceMaps.normalMap;
+  antiGlare.roughnessMap = surfaceMaps.roughnessMap;
+  antiGlare.normalScale.set(0.24, 0.24);
   a.mesh(root, hoodGeometry, antiGlare, [0, 0, 0], [1, 1, 1]);
   // Fine transverse seams and paired fasteners give the visible cowling scale and depth.
   const seam = a.mat('#39433f', 0.82);
@@ -491,6 +518,15 @@ export function makeAirframe(a: AirArt) {
     [0.15, 3.26, 0.6],
     [-0.15, 3.26, 0.6],
   ]);
+  const nonIndexedGlazing = glazingGeos.map((g) => {
+    const converted = g.index ? g.toNonIndexed() : g.clone();
+    g.dispose();
+    return converted;
+  });
+  const mergedGlazing = mergeGeometries(nonIndexedGlazing, false);
+  nonIndexedGlazing.forEach((g) => g.dispose());
+  if (mergedGlazing)
+    a.mesh(root, a.geo(mergedGlazing), glazing, [0, 0, 0], [1, 1, 1]);
   const prop = new THREE.Group();
   prop.position.set(0, -0.7, -4.76);
   root.add(prop);
@@ -579,6 +615,31 @@ export function makeAirframe(a: AirArt) {
     geometries.forEach((geometry) => geometry.dispose());
     if (!merged) throw new Error('Aircraft geometry could not be assembled');
     root.add(new THREE.Mesh(a.geo(merged), material));
+  }
+  const cockpitBatches = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  for (const child of cockpit.children.slice()) {
+    if (
+      !(child instanceof THREE.Mesh) ||
+      Array.isArray(child.material) ||
+      child.material.transparent ||
+      child.material instanceof THREE.ShaderMaterial
+    )
+      continue;
+    child.updateMatrix();
+    const geometry = (
+      child.geometry.index
+        ? child.geometry.toNonIndexed()
+        : child.geometry.clone()
+    ).applyMatrix4(child.matrix);
+    const group = cockpitBatches.get(child.material) ?? [];
+    group.push(geometry);
+    cockpitBatches.set(child.material, group);
+    cockpit.remove(child);
+  }
+  for (const [material, geometries] of cockpitBatches) {
+    const merged = mergeGeometries(geometries);
+    geometries.forEach((geometry) => geometry.dispose());
+    if (merged) cockpit.add(new THREE.Mesh(a.geo(merged), material));
   }
   const cockpitMaterials = new Set<THREE.Material>([
     interior,

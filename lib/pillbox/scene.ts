@@ -1,5 +1,5 @@
 import { mobilePixelRatio, TOUCH_LAYOUT_QUERY } from '../touch-input';
-import { LandingCraftRenderer, embarkedInfantry } from './landing-craft';
+import { LandingCraftRenderer } from './landing-craft';
 import { CoastalAtmosphere } from '../naval/atmosphere';
 import {
   makeDaylightSky,
@@ -140,6 +140,75 @@ const MAX_HELMETS = 24;
 function seeded(seed: number) {
   let s = seed >>> 0;
   return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+}
+
+function proceduralSteelPbr() {
+  const size = 256;
+  const diffuse = new Uint8Array(size * size * 4);
+  const normal = new Uint8Array(size * size * 4);
+  const rough = new Uint8Array(size * size * 4);
+  const heights = new Float32Array(size * size);
+  const hash = (x: number, y: number) => {
+    const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  for (let y = 0; y < size; y++) {
+    const seamY = y < 3 || Math.abs(y - 128) < 2;
+    for (let x = 0; x < size; x++) {
+      const idx = y * size + x;
+      const seamX = x < 3 || Math.abs(x - 128) < 2;
+      const brush =
+        Math.sin(x * 0.28 + hash(Math.floor(x / 6), y) * 1.4) * 0.14 +
+        (hash(x, Math.floor(y / 2)) - 0.5) * 0.2;
+      const grain = (hash(x, y) - 0.5) * 0.14;
+      const seam = seamX || seamY ? -0.35 : 0;
+      heights[idx] = brush + grain + seam;
+      const v = Math.max(
+        92,
+        Math.min(230, Math.round(172 + heights[idx] * 48)),
+      );
+      const r = Math.max(
+        85,
+        Math.min(235, Math.round(145 - brush * 38 + (seam ? 42 : 0))),
+      );
+      const o = idx * 4;
+      diffuse[o] = v;
+      diffuse[o + 1] = v + 2;
+      diffuse[o + 2] = v + 2;
+      diffuse[o + 3] = 255;
+      rough[o] = rough[o + 1] = rough[o + 2] = r;
+      rough[o + 3] = 255;
+    }
+  }
+  for (let y = 0; y < size; y++) {
+    const ym = (y - 1 + size) % size;
+    const yp = (y + 1) % size;
+    for (let x = 0; x < size; x++) {
+      const xm = (x - 1 + size) % size;
+      const xp = (x + 1) % size;
+      const dx = (heights[y * size + xp] - heights[y * size + xm]) * 2.2;
+      const dy = (heights[yp * size + x] - heights[ym * size + x]) * 2.2;
+      const inv = 1 / Math.hypot(dx, dy, 1);
+      const o = (y * size + x) * 4;
+      normal[o] = Math.round((-dx * inv * 0.5 + 0.5) * 255);
+      normal[o + 1] = Math.round((-dy * inv * 0.5 + 0.5) * 255);
+      normal[o + 2] = Math.round((inv * 0.5 + 0.5) * 255);
+      normal[o + 3] = 255;
+    }
+  }
+  const make = (data: Uint8Array, srgb: boolean) => {
+    const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 4;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return {
+    map: make(diffuse, true),
+    normalMap: make(normal, false),
+    roughnessMap: make(rough, false),
+  };
 }
 
 function mesh(
@@ -424,17 +493,49 @@ export class PillboxScene {
       bumpScale: 0.04,
       roughness: 1,
     });
+    const steelMaps = proceduralSteelPbr();
+    const woodGrainMap = canvasTexture((ctx) => {
+      ctx.fillStyle = '#755338';
+      ctx.fillRect(0, 0, 512, 512);
+      for (let y = 0; y < 512; y++) {
+        const g = Math.sin(y * 0.14 + Math.sin(y * 0.03) * 3) * 14;
+        ctx.fillStyle = `rgb(${Math.round(115 + g)},${Math.round(80 + g * 0.7)},${Math.round(52 + g * 0.45)})`;
+        ctx.fillRect(0, y, 512, 1);
+      }
+      for (let i = 0; i < 4500; i++) {
+        ctx.fillStyle = i % 2 ? 'rgba(30,18,10,.12)' : 'rgba(180,140,100,.08)';
+        ctx.fillRect(random() * 512, random() * 512, 12 + random() * 48, 1);
+      }
+    });
+    this.textures.push(
+      steelMaps.map,
+      steelMaps.normalMap,
+      steelMaps.roughnessMap,
+      woodGrainMap,
+    );
     const steel = material({
-      color: '#58605a',
-      roughness: 0.38,
+      color: '#88928a',
+      map: steelMaps.map,
+      normalMap: steelMaps.normalMap,
+      roughnessMap: steelMaps.roughnessMap,
+      normalScale: new THREE.Vector2(0.4, 0.4),
+      roughness: 0.48,
       metalness: 0.62,
     });
     const brass = material({
-      color: '#b68a3c',
-      roughness: 0.35,
-      metalness: 0.78,
+      color: '#c49848',
+      map: steelMaps.map,
+      roughnessMap: steelMaps.roughnessMap,
+      roughness: 0.36,
+      metalness: 0.8,
     });
-    const wood = material({ color: '#593c27', roughness: 0.78 });
+    const wood = material({
+      color: '#876348',
+      map: woodGrainMap,
+      bumpMap: woodGrainMap,
+      bumpScale: 0.025,
+      roughness: 0.76,
+    });
     const geo = <T extends THREE.BufferGeometry>(g: T) => {
       this.geometries.push(g);
       return g;
@@ -638,6 +739,7 @@ export class PillboxScene {
       opacity: 0.72,
     });
     this.materials.push(wireMat);
+    const wirePositions: number[] = [];
     let postIndex = 0;
     for (const o of wireObstacles)
       for (const z of [o.z - 3, o.z + 3]) {
@@ -647,17 +749,21 @@ export class PillboxScene {
           dummy.updateMatrix();
           posts.setMatrixAt(postIndex++, dummy.matrix);
         }
-        const points: THREE.Vector3[] = [];
-        for (let x = o.x - o.halfX; x <= o.x + o.halfX; x += 0.5)
-          points.push(new THREE.Vector3(x, 0.9 + Math.sin(x * 1.3) * 0.28, z));
-        this.scene.add(
-          new THREE.Line(
-            geo(new THREE.BufferGeometry().setFromPoints(points)),
-            wireMat,
-          ),
-        );
+        let prevX = o.x - o.halfX;
+        let prevY = 0.9 + Math.sin(prevX * 1.3) * 0.28;
+        for (let x = o.x - o.halfX + 0.5; x <= o.x + o.halfX; x += 0.5) {
+          const y = 0.9 + Math.sin(x * 1.3) * 0.28;
+          wirePositions.push(prevX, prevY, z, x, y, z);
+          prevX = x;
+          prevY = y;
+        }
       }
-    this.scene.add(posts);
+    const wireGeo = geo(new THREE.BufferGeometry());
+    wireGeo.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(wirePositions, 3),
+    );
+    this.scene.add(new THREE.LineSegments(wireGeo, wireMat), posts);
     // Interior ammunition boxes and a few loose brass cases.
     for (const x of [-8.3, 8.8])
       this.scene.add(
@@ -717,15 +823,27 @@ export class PillboxScene {
       [Math.PI / 2, 0, 0],
     );
     this.barrel.add(shroud);
+    const steelMaps = {
+      map: (steel as THREE.MeshStandardMaterial).map,
+      normalMap: (steel as THREE.MeshStandardMaterial).normalMap,
+      roughnessMap: (steel as THREE.MeshStandardMaterial).roughnessMap,
+    };
     const inset = new THREE.MeshStandardMaterial({
-      color: '#101613',
+      color: '#202824',
+      roughnessMap: steelMaps.roughnessMap,
+      normalMap: steelMaps.normalMap,
+      normalScale: new THREE.Vector2(0.25, 0.25),
       roughness: 0.72,
-      metalness: 0.4,
+      metalness: 0.45,
     });
     const hardware = new THREE.MeshStandardMaterial({
-      color: '#8a9289',
-      roughness: 0.38,
-      metalness: 0.78,
+      color: '#b4bdb4',
+      map: steelMaps.map,
+      normalMap: steelMaps.normalMap,
+      roughnessMap: steelMaps.roughnessMap,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      roughness: 0.42,
+      metalness: 0.8,
     });
     this.materials.push(inset, hardware);
     this.barrel.add(
@@ -888,7 +1006,25 @@ export class PillboxScene {
     for (const [mat, geometries] of batches) {
       const geometry = mergeGeometries(geometries);
       geometries.forEach((g) => g.dispose());
-      if (geometry) this.barrel.add(mesh(geo(geometry), mat, [0, 0, 0]));
+      if (!geometry) continue;
+      if (!mat.transparent) {
+        const p = geometry.getAttribute('position');
+        const n = geometry.getAttribute('normal');
+        const uv = geometry.getAttribute('uv');
+        if (p && n && uv) {
+          for (let i = 0; i < p.count; i++) {
+            const nx = Math.abs(n.getX(i)),
+              ny = Math.abs(n.getY(i));
+            uv.setXY(
+              i,
+              (nx > 0.5 ? p.getZ(i) : p.getX(i)) * 0.4,
+              (ny > 0.5 ? p.getZ(i) : p.getY(i)) * 0.4,
+            );
+          }
+          uv.needsUpdate = true;
+        }
+      }
+      this.barrel.add(mesh(geo(geometry), mat, [0, 0, 0]));
     }
     this.gun.add(
       mesh(
@@ -1237,11 +1373,7 @@ export class PillboxScene {
     this.infantry.render(
       {
         ...battle,
-        soldiers: [
-          ...battle.soldiers,
-          ...embarkedInfantry(battle),
-          ...supportCrew(battle),
-        ],
+        soldiers: [...battle.soldiers, ...supportCrew(battle)],
       },
       activeDt,
       reducedMotion,

@@ -70,6 +70,51 @@ export function createNavalMaterials() {
   rc.fillRect(0, 0, 512, 2);
   rc.fillRect(0, 256, 512, 2);
   const bump = texture(relief);
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = roughCanvas.height = 512;
+  const rctx = roughCanvas.getContext('2d')!;
+  rctx.fillStyle = '#c4c4c4';
+  rctx.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 16000; i++) {
+    const v = Math.round(145 + random() * 68);
+    rctx.fillStyle = `rgb(${v},${v},${v})`;
+    rctx.fillRect(
+      random() * 512,
+      random() * 512,
+      1 + random() * 4,
+      1 + random() * 2,
+    );
+  }
+  const aoCanvas = document.createElement('canvas');
+  aoCanvas.width = aoCanvas.height = 512;
+  const actx = aoCanvas.getContext('2d')!;
+  actx.fillStyle = '#ffffff';
+  actx.fillRect(0, 0, 512, 512);
+  for (const y of [0, 256]) {
+    rctx.fillStyle = '#e0e0e0';
+    rctx.fillRect(0, y, 512, 3);
+    actx.fillStyle = '#929292';
+    actx.fillRect(0, y, 512, 4);
+    for (let x = 15; x < 512; x += 36) {
+      actx.fillStyle = '#848484';
+      actx.beginPath();
+      actx.arc(x, y + 8, 2.5, 0, Math.PI * 2);
+      actx.fill();
+    }
+  }
+  for (let i = 0; i < 90; i++) {
+    const x = random() * 512,
+      y = random() * 512,
+      len = 8 + random() * 48;
+    // Salt/rust streaks dull specular response; bare metal scuffs polish it.
+    const rustStreak = i % 3 !== 0;
+    const v = rustStreak ? 225 : 105;
+    rctx.fillStyle = `rgba(${v},${v},${v},0.45)`;
+    rctx.fillRect(x, y, 1 + random() * 3, len);
+  }
+  const roughnessMap = texture(roughCanvas);
+  const aoMap = texture(aoCanvas);
+  aoMap.channel = 0;
   const load = (file: string, isColor = false) => {
     const t = new THREE.TextureLoader().load(assetUrl('/textures/' + file));
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -83,7 +128,10 @@ export function createNavalMaterials() {
     map: color,
     bumpMap: bump,
     bumpScale: 0.045,
-    roughness: 0.57,
+    roughnessMap,
+    aoMap,
+    aoMapIntensity: 0.65,
+    roughness: 0.72,
     metalness: 0.42,
   });
   const dark = new THREE.MeshStandardMaterial({
@@ -91,7 +139,10 @@ export function createNavalMaterials() {
     map: color,
     bumpMap: bump,
     bumpScale: 0.035,
-    roughness: 0.49,
+    roughnessMap,
+    aoMap,
+    aoMapIntensity: 0.65,
+    roughness: 0.62,
     metalness: 0.65,
   });
   const deck = new THREE.MeshStandardMaterial({
@@ -108,7 +159,10 @@ export function createNavalMaterials() {
     map: color,
     bumpMap: bump,
     bumpScale: 0.018,
-    roughness: 0.3,
+    roughnessMap,
+    aoMap,
+    aoMapIntensity: 0.65,
+    roughness: 0.4,
     metalness: 0.8,
   });
   const black = new THREE.MeshStandardMaterial({
@@ -149,7 +203,12 @@ export function createNavalMaterials() {
     red,
     ivory,
   };
+  const extra: THREE.Material[] = [];
+  const labelCache = new Map<string, THREE.MeshStandardMaterial>();
   const label = (text: string, width = 512, height = 128) => {
+    const key = `${text}:${width}x${height}`;
+    const cached = labelCache.get(key);
+    if (cached) return cached;
     const c = document.createElement('canvas');
     c.width = width;
     c.height = height;
@@ -170,9 +229,9 @@ export function createNavalMaterials() {
       polygonOffsetFactor: -1,
     });
     extra.push(m);
+    labelCache.set(key, m);
     return m;
   };
-  const extra: THREE.Material[] = [];
   return {
     ...materials,
     label,

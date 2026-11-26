@@ -54,6 +54,7 @@ export class BunkerFinale {
   private peak = new Image();
   private clouds: HTMLCanvasElement[];
   private blastPlate: HTMLCanvasElement | null = null;
+  private afterPlate: HTMLCanvasElement | null = null;
   readonly ready: Promise<void>;
   constructor() {
     this.clouds = [0, 1, 2, 3].map((seed) => this.makeCloud(seed));
@@ -68,6 +69,38 @@ export class BunkerFinale {
       load(this.after, '/cinematics/bunker-beach-after.jpg'),
       load(this.peak, '/cinematics/bunker-beach-blast.jpg'),
     ]).then(() => {
+      if (this.after.naturalWidth) {
+        // Feather the destroyed cliff patch smoothly into the undamaged beach foreground.
+        const aw = 460;
+        const ah = 380;
+        const destroyedPlate = document.createElement('canvas');
+        destroyedPlate.width = aw;
+        destroyedPlate.height = ah;
+        const ac = destroyedPlate.getContext('2d')!;
+        ac.drawImage(
+          this.after,
+          this.after.width * 0.5,
+          this.after.height * 0.18,
+          this.after.width * 0.252,
+          this.after.height * 0.32,
+          0,
+          0,
+          aw,
+          ah,
+        );
+        ac.globalCompositeOperation = 'destination-in';
+        ac.save();
+        ac.translate(aw * 0.5, ah * 0.5);
+        ac.scale(1, ah / aw);
+        const edge = ac.createRadialGradient(0, 0, aw * 0.26, 0, 0, aw * 0.5);
+        edge.addColorStop(0, '#fff');
+        edge.addColorStop(0.6, '#fff');
+        edge.addColorStop(1, '#fff0');
+        ac.fillStyle = edge;
+        ac.fillRect(-aw * 0.5, -aw * 0.5, aw, aw);
+        ac.restore();
+        this.afterPlate = destroyedPlate;
+      }
       if (!this.peak.naturalWidth) return;
       // Feather just the explosion region. The beach, tanks and horizon never crossfade.
       const plate = document.createElement('canvas');
@@ -205,8 +238,13 @@ export class BunkerFinale {
     c.scale(f.zoom, f.zoom);
     c.translate(-w / 2, -h / 2);
     if (this.before.naturalWidth) c.drawImage(this.before, 0, 0, w, h);
-    if (f.destroyed && this.after.naturalWidth) {
-      // Only reveal the damaged cliff; avoid shifting unrelated foreground details.
+    if (f.destroyed && this.afterPlate) {
+      c.save();
+      c.globalAlpha = f.destroyed;
+      c.drawImage(this.afterPlate, 0.5 * w, 0.18 * h, 0.252 * w, 0.32 * h);
+      c.restore();
+    } else if (f.destroyed && this.after.naturalWidth) {
+      // Fallback before async feather plate settles.
       c.save();
       c.beginPath();
       c.ellipse(BX * w, 0.34 * h, 0.115 * w, 0.15 * h, 0, 0, Math.PI * 2);
