@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import type { NavalMaterials } from './materials';
-import { makePlayerDeck, makeShip } from './models';
+import { makeIsland, makePlayerDeck, makeShip } from './models';
 
 function createMockNavalMaterials(): NavalMaterials {
   const extra: THREE.Material[] = [];
@@ -111,4 +111,36 @@ void test('makePlayerDeck instances 45 turret bolts, bakes guns cleanly, and bat
 
   disposeObjectResources(deck.root);
   materials.dispose();
+});
+
+void test('makeIsland builds 64x64 vertex-colored terrain with normalized normals', () => {
+  const island = makeIsland(0, -1200, 320, 95, 3);
+  const terrain = island.getObjectByName('island-terrain');
+  assert.ok(terrain instanceof THREE.Mesh);
+
+  const pos = terrain.geometry.getAttribute('position');
+  const normal = terrain.geometry.getAttribute('normal');
+  const color = terrain.geometry.getAttribute('color');
+  assert.ok(pos && normal && color);
+  assert.equal(pos.count, 65 * 65);
+  assert.equal(normal.count, 65 * 65);
+  assert.equal(color.count, 65 * 65);
+
+  for (let i = 0; i < normal.count; i++) {
+    const len = Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i));
+    assert.ok(Math.abs(len - 1) < 1e-4);
+    for (let c = 0; c < 3; c++) {
+      const value =
+        c === 0 ? color.getX(i) : c === 1 ? color.getY(i) : color.getZ(i);
+      assert.ok(Number.isFinite(value) && value >= 0 && value <= 1);
+    }
+  }
+
+  island.traverse((o) => {
+    if (o instanceof THREE.Mesh || o instanceof THREE.InstancedMesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => m.dispose());
+    }
+  });
+  disposeObjectResources(island);
 });

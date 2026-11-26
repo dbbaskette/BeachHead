@@ -38,6 +38,7 @@ import {
 import { NavalAudio } from '@/lib/naval/audio';
 import { registerNavalTools } from '@/lib/naval/webmcp';
 import { settings, useSettings } from '@/lib/settings';
+import { shallowEqual } from '@/lib/hud-utils';
 import { flushSync } from 'react-dom';
 import type { NavalScene } from '@/lib/naval/scene';
 
@@ -82,6 +83,10 @@ export default function NavalGame({
   const singleStage = !campaign;
   const [selected, setSelected] = useState(0);
   const [resultsReady, setResultsReady] = useState(false);
+  const resultsReadyRef = useRef(false);
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
+  const lastHudDigest = useRef<Record<string, unknown> | null>(null);
   const reticleElement = useRef<HTMLDivElement>(null);
   const mousePoint = useRef<{ x: number; y: number } | null>(null);
   const mouseFiring = useRef(false);
@@ -94,11 +99,32 @@ export default function NavalGame({
     touchFiring.current = false;
     drag.current.clear();
   };
-  const publish = () =>
+  const publish = () => {
+    const b = battle.current;
+    const targetShip = b.ships[targetIndex.current];
+    const digest: Record<string, unknown> = {
+      status: b.status,
+      time: Math.floor(b.time),
+      health: Math.round(b.health),
+      heading: b.heading,
+      range: b.range,
+      reload: Math.round(b.reload * 10),
+      score: Math.round(b.score),
+      shots: b.shots,
+      hits: b.hits,
+      targetHealth: targetShip ? targetShip.health : -1,
+      targetX: targetShip ? Math.round(targetShip.x) : 0,
+      targetZ: targetShip ? Math.round(targetShip.z) : 0,
+    };
+    if (lastHudDigest.current && shallowEqual(lastHudDigest.current, digest)) {
+      return;
+    }
+    lastHudDigest.current = digest;
     setHud({
-      ...battle.current,
-      ships: battle.current.ships.map((s) => ({ ...s })),
+      ...b,
+      ships: b.ships.map((s) => ({ ...s })),
     });
+  };
   const cycle = () => {
     const b = battle.current;
     for (let i = 1; i <= b.ships.length; i++) {
@@ -106,6 +132,7 @@ export default function NavalGame({
       if (b.ships[index].health > 0) {
         targetIndex.current = index;
         setSelected(index);
+        publish();
         break;
       }
     }
@@ -113,11 +140,12 @@ export default function NavalGame({
   const shoot = () => {
     if (fire(battle.current)) publish();
   };
-  const aim = (heading: number, range: number) => {
+  const aim = (heading: number, range: number, immediate = false) => {
     setAim(battle.current, heading, range);
-    publish();
+    if (immediate) publish();
   };
   const start = () => {
+    resultsReadyRef.current = false;
     setResultsReady(false);
     battle.current = createBattle();
     battle.current.status = 'playing';
@@ -133,9 +161,11 @@ export default function NavalGame({
     audio.current?.setPaused(false);
     void audio.current?.start();
     publish();
+    wakeRef.current();
     root.current?.focus();
   };
   const returnToMenu = () => {
+    resultsReadyRef.current = false;
     setResultsReady(false);
     battle.current = createBattle();
     if (document.pointerLockElement === host.current)
@@ -151,6 +181,7 @@ export default function NavalGame({
     scene.current?.reset();
     audio.current?.setPaused(true);
     publish();
+    redrawRef.current();
     root.current?.focus();
   };
   const pause = () => {
@@ -165,6 +196,8 @@ export default function NavalGame({
     clearTouch();
     keys.current.clear();
     publish();
+    if (b.status === 'playing') wakeRef.current();
+    else redrawRef.current();
     root.current?.focus();
   };
   useEffect(() => {
@@ -302,6 +335,15 @@ export default function NavalGame({
           );
           return;
         }
+        const redraw = () => {
+          if (cancelled || !scene.current || frame) return;
+          scene.current.render(
+            battle.current,
+            0,
+            reduced.current,
+            optic.current && battle.current.status !== 'ready',
+          );
+        };
         const animate = (now: number) => {
           if (cancelled) return;
           const dt = last ? Math.min((now - last) / 1000, 0.1) : 0;
@@ -327,6 +369,7 @@ export default function NavalGame({
             setAim(b, b.heading + thumb.heading, b.range + thumb.range);
             if (held('Space') || mouseFiring.current || touchFiring.current)
               fire(b);
+            const before = b.status;
             accumulator += dt;
             while (accumulator >= 1 / 60) {
               const events = step(b, 1 / 60);
@@ -362,6 +405,7 @@ export default function NavalGame({
                 if (event.type === 'damaged') audio.current?.play('damage');
               }
             }
+            if (b.status !== before) publish();
           } else accumulator = 0;
           if (
             b.status !== 'playing' &&
@@ -374,14 +418,17 @@ export default function NavalGame({
             reduced.current,
             optic.current && b.status !== 'ready',
           );
-          if (now - lastHud > 60) {
+          if (b.status === 'playing' && now - lastHud > 60) {
             lastHud = now;
             publish();
           }
           if (b.status === 'won') {
-            if (victoryTime < 9) {
+            if (!resultsReadyRef.current && victoryTime < 9) {
               victoryTime += dt;
-              if (victoryTime >= 9) setResultsReady(true);
+              if (victoryTime >= 9) {
+                resultsReadyRef.current = true;
+                setResultsReady(true);
+              }
             }
           } else victoryTime = 0;
           if (reticleElement.current) {
@@ -391,14 +438,30 @@ export default function NavalGame({
               4,
               -Math.cos(a) * b.range,
             );
-            reticleElement.current.style.left = `${point.x}px`;
-            reticleElement.current.style.top = `${point.y}px`;
+            if (point.visible) {
+              reticleElement.current.style.transform = `translate3d(${point.x}px, ${point.y}px, 0) translate(-50%, -50%)`;
+            }
             reticleElement.current.style.visibility = point.visible
               ? 'visible'
               : 'hidden';
           }
+          const shouldAnimate =
+            b.status === 'playing' ||
+            (b.status === 'won' && !resultsReadyRef.current);
+          if (shouldAnimate) frame = requestAnimationFrame(animate);
+          else {
+            frame = 0;
+            last = 0;
+          }
+        };
+        const wake = () => {
+          if (cancelled || frame) return;
+          last = 0;
           frame = requestAnimationFrame(animate);
         };
+        wakeRef.current = wake;
+        redrawRef.current = redraw;
+        scene.current.onResize = redraw;
         frame = requestAnimationFrame(animate);
       })
       .catch(() =>
@@ -407,6 +470,8 @@ export default function NavalGame({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', keyUp);
       window.removeEventListener('blur', blur);
@@ -429,13 +494,14 @@ export default function NavalGame({
   }, [sound]);
   useEffect(() => {
     reduced.current = steady;
+    redrawRef.current();
   }, [steady]);
   useEffect(() => {
     if (!loaded || error) return;
     return registerNavalTools({
       read: () => battle.current,
       start: () => flushSync(start),
-      aim: (heading, range) => flushSync(() => aim(heading, range)),
+      aim: (heading, range) => flushSync(() => aim(heading, range, true)),
       fire: () => flushSync(shoot),
     });
     // Actions read stable simulation refs; registration follows engine readiness.
@@ -541,7 +607,10 @@ export default function NavalGame({
             <Button
               variant="ghost"
               className="optic-button view-results-control"
-              onClick={() => setResultsReady(true)}
+              onClick={() => {
+                resultsReadyRef.current = true;
+                setResultsReady(true);
+              }}
             >
               View results
             </Button>
@@ -962,7 +1031,7 @@ export default function NavalGame({
               size="icon"
               aria-label="Decrease range"
               disabled={!playing}
-              onClick={() => aim(hud.heading, hud.range - 10)}
+              onClick={() => aim(hud.heading, hud.range - 10, true)}
             >
               <Minus />
             </Button>
@@ -977,6 +1046,7 @@ export default function NavalGame({
                 aim(
                   battle.current.heading,
                   Array.isArray(value) ? value[0] : value,
+                  true,
                 )
               }
             />
@@ -985,7 +1055,7 @@ export default function NavalGame({
               size="icon"
               aria-label="Increase range"
               disabled={!playing}
-              onClick={() => aim(hud.heading, hud.range + 10)}
+              onClick={() => aim(hud.heading, hud.range + 10, true)}
             >
               <Plus />
             </Button>
@@ -1004,7 +1074,7 @@ export default function NavalGame({
               size="icon"
               aria-label="Turn guns left"
               disabled={!playing}
-              onClick={() => aim(hud.heading - 0.2, hud.range)}
+              onClick={() => aim(hud.heading - 0.2, hud.range, true)}
             >
               <ChevronLeft />
             </Button>
@@ -1017,7 +1087,7 @@ export default function NavalGame({
               size="icon"
               aria-label="Turn guns right"
               disabled={!playing}
-              onClick={() => aim(hud.heading + 0.2, hud.range)}
+              onClick={() => aim(hud.heading + 0.2, hud.range, true)}
             >
               <ChevronRight />
             </Button>

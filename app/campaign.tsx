@@ -2,7 +2,7 @@
 import { lazy, Suspense, useReducer } from 'react';
 import { campaignReducer, INITIAL_CAMPAIGN } from '@/lib/campaign';
 import NavalGame from './naval-game';
-import PillboxGame from './pillbox-game';
+const PillboxGame = lazy(() => import('./pillbox-game'));
 const FlakGame = lazy(() => import('./flak-game'));
 const AirGame = lazy(() => import('./air-game'));
 const TankGame = lazy(() => import('./tank-game'));
@@ -66,6 +66,10 @@ export default function Campaign() {
       />
     </Suspense>
   ) : (
-    <PillboxGame campaign={campaign} onReturn={menu} />
+    <Suspense
+      fallback={<div className="air-loading">Preparing the position…</div>}
+    >
+      <PillboxGame campaign={campaign} onReturn={menu} />
+    </Suspense>
   );
 }

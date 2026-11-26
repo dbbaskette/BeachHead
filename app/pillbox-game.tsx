@@ -28,12 +28,33 @@ import type { PillboxScene } from '@/lib/pillbox/scene';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import { registerPillboxTools } from '@/lib/pillbox/webmcp';
 import { settings, useSettings } from '@/lib/settings';
+import { shallowEqual } from '@/lib/hud-utils';
 import { PointerAim } from '@/lib/pillbox/pointer-aim';
 import {
   throwPlayerGrenade,
   callAirSupport,
   chooseSupplies,
 } from '@/lib/pillbox/combat-actions';
+
+const snapshot = (b: PillboxBattle) => ({
+  status: b.status,
+  wave: b.wave,
+  overheated: b.overheated,
+  score: b.score,
+  kills: b.kills,
+  shots: b.shots,
+  hits: b.hits,
+  grenadeAmmo: b.grenadeAmmo,
+  grenadeCooldown: b.grenadeCooldown,
+  airSupportCharges: b.airSupportCharges,
+  airStrike: Boolean(b.airStrike),
+  supportProgress: b.supportProgress,
+  health: b.health,
+  heat: b.heat,
+  aimX: b.aimX,
+  aimZ: b.aimZ,
+});
+type PillboxHud = ReturnType<typeof snapshot>;
 
 export default function PillboxGame({
   onReturn,
@@ -54,15 +75,24 @@ export default function PillboxGame({
   const touchDrag = useRef(new TouchDrag());
   const keys = useRef(new Set<string>());
   const reduced = useRef(false);
-  const [hud, setHud] = useState<PillboxBattle>(createPillboxBattle);
+  const [hud, setHud] = useState<PillboxHud>(() =>
+    snapshot(createPillboxBattle()),
+  );
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
   const { muted, reducedMotion: steady } = useSettings();
   const sound = !muted;
   const reticleElement = useRef<HTMLDivElement>(null);
   const pointerAim = useRef(new PointerAim());
-  const publish = () =>
-    setHud({ ...battle.current, soldiers: [...battle.current.soldiers] });
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
+  const lastHudRef = useRef<PillboxHud | null>(null);
+  const publish = () => {
+    const next = snapshot(battle.current);
+    if (lastHudRef.current && shallowEqual(lastHudRef.current, next)) return;
+    lastHudRef.current = next;
+    setHud(next);
+  };
   const release = () => {
     held.current = false;
     touchFiring.current = false;
@@ -85,6 +115,7 @@ export default function PillboxGame({
     audio.current?.setPaused(false);
     void audio.current?.start();
     publish();
+    wakeRef.current();
     root.current?.focus();
   };
   const grenade = () => {
@@ -104,6 +135,7 @@ export default function PillboxGame({
       release();
       audio.current?.setPaused(false);
       publish();
+      wakeRef.current();
       root.current?.focus();
     }
   };
@@ -114,6 +146,8 @@ export default function PillboxGame({
     release();
     audio.current?.setPaused(b.status === 'paused');
     publish();
+    if (b.status === 'playing') wakeRef.current();
+    else redrawRef.current();
     root.current?.focus();
   };
   useEffect(() => {
@@ -212,7 +246,6 @@ export default function PillboxGame({
         battle.current.aimX,
         battle.current.aimZ + event.deltaY * units * 0.06,
       );
-      publish();
     };
     surface?.addEventListener('wheel', wheel, { passive: false });
     document.addEventListener('visibilitychange', visibility);
@@ -231,12 +264,16 @@ export default function PillboxGame({
         scene.current = new PillboxScene(element);
         await scene.current.ready;
         if (cancelled) return;
-        setLoaded(true);
+        const redraw = () => {
+          if (cancelled || !scene.current || frame) return;
+          scene.current.render(battle.current, 0, reduced.current);
+        };
         const animate = (now: number) => {
           if (cancelled) return;
           const dt = last ? Math.min((now - last) / 1000, 0.1) : 0;
           last = now;
           const b = battle.current;
+          const before = b.status;
           if (b.status === 'playing') {
             applyPointerAim();
             const pressed = (...codes: string[]) =>
@@ -302,25 +339,40 @@ export default function PillboxGame({
           }
           scene.current?.render(b, dt, reduced.current);
           if (reticleElement.current) {
-            const pointer = pointerAim.current.screen(
-              element.getBoundingClientRect(),
-            );
+            const pointer = pointerAim.current.screen(scene.current!.getRect());
             const reticle = pointer
               ? { ...pointer, visible: true }
               : scene.current!.project(b.aimX, b.aimZ);
-            reticleElement.current.style.left = `${reticle.x}px`;
-            reticleElement.current.style.top = `${reticle.y}px`;
+            if (reticle.visible) {
+              reticleElement.current.style.transform = `translate3d(${reticle.x}px, ${reticle.y}px, 0) translate(-50%, -50%)`;
+            }
             reticleElement.current.style.visibility = reticle.visible
               ? 'visible'
               : 'hidden';
           }
-          if (now - lastHud > 65) {
+          if (
+            b.status !== before ||
+            (b.status === 'playing' && now - lastHud > 65)
+          ) {
             publish();
             lastHud = now;
           }
+          if (b.status === 'playing') frame = requestAnimationFrame(animate);
+          else {
+            frame = 0;
+            last = 0;
+          }
+        };
+        const wake = () => {
+          if (cancelled || frame) return;
+          last = 0;
           frame = requestAnimationFrame(animate);
         };
-        frame = requestAnimationFrame(animate);
+        wakeRef.current = wake;
+        redrawRef.current = redraw;
+        scene.current.onResize = redraw;
+        redraw();
+        setLoaded(true);
       })
       .catch(() => {
         if (!cancelled)
@@ -329,6 +381,8 @@ export default function PillboxGame({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       release();
       unregister();
       window.removeEventListener('keydown', down);
@@ -352,11 +406,12 @@ export default function PillboxGame({
   }, [sound]);
   useEffect(() => {
     reduced.current = steady;
+    redrawRef.current();
   }, [steady]);
   const swipeAim = (delta: TouchAxis) => {
     if (battle.current.status !== 'playing' || !scene.current || !host.current)
       return;
-    const rect = host.current.getBoundingClientRect();
+    const rect = scene.current.getRect();
     const origin = scene.current.project(
       battle.current.aimX,
       battle.current.aimZ,

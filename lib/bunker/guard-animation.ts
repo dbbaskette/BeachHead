@@ -30,7 +30,18 @@ export type GuardActor = {
     restRotation?: T.Quaternion;
   };
   contactEmitted?: boolean;
+  ragdollSettledPose?: boolean;
 };
+
+const _gaHeld = new T.Vector3();
+const _gaWorld = new T.Vector3();
+const _gaUp = new T.Vector3(0, 1, 0);
+const _gaQuatA = new T.Quaternion();
+const _gaQuatB = new T.Quaternion();
+const _gaBox = new T.Box3();
+const _gaOld = new T.Vector3();
+const _gaEuler = new T.Euler();
+
 function poseArms(a: GuardActor, g: Guard) {
   const ready = g.readiness;
   a.root.updateMatrixWorld(true);
@@ -39,27 +50,22 @@ function poseArms(a: GuardActor, g: Guard) {
     if (!bone?.parent) continue;
     const side = index < 2 ? -1 : 1,
       forearm = index % 2 === 1;
-    const held = new T.Vector3(
+    _gaHeld.set(
       side * (forearm ? 0.09 : 0.28),
       forearm ? 1.02 + ready * 0.23 : 0.94 + ready * 0.16,
       forearm ? -0.28 - ready * 0.12 : -0.08 - ready * 0.04,
     );
     const kick = a.hitSpring?.angle;
     if (kick) {
-      held.x += kick.y * (forearm ? 0.65 : 0.25);
-      held.y -= Math.abs(kick.x) * (forearm ? 0.3 : 0.12);
-      held.z += kick.x * (forearm ? 0.55 : 0.2);
+      _gaHeld.x += kick.y * (forearm ? 0.65 : 0.25);
+      _gaHeld.y -= Math.abs(kick.x) * (forearm ? 0.3 : 0.12);
+      _gaHeld.z += kick.x * (forearm ? 0.55 : 0.2);
     }
-    const target = a.body.localToWorld(held);
-    const direction = target
-      .sub(bone.getWorldPosition(new T.Vector3()))
-      .normalize();
-    const desired = new T.Quaternion().setFromUnitVectors(
-      new T.Vector3(0, 1, 0),
-      direction,
-    );
-    const parent = bone.parent.getWorldQuaternion(new T.Quaternion()).invert();
-    bone.quaternion.copy(parent.multiply(desired));
+    const target = a.body.localToWorld(_gaHeld);
+    const direction = target.sub(bone.getWorldPosition(_gaWorld)).normalize();
+    _gaQuatA.setFromUnitVectors(_gaUp, direction);
+    bone.parent.getWorldQuaternion(_gaQuatB).invert();
+    bone.quaternion.copy(_gaQuatB.multiply(_gaQuatA));
     bone.updateMatrixWorld(true);
   }
 }
@@ -141,13 +147,18 @@ export function animateGuard(
     if (!a.ragdoll) {
       a.ragdoll = new GuardRagdoll(a.model, g);
       a.hitSeen = g.hits;
+      a.ragdollSettledPose = false;
     } else if (g.hits !== a.hitSeen) {
       a.ragdoll.impulse(g);
       a.hitSeen = g.hits;
+      a.ragdollSettledPose = false;
     }
-    a.ragdoll.update(frame, obstacles);
-    a.ragdoll.applyPose();
-    g.bodyTargets = a.ragdoll.targets();
+    if (!a.ragdoll.sleeping || !a.ragdollSettledPose || !g.bodyTargets) {
+      a.ragdoll.update(frame, obstacles);
+      a.ragdoll.applyPose();
+      g.bodyTargets = a.ragdoll.targets();
+      if (a.ragdoll.sleeping) a.ragdollSettledPose = true;
+    }
   }
   if (g.health <= 0) {
     if (!a.dropped) {
@@ -175,27 +186,27 @@ export function animateGuard(
         a.rifle.quaternion.copy(drop.restRotation!);
         drop.settled = true;
       }
-      const rest = new T.Box3().setFromObject(a.rifle);
-      a.rifle.position.y += 0.018 - rest.min.y;
+      _gaBox.setFromObject(a.rifle);
+      a.rifle.position.y += 0.018 - _gaBox.min.y;
     } else {
       drop.velocity.y -= 9.81 * frame;
-      const old = a.rifle.position.clone();
+      _gaOld.copy(a.rifle.position);
       a.rifle.position.addScaledVector(drop.velocity, frame);
       if (!canStand(a.rifle.position.x, a.rifle.position.z, 0.18, obstacles)) {
-        a.rifle.position.x = old.x;
-        a.rifle.position.z = old.z;
+        a.rifle.position.x = _gaOld.x;
+        a.rifle.position.z = _gaOld.z;
         drop.velocity.x = drop.velocity.z = 0;
       }
       a.rifle.rotation.x += drop.spin.x * frame;
       a.rifle.rotation.y += drop.spin.y * frame;
       a.rifle.rotation.z += drop.spin.z * frame;
-      const bounds = new T.Box3().setFromObject(a.rifle);
-      if (bounds.min.y < 0.015) {
-        a.rifle.position.y += 0.015 - bounds.min.y;
+      _gaBox.setFromObject(a.rifle);
+      if (_gaBox.min.y < 0.015) {
+        a.rifle.position.y += 0.015 - _gaBox.min.y;
         drop.velocity.set(0, 0, 0);
         drop.settling = 0.001;
         drop.restRotation = new T.Quaternion().setFromEuler(
-          new T.Euler(0, a.rifle.rotation.y, Math.PI / 2),
+          _gaEuler.set(0, a.rifle.rotation.y, Math.PI / 2),
         );
       }
     }
@@ -207,6 +218,7 @@ export function animateGuard(
 export function resetGuardActor(a: GuardActor) {
   a.ragdoll?.restore();
   a.ragdoll = undefined;
+  a.ragdollSettledPose = undefined;
   a.hitSpring = undefined;
   a.hitSeen = 0;
   a.contactEmitted = false;

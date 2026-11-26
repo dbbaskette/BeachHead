@@ -87,7 +87,12 @@ export function wingGeometry(side: number) {
 export function makeAirframe(a: AirArt) {
   const root = new THREE.Group();
   root.name = 'fw190-inspired-ground-attack';
-  const smooth = a.geo(new THREE.SphereGeometry(1, 32, 20));
+  const temps: THREE.BufferGeometry[] = [];
+  const temp = <T extends THREE.BufferGeometry>(g: T) => {
+    temps.push(g);
+    return g;
+  };
+  const smooth = temp(new THREE.SphereGeometry(1, 32, 20));
   const paint = a.mat('#68736b', 0.72);
   paint.map = a.paint;
   const metal = a.mat('#7f8581', 0.4),
@@ -95,7 +100,7 @@ export function makeAirframe(a: AirArt) {
     canvas = a.mat('#726d49', 0.95);
   const body = a.mesh(
     root,
-    a.geo(fuselageGeometry()),
+    temp(fuselageGeometry()),
     paint,
     [0, 0, 0],
     [1, 1, 1],
@@ -110,7 +115,7 @@ export function makeAirframe(a: AirArt) {
   // Short, broad radial-engine housing with a recessed cooling ring.
   const cooling = a.mesh(
     root,
-    a.geo(new THREE.RingGeometry(0.58, 1.84, 64)),
+    temp(new THREE.RingGeometry(0.58, 1.84, 64)),
     black,
     [0, -0.7, -4.7],
     [1, 1, 1],
@@ -119,7 +124,7 @@ export function makeAirframe(a: AirArt) {
   for (const z of [-4.65, -2.9]) {
     a.mesh(
       root,
-      a.geo(new THREE.TorusGeometry(1.87, 0.022, 6, 64)),
+      temp(new THREE.TorusGeometry(1.87, 0.022, 6, 64)),
       metal,
       [0, -0.7, z],
       [1, 1, 1],
@@ -153,7 +158,7 @@ export function makeAirframe(a: AirArt) {
   for (const side of [-1, 1]) {
     const wing = a.mesh(
       root,
-      a.geo(wingGeometry(side)),
+      temp(wingGeometry(side)),
       wingPaint,
       [0, 0, 0],
       [1, 1, 1],
@@ -367,7 +372,7 @@ export function makeAirframe(a: AirArt) {
         hoodIndices.push(n, n + 1, n + 25, n + 1, n + 26, n + 25);
       }
     }
-  const hoodGeometry = a.geo(new THREE.BufferGeometry());
+  const hoodGeometry = temp(new THREE.BufferGeometry());
   hoodGeometry.setAttribute(
     'position',
     new THREE.Float32BufferAttribute(hoodPositions, 3),
@@ -414,7 +419,7 @@ export function makeAirframe(a: AirArt) {
   panelShape.closePath();
   const panel = a.mesh(
     root,
-    a.geo(
+    temp(
       new THREE.ExtrudeGeometry(panelShape, {
         depth: 0.16,
         bevelEnabled: true,
@@ -449,7 +454,7 @@ export function makeAirframe(a: AirArt) {
     face.map = instruments;
     a.mesh(
       cockpit,
-      a.geo(new THREE.PlaneGeometry(2.95, 1.10625)),
+      temp(new THREE.PlaneGeometry(2.95, 1.10625)),
       face,
       [0, 2.04, 1.255],
       [1, 1, 1],
@@ -641,6 +646,7 @@ export function makeAirframe(a: AirArt) {
     geometries.forEach((geometry) => geometry.dispose());
     if (merged) cockpit.add(new THREE.Mesh(a.geo(merged), material));
   }
+  temps.forEach((g) => g.dispose());
   const cockpitMaterials = new Set<THREE.Material>([
     interior,
     trim,

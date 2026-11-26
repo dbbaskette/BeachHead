@@ -223,13 +223,15 @@ export function setAim(
   }
 }
 
+const impactShells: Shell[] = [];
+
 /** Ballistic parabola with the exact muzzle tangent; flight time remains compressed for play. */
-export function shellPosition(shell: Shell, barrel?: number): ShellPoint {
-  const progress = clamp(
-    shell.duration > 0 ? shell.age / shell.duration : 1,
-    0,
-    1,
-  );
+export function shellPosition(
+  shell: Shell,
+  barrel?: number,
+  age = shell.age,
+): ShellPoint {
+  const progress = clamp(shell.duration > 0 ? age / shell.duration : 1, 0, 1);
   const range = distance(shell.x, shell.z, shell.targetX, shell.targetZ);
   const height = shell.y ?? 0;
   const rise =
@@ -437,12 +439,22 @@ function updateShells(
     shell.age = Math.min(shell.duration, shell.age + dtSeconds);
   }
 
-  const impacts = state.shells.filter((shell) => shell.age >= shell.duration);
-  state.shells = state.shells.filter((shell) => shell.age < shell.duration);
-  for (const shell of impacts) {
-    if (state.status !== 'playing') break;
-    if (shell.enemy) resolveEnemyImpact(state, events);
-    else resolvePlayerImpact(state, shell, events);
+  if (state.shells.length > 0) {
+    impactShells.length = 0;
+    let write = 0;
+    for (let i = 0; i < state.shells.length; i++) {
+      const shell = state.shells[i];
+      if (shell.age >= shell.duration) impactShells.push(shell);
+      else state.shells[write++] = shell;
+    }
+    state.shells.length = write;
+    for (let i = 0; i < impactShells.length; i++) {
+      if (state.status !== 'playing') break;
+      const shell = impactShells[i];
+      if (shell.enemy) resolveEnemyImpact(state, events);
+      else resolvePlayerImpact(state, shell, events);
+    }
+    impactShells.length = 0;
   }
 }
 

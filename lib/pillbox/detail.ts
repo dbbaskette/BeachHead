@@ -20,12 +20,12 @@ export type PillboxSurfaceMaps = {
 export async function createSurfaceMaps(): Promise<PillboxSurfaceMaps> {
   const loader = new THREE.TextureLoader();
   const paths = [
-    assetUrl('/textures/pillbox-sand-diffuse.jpg'),
-    assetUrl('/textures/pillbox-sand-normal.jpg'),
-    assetUrl('/textures/pillbox-sand-roughness.jpg'),
-    assetUrl('/textures/pillbox-concrete-diffuse.jpg'),
-    assetUrl('/textures/pillbox-concrete-normal.jpg'),
-    assetUrl('/textures/pillbox-concrete-roughness.jpg'),
+    assetUrl('/textures/pillbox-sand-diffuse.webp'),
+    assetUrl('/textures/pillbox-sand-normal.webp'),
+    assetUrl('/textures/pillbox-sand-roughness.webp'),
+    assetUrl('/textures/pillbox-concrete-diffuse.webp'),
+    assetUrl('/textures/pillbox-concrete-normal.webp'),
+    assetUrl('/textures/pillbox-concrete-roughness.webp'),
   ];
   const results = await Promise.allSettled(
     paths.map((path) => loader.loadAsync(path)),

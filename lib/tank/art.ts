@@ -306,9 +306,9 @@ export class TankArt extends AirArt {
     this.leaves.userData.preserveUV = true;
     this.leaf.userData.worldUVScale = 0.55;
 
-    const stoneDiffuse = this.texture('pillbox-concrete-diffuse.jpg', true);
-    const stoneNormal = this.texture('pillbox-concrete-normal.jpg');
-    const stoneRough = this.texture('pillbox-concrete-roughness.jpg');
+    const stoneDiffuse = this.texture('pillbox-concrete-diffuse.webp', true);
+    const stoneNormal = this.texture('pillbox-concrete-normal.webp');
+    const stoneRough = this.texture('pillbox-concrete-roughness.webp');
     for (const s of [this.stone, this.altStone]) {
       s.map = stoneDiffuse;
       s.normalMap = stoneNormal;
@@ -317,9 +317,9 @@ export class TankArt extends AirArt {
       s.userData.worldUVScale = 0.36;
     }
 
-    this.wood.map = this.texture('deck-color.jpg', true);
-    this.wood.normalMap = this.texture('deck-normal.jpg');
-    this.wood.roughnessMap = this.texture('deck-roughness.jpg');
+    this.wood.map = this.texture('deck-color.webp', true);
+    this.wood.normalMap = this.texture('deck-normal.webp');
+    this.wood.roughnessMap = this.texture('deck-roughness.webp');
     this.wood.normalScale.set(0.5, 0.5);
     this.wood.color.set('#9c8468');
     this.wood.roughness = 0.9;
@@ -371,6 +371,7 @@ export function makeTank(a: TankArt, enemy = false) {
     sprockets: T.Mesh[] = [];
   const paint = enemy ? (a.enemyPaint ?? a.mat('#797663', 0.76)) : a.olive;
 
+  let hullGeo: T.BufferGeometry | undefined;
   if (enemy) {
     // Angular Panzer silhouette: wider hull, sloped front glacis, armored side skirts, twin exhausts.
     a.block(body, a.dark, [0, 0.72, 0], [2.44, 0.78, 5.5]);
@@ -414,15 +415,13 @@ export function makeTank(a: TankArt, enemy = false) {
     turretShape.lineTo(-0.94, 1.08);
     turretShape.lineTo(-1.02, -0.25);
     turretShape.closePath();
-    const hullGeo = a.geo(
-      new T.ExtrudeGeometry(turretShape, {
-        depth: 0.68,
-        bevelEnabled: true,
-        bevelThickness: 0.06,
-        bevelSize: 0.06,
-        bevelSegments: 2,
-      }),
-    );
+    hullGeo = new T.ExtrudeGeometry(turretShape, {
+      depth: 0.68,
+      bevelEnabled: true,
+      bevelThickness: 0.06,
+      bevelSize: 0.06,
+      bevelSegments: 2,
+    });
     hullGeo.rotateX(Math.PI / 2);
     a.mesh(turret, hullGeo, paint, [0, 0.72, 0], [1, 1, 1]);
     a.mesh(turret, a.cylinder, a.dark, [0, 0.02, 0], [1.1, 0.16, 1.1]);
@@ -551,6 +550,7 @@ export function makeTank(a: TankArt, enemy = false) {
   turret.position.set(0, 2, 0);
   consolidateTank(barrel, a);
   consolidateTank(turret, a);
+  hullGeo?.dispose();
   turret.add(barrel);
   // Raised bolts, tow eyes and rolled canvas break up the silhouette.
   for (const x of [-1, 1])
@@ -659,6 +659,11 @@ export function makeCover(a: TankArt, c: Cover) {
   const root = new T.Group(),
     intact = new T.Group(),
     ruin = new T.Group();
+  const temps: T.BufferGeometry[] = [];
+  const temp = <G extends T.BufferGeometry>(g: G) => {
+    temps.push(g);
+    return g;
+  };
   const collapseParts: T.Group[] = [];
   const fractured = new T.Group();
   fractured.visible = false;
@@ -690,7 +695,7 @@ export function makeCover(a: TankArt, c: Cover) {
     profile.lineTo(0, 3.3);
     profile.lineTo(c.w / 2 + 0.5, 0);
     profile.closePath();
-    const gable = a.geo(
+    const gable = temp(
       new T.ExtrudeGeometry(profile, {
         depth: 0.5,
         bevelEnabled: false,
@@ -804,7 +809,7 @@ export function makeCover(a: TankArt, c: Cover) {
         profile.lineTo((j / 8 - 0.5) * width, height);
       }
       profile.closePath();
-      const broken = a.geo(
+      const broken = temp(
         new T.ExtrudeGeometry(profile, {
           depth: 0.8,
           bevelEnabled: false,
@@ -870,7 +875,7 @@ export function makeCover(a: TankArt, c: Cover) {
       bPos.setXYZ(k, vx * bump, vy * bump, vz * bump);
     }
     bushGeo.computeVertexNormals();
-    a.geo(bushGeo);
+    temp(bushGeo);
     const shrubs = 14;
     for (let i = 0; i < shrubs; i++) {
       const t = (i + 0.5) / shrubs - 0.5;
@@ -978,6 +983,7 @@ export function makeCover(a: TankArt, c: Cover) {
     consolidateTank(intact, a);
   } else consolidateTank(intact, a);
   consolidateTank(ruin, a);
+  temps.forEach((g) => g.dispose());
   return { root, intact, ruin, collapseParts, fractured };
 }
 export function makeEnemy(a: TankArt, kind: EnemyKind) {

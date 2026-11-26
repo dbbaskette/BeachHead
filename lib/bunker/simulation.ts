@@ -270,10 +270,30 @@ export const doorBox = (door: Door): Box => ({
   h: 2.9,
   d: 0.18,
 });
-export const worldSolids = (b: BunkerState): Box[] => [
-  ...solids,
-  ...b.doors.map(doorBox),
-];
+const cachedWorldSolids = new WeakMap<
+  BunkerState,
+  { boxes: Box[]; progress: number[] }
+>();
+export const worldSolids = (b: BunkerState): Box[] => {
+  let entry = cachedWorldSolids.get(b);
+  if (!entry || entry.boxes.length !== solids.length + b.doors.length) {
+    const boxes = [...solids, ...b.doors.map(doorBox)];
+    const progress = b.doors.map((d) => d.progress);
+    entry = { boxes, progress };
+    cachedWorldSolids.set(b, entry);
+    return boxes;
+  }
+  for (let i = 0; i < b.doors.length; i++) {
+    const p = b.doors[i].progress;
+    if (p !== entry.progress[i]) {
+      entry.progress[i] = p;
+      const box = entry.boxes[solids.length + i];
+      box.x = b.doors[i].x + p * 3;
+      box.z = b.doors[i].z;
+    }
+  }
+  return entry.boxes;
+};
 export const nearbyDoor = (b: BunkerState) =>
   b.doors.find((d) => !d.opening && Math.hypot(b.x - d.x, b.z - d.z) < 2.5);
 export function openDoor(b: BunkerState) {

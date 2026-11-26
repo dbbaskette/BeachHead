@@ -13,6 +13,7 @@ import { createBloomComposer } from '../post-processing';
 import { TracerPool } from '../vfx';
 
 export type ScreenPoint = { x: number; y: number; visible: boolean };
+const NAVAL_UP = new THREE.Vector3(0, 1, 0);
 export class NavalScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -48,6 +49,7 @@ export class NavalScene {
   private post?: ReturnType<typeof createBloomComposer>;
   private width = 1;
   private height = 1;
+  onResize?: () => void;
   private recoil = 0;
   private damage = 0;
   private visualTime = 0;
@@ -55,6 +57,9 @@ export class NavalScene {
   private lastShadowHeading = NaN;
   private lastShadowRange = NaN;
   private lastShadowScope = false;
+  private scratchVec = new THREE.Vector3();
+  private scratchDir = new THREE.Vector3();
+  private liveShellIds = new Set<string>();
   private observer: ResizeObserver;
   private onLost = (event: Event) => {
     event.preventDefault();
@@ -159,6 +164,7 @@ export class NavalScene {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
     this.post?.setSize(this.width, this.height);
+    this.onResize?.();
   }
   project(x: number, y: number, z: number): ScreenPoint {
     const p = new THREE.Vector3(x, y, z).project(this.camera);
@@ -258,8 +264,14 @@ export class NavalScene {
     const angle = THREE.MathUtils.degToRad(battle.heading),
       bob = reducedMotion ? 0 : Math.sin(t * 0.8) * 0.11;
     const wantedFov = scope ? 22 : 46;
-    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, wantedFov, 15, dt);
-    this.camera.updateProjectionMatrix();
+    const nextFov =
+      dt > 0
+        ? THREE.MathUtils.damp(this.camera.fov, wantedFov, 15, dt)
+        : wantedFov;
+    if (Math.abs(nextFov - this.camera.fov) > 1e-4) {
+      this.camera.fov = nextFov;
+      this.camera.updateProjectionMatrix();
+    }
     this.camera.position.set(Math.sin(angle) * 1.4, 16 + bob, 23);
     this.camera.lookAt(
       Math.sin(angle) * 900,
@@ -299,15 +311,17 @@ export class NavalScene {
         Math.floor(t * 2) !== Math.floor((t - activeDt) * 2)
       ) {
         const exhaust = mesh.localToWorld(
-          new THREE.Vector3(0, 20, ship.length * 0.04),
+          this.scratchVec.set(0, 20, ship.length * 0.04),
         );
         this.effects.smoke(exhaust);
       }
     }
     this.shipDamage.update(activeDt);
-    const live = new Set(battle.shells.map((s) => s.id));
+    this.liveShellIds.clear();
+    for (let i = 0; i < battle.shells.length; i++)
+      this.liveShellIds.add(battle.shells[i].id);
     for (const [id, mesh] of this.shells)
-      if (!live.has(id)) {
+      if (!this.liveShellIds.has(id)) {
         this.scene.remove(mesh);
         this.shells.delete(id);
       }
@@ -334,22 +348,16 @@ export class NavalScene {
       for (const [barrel, mesh] of salvo.children.entries()) {
         const p = shellPosition(shell, barrel),
           ahead = shellPosition(
-            {
-              ...shell,
-              age: Math.min(shell.duration, shell.age + 0.01),
-            },
+            shell,
             barrel,
+            Math.min(shell.duration, shell.age + 0.01),
           );
         mesh.position.set(p.x, p.y, p.z);
-        const dir = new THREE.Vector3(
-          ahead.x - p.x,
-          ahead.y - p.y,
-          ahead.z - p.z,
-        );
-        if (dir.lengthSq() > 0)
+        this.scratchDir.set(ahead.x - p.x, ahead.y - p.y, ahead.z - p.z);
+        if (this.scratchDir.lengthSq() > 0)
           mesh.quaternion.setFromUnitVectors(
-            new THREE.Vector3(0, 1, 0),
-            dir.normalize(),
+            NAVAL_UP,
+            this.scratchDir.normalize(),
           );
         const scale = shellVisualScale(
           mesh.position.distanceTo(this.camera.position),
@@ -360,8 +368,9 @@ export class NavalScene {
         mesh.scale.set(scale.width, scale.length, scale.width);
         if (trailCount < this.shellTrails.capacity) {
           const behind = shellPosition(
-            { ...shell, age: Math.max(0, shell.age - 0.045) },
+            shell,
             barrel,
+            Math.max(0, shell.age - 0.045),
           );
           if (shell.enemy) {
             this.shellTrails.set(

@@ -22,6 +22,8 @@ import { SUPPLY } from './map';
 import { buildTerrain, terrainHeight } from './terrain';
 import { collapsePose, stepFragment } from './impact';
 
+const IGNORED_BURSTS = new Set(['repair', 'win', 'warning']);
+
 type SmokeParticle = {
   x: number;
   y: number;
@@ -93,6 +95,12 @@ export class TankScene {
   private scarSerial = 0;
   private scarOwners = new Map<number, number>();
   private collapses = new Map<number, { start: number; pulse: number }>();
+  private coverStates = new Map<
+    number,
+    'intact' | 'collapsing' | 'collapsed'
+  >();
+  private lastPlayerTrackDist = NaN;
+  private lastEnemyTrackDist = NaN;
   private shells: T.InstancedMesh;
   private object = new T.Object3D();
   private color = new T.Color();
@@ -114,6 +122,7 @@ export class TankScene {
   private cameraReady = false;
   private observer: ResizeObserver;
   private disposed = false;
+  onResize?: () => void;
   private smokeClock = 0;
   private river: T.Mesh;
   private riverUniforms = { uTime: { value: 0 } };
@@ -235,7 +244,7 @@ export class TankScene {
     this.trackMarks.instanceMatrix.setUsage(T.DynamicDrawUsage);
     this.scene.add(this.trackMarks);
     const water = this.art.mat('#596d60', 0.22);
-    water.normalMap = this.art.texture('water-normal.jpg');
+    water.normalMap = this.art.texture('water-normal.webp');
     water.normalMap.repeat.set(18, 2);
     water.normalScale.set(0.35, 0.35);
     water.metalness = 0.08;
@@ -310,14 +319,15 @@ export class TankScene {
       }
       return group;
     };
+    const temps: T.BufferGeometry[] = [];
     for (let i = 0; i < 48; i++) {
       const x = i % 2 ? -85 - (i % 7) * 6 : 64 + (i % 6) * 9,
         z = 15 - i * 8;
-      this.tree(bandGroup(backdropBands, z), x, z, 1 + (i % 3) * 0.2);
+      this.tree(bandGroup(backdropBands, z), x, z, 1 + (i % 3) * 0.2, temps);
     }
     for (let i = 0; i < 17; i++) {
       const z = -18 - i * 15;
-      this.tree(bandGroup(shadowBands, z), -59, z, 0.6 + (i % 3) * 0.1);
+      this.tree(bandGroup(shadowBands, z), -59, z, 0.6 + (i % 3) * 0.1, temps);
     }
     // Telegraph poles, roadside rubble, drainage and a hedged horizon.
     for (let i = 0; i < 8; i++) {
@@ -341,13 +351,9 @@ export class TankScene {
           new T.Vector3(x, 7.5, z - 19.5),
           new T.Vector3(x, 9, z - 39),
         ]);
-        this.art.mesh(
-          band,
-          this.art.geo(new T.TubeGeometry(curve, 10, 0.018, 3, false)),
-          this.art.dark,
-          [0, 0, 0],
-          [1, 1, 1],
-        );
+        const wireGeo = new T.TubeGeometry(curve, 10, 0.018, 3, false);
+        temps.push(wireGeo);
+        this.art.mesh(band, wireGeo, this.art.dark, [0, 0, 0], [1, 1, 1]);
       }
     }
     for (const house of s.cover.filter(
@@ -390,6 +396,7 @@ export class TankScene {
       });
       this.scene.add(group);
     }
+    temps.forEach((g) => g.dispose());
     for (const e of s.enemies) {
       if (e.kind === 'tank') continue;
       const model = makeEnemy(this.art, e.kind);
@@ -501,7 +508,13 @@ export class TankScene {
     this.resize();
     this.render(s, false, true);
   }
-  private tree(root: T.Group, x: number, z: number, scale: number) {
+  private tree(
+    root: T.Group,
+    x: number,
+    z: number,
+    scale: number,
+    temps?: T.BufferGeometry[],
+  ) {
     const a = this.art;
     const elevation = terrainHeight(x, z);
     const tree = new T.Group();
@@ -566,18 +579,23 @@ export class TankScene {
     const mergedLeaves = mergeGeometries(leafCards, false);
     leafCards.forEach((g) => g.dispose());
     if (mergedLeaves) {
-      a.mesh(root, a.geo(mergedLeaves), a.leaves, [0, 0, 0], [1, 1, 1]);
+      if (temps) temps.push(mergedLeaves);
+      else a.geo(mergedLeaves);
+      a.mesh(root, mergedLeaves, a.leaves, [0, 0, 0], [1, 1, 1]);
     }
   }
   private buildBridge() {
     const a = this.art;
+    const temps: T.BufferGeometry[] = [];
     a.soft(this.bridge, a.stone, [0, 0.15, -322], [12, 0.55, 31]);
     for (const side of [-1, 1]) {
       for (let z = -335; z <= -309; z += 2)
         a.soft(this.bridge, a.stone, [side * 5.8, 1, z], [0.85, 1.7, 1.9]);
+      const archGeo = new T.TorusGeometry(8, 0.9, 8, 28, Math.PI);
+      temps.push(archGeo);
       const arch = a.mesh(
         this.bridge,
-        a.geo(new T.TorusGeometry(8, 0.9, 8, 28, Math.PI)),
+        archGeo,
         a.stone,
         [side * 5.8, -7.5, -322],
         [1, 1, 1],
@@ -590,14 +608,11 @@ export class TankScene {
       new T.Vector3(5, 0.2, -314),
       new T.Vector3(5, 0.2, -330),
     ]);
-    a.mesh(
-      this.bridge,
-      a.geo(new T.TubeGeometry(cable, 24, 0.04, 5, false)),
-      a.dark,
-      [0, 0, 0],
-      [1, 1, 1],
-    );
+    const cableGeo = new T.TubeGeometry(cable, 24, 0.04, 5, false);
+    temps.push(cableGeo);
+    a.mesh(this.bridge, cableGeo, a.dark, [0, 0, 0], [1, 1, 1]);
     consolidate(this.bridge, a);
+    temps.forEach((g) => g.dispose());
   }
   private resize() {
     const { width, height } = this.host.getBoundingClientRect();
@@ -606,10 +621,11 @@ export class TankScene {
       this.post?.setSize(width, height);
       this.camera.aspect = width / height;
       this.camera.updateProjectionMatrix();
+      this.onResize?.();
     }
   }
   private burst(e: TankEvent) {
-    if (['repair', 'win', 'warning'].includes(e.kind)) return;
+    if (IGNORED_BURSTS.has(e.kind)) return;
     const big = e.kind === 'destroy',
       material = e.surface ?? 'metal';
     const muzzle = e.kind === 'cannon' || e.kind === 'mg';
@@ -774,6 +790,13 @@ export class TankScene {
     model.turret.rotation.y = -(turret - yaw);
     model.barrel.rotation.x = pitch;
     model.barrel.position.z = -1.03 + recoil * 0.3;
+    const isPlayer = model === this.player;
+    const prevDist = isPlayer
+      ? this.lastPlayerTrackDist
+      : this.lastEnemyTrackDist;
+    if (distance === prevDist) return;
+    if (isPlayer) this.lastPlayerTrackDist = distance;
+    else this.lastEnemyTrackDist = distance;
     let w = 0;
     for (const side of [-1, 1]) {
       for (const z of TANK_WHEEL_Z) {
@@ -907,11 +930,16 @@ export class TankScene {
       m.fractured.visible = c.health <= 0 && c.kind === 'house' && age < 2.1;
       m.ruin.visible = c.health <= 0;
       if (c.kind === 'house' && c.health <= 0 && collapse) {
-        m.collapseParts.forEach((part, index) => {
-          const pose = collapsePose(age, index, c.h, c.id);
-          part.position.y = (index >= 4 ? c.h : 0) + pose.y;
-          part.rotation.set(pose.x, 0, pose.z);
-        });
+        const coverState = this.coverStates.get(c.id);
+        if (age < 2.1 || coverState !== 'collapsed') {
+          const poseAge = Math.min(2.1, age);
+          m.collapseParts.forEach((part, index) => {
+            const pose = collapsePose(poseAge, index, c.h, c.id);
+            part.position.y = (index >= 4 ? c.h : 0) + pose.y;
+            part.rotation.set(pose.x, 0, pose.z);
+          });
+          this.coverStates.set(c.id, age < 2.1 ? 'collapsing' : 'collapsed');
+        }
         const pulse = Math.floor(age / 0.4);
         if (pulse !== collapse.pulse && age < 2.1) {
           collapse.pulse = pulse;
@@ -936,26 +964,29 @@ export class TankScene {
             });
           }
         }
-      } else if (c.health > 0) {
+      } else if (c.health > 0 && this.coverStates.get(c.id) !== 'intact') {
         m.collapseParts.forEach((part, index) => {
           part.position.y = index >= 4 ? c.h : 0;
           part.rotation.set(0, 0, 0);
         });
+        this.coverStates.set(c.id, 'intact');
       }
     }
     for (const e of s.enemies) {
       if (e.kind === 'tank') {
         this.enemyTank.root.visible = e.active;
-        this.enemyTank.root.position.set(e.x, 0.005, e.z);
-        this.animateTank(
-          this.enemyTank,
-          s.time * (e.alerted && e.health > 0 ? 1.6 : 0),
-          e.yaw,
-          e.yaw,
-          0,
-          0,
-        );
-        this.enemyTank.root.rotation.z = e.health <= 0 ? 0.1 : 0;
+        if (e.active) {
+          this.enemyTank.root.position.set(e.x, 0.005, e.z);
+          this.animateTank(
+            this.enemyTank,
+            s.time * (e.alerted && e.health > 0 ? 1.6 : 0),
+            e.yaw,
+            e.yaw,
+            0,
+            0,
+          );
+          this.enemyTank.root.rotation.z = e.health <= 0 ? 0.1 : 0;
+        }
       } else {
         const m = this.enemies.get(e.id)!;
         m.root.visible = e.active;
@@ -1042,8 +1073,11 @@ export class TankScene {
         (reduced ? 0 : Math.sin(s.time * 53) * this.shake * 0.35),
       muzzle.z - Math.cos(s.turret) * 100,
     );
-    this.camera.fov = zoom ? 35 : 58;
-    this.camera.updateProjectionMatrix();
+    const targetFov = zoom ? 35 : 58;
+    if (this.camera.fov !== targetFov) {
+      this.camera.fov = targetFov;
+      this.camera.updateProjectionMatrix();
+    }
 
     let solidWrite = 0;
     const prevSolid = this.fragments.count;
@@ -1139,6 +1173,7 @@ export class TankScene {
     this.smokeParticles.length = smokeWrite;
     this.smokePool.commit(smokeWrite, this.visualTime);
 
+    const prevShells = this.shells.count;
     this.shells.count = Math.min(80, s.shells.length);
     for (let i = 0; i < this.shells.count; i++) {
       const r = s.shells[i];
@@ -1153,10 +1188,13 @@ export class TankScene {
       this.object.updateMatrix();
       this.shells.setMatrixAt(i, this.object.matrix);
     }
-    this.shells.instanceMatrix.needsUpdate = true;
+    if (this.shells.count > 0 || prevShells > 0)
+      this.shells.instanceMatrix.needsUpdate = true;
     this.riverUniforms.uTime.value = s.time;
     this.allies.forEach((ally, i) => {
-      ally.root.visible = s.phase === 'hold' || s.status === 'won';
+      const visible = s.phase === 'hold' || s.status === 'won';
+      ally.root.visible = visible;
+      if (!visible) return;
       const walking = s.phase === 'hold' && s.status !== 'won';
       const stride = walking ? Math.sin(s.time * 6.5 + i * 1.3) * 0.42 : 0;
       const bob = walking
@@ -1199,6 +1237,9 @@ export class TankScene {
     this.fragments.count = 0;
     this.flashLight.intensity = 0;
     this.collapses.clear();
+    this.coverStates.clear();
+    this.lastPlayerTrackDist = NaN;
+    this.lastEnemyTrackDist = NaN;
     this.scarOwners.clear();
     this.scarSerial = 0;
     this.scars.count = 0;

@@ -406,7 +406,7 @@ export function makeTargetModel(a: AirArt, t: AirTarget) {
       object.receiveShadow = true;
     }
   });
-  return { root, detail, hull };
+  return { root, detail, hull, ramp: ramp ?? null };
 }
 
 function surfaceDetailBump() {
@@ -489,8 +489,8 @@ export function makeCoast(a: AirArt) {
     );
   }
   geo.computeVertexNormals();
-  const sand = a.texture('pillbox-sand-diffuse.jpg', true),
-    normal = a.texture('pillbox-sand-normal.jpg');
+  const sand = a.texture('pillbox-sand-diffuse.webp', true),
+    normal = a.texture('pillbox-sand-normal.webp');
   const mat = coastalMaterial(sand, normal);
   a.materials.add(mat);
   const land = new THREE.Mesh(geo, mat);

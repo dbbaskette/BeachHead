@@ -24,6 +24,7 @@ import { FlakControls } from '@/lib/flak/controls';
 import { createFlak, stepFlak, aimFlak } from '@/lib/flak/simulation';
 import { PillboxAudio } from '@/lib/pillbox/audio';
 import { settings, useSettings } from '@/lib/settings';
+import { shallowEqual } from '@/lib/hud-utils';
 import type { FlakScene } from '@/lib/flak/scene';
 const snapshot = (s: ReturnType<typeof createFlak>) => ({
   status: s.status,
@@ -60,11 +61,25 @@ export default function FlakGame({
     [stick, setStick] = useState({ x: 0, y: 0 });
   const { muted, reducedMotion: steady } = useSettings();
   const touch = useTouchLayout();
-  const publish = () => setHud(snapshot(battle.current));
+  const wakeRef = useRef<() => void>(() => {});
+  const redrawRef = useRef<() => void>(() => {});
+  const lastHudRef = useRef<ReturnType<typeof snapshot> | null>(null);
+  const publish = () => {
+    const next = snapshot(battle.current);
+    if (lastHudRef.current && shallowEqual(lastHudRef.current, next)) return;
+    lastHudRef.current = next;
+    setHud(next);
+  };
+  const syncStick = () => {
+    const next = controls.current.aimStick;
+    setStick((cur) =>
+      cur.x === next.x && cur.y === next.y ? cur : { x: next.x, y: next.y },
+    );
+  };
   const clear = () => {
     controls.current.clear();
     keys.current.clear();
-    setStick({ x: 0, y: 0 });
+    syncStick();
   };
   const pause = () => {
     if (battle.current.status !== 'playing') return;
@@ -72,6 +87,7 @@ export default function FlakGame({
     clear();
     audio.current?.setPaused(true);
     publish();
+    redrawRef.current();
   };
   const start = (retry = false) => {
     clear();
@@ -83,11 +99,13 @@ export default function FlakGame({
     audio.current?.setPaused(false);
     void audio.current?.start();
     publish();
+    wakeRef.current();
     root.current?.focus();
   };
   const toggleZoom = () => {
     zoomRef.current = !zoomRef.current;
     setZoom(zoomRef.current);
+    redrawRef.current();
     root.current?.focus();
   };
   const aim = (x: number, y: number) => {
@@ -105,17 +123,16 @@ export default function FlakGame({
     audio.current.setEnabled(!settings.get().muted);
     void audio.current.preload();
     const keySet = keys.current;
-    const release = bindControlRelease(window, controls.current, () =>
-      setStick({ ...controls.current.aimStick }),
-    );
+    const release = bindControlRelease(window, controls.current, syncStick);
     const move = (e: PointerEvent) => {
       if (e.pointerType === 'mouse' && e.buttons === 0) {
         controls.current.end(e.pointerId);
         return;
       }
+      const prevStick = controls.current.aimStick;
       const delta = controls.current.move(e.pointerId, e.clientX, e.clientY);
       if (delta) aim(delta.x, delta.y);
-      else setStick({ ...controls.current.aimStick });
+      else if (controls.current.aimStick !== prevStick) syncStick();
     };
     const down = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest('button')) return;
@@ -157,6 +174,10 @@ export default function FlakGame({
     window.addEventListener('pagehide', pause);
     window.addEventListener('orientationchange', pause);
     document.addEventListener('visibilitychange', visibility);
+    const redraw = () => {
+      if (cancelled || !scene.current || frame) return;
+      scene.current.render(battle.current, zoomRef.current, reduced.current);
+    };
     const tick = (stamp: number) => {
       if (cancelled) return;
       const dt = Math.min(0.1, (stamp - (last || stamp)) / 1000);
@@ -204,13 +225,26 @@ export default function FlakGame({
         publish();
       }
       scene.current?.render(s, zoomRef.current, reduced.current);
-      publishClock += dt;
-      if (publishClock > 0.1) {
+      if (s.status === 'playing') {
+        publishClock += dt;
+        if (publishClock > 0.1) {
+          publishClock = 0;
+          publish();
+        }
+        frame = requestAnimationFrame(tick);
+      } else {
         publishClock = 0;
-        publish();
+        frame = 0;
+        last = 0;
       }
+    };
+    const wake = () => {
+      if (cancelled || frame) return;
+      last = 0;
       frame = requestAnimationFrame(tick);
     };
+    wakeRef.current = wake;
+    redrawRef.current = redraw;
     void import('@/lib/flak/scene')
       .then(({ FlakScene }) => {
         if (cancelled || !host.current) return;
@@ -218,9 +252,9 @@ export default function FlakGame({
           pause();
           setError(message);
         });
-        scene.current.render(battle.current, false);
+        scene.current.onResize = redraw;
+        redraw();
         setLoaded(true);
-        frame = requestAnimationFrame(tick);
       })
       .catch(() =>
         setError(
@@ -230,6 +264,8 @@ export default function FlakGame({
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      wakeRef.current = () => {};
+      redrawRef.current = () => {};
       release();
       keySet.clear();
       window.removeEventListener('pointermove', move, true);
@@ -249,6 +285,7 @@ export default function FlakGame({
   }, [muted]);
   useEffect(() => {
     reduced.current = steady;
+    redrawRef.current();
   }, [steady]);
   const begin = (role: ControlRole, e: ReactPointerEvent<HTMLElement>) => {
     if (battle.current.status !== 'playing' || e.button !== 0) return;

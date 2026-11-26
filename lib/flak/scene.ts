@@ -26,6 +26,8 @@ export function flakCoastHeight(x: number, z: number): number {
   const t = T.MathUtils.smoothstep(z, shoreZ - 38, shoreZ + 52);
   return T.MathUtils.lerp(-2.4, dune, t);
 }
+const FLAK_UP = new T.Vector3(0, 1, 0);
+
 type Puff = {
   at: Vec;
   age: number;
@@ -52,6 +54,9 @@ export class FlakScene {
   private puffs: Puff[] = [];
   private serial = 0;
   private object = new T.Object3D();
+  private activeIds = new Set<number>();
+  private smokePoint = new T.Vector3();
+  onResize?: () => void;
   private planes = (['bomber', 'transport', 'fighter'] as const).flatMap(
     (kind) => {
       const proto = aircraft(this.art, kind);
@@ -219,8 +224,8 @@ export class FlakScene {
   private buildCoast() {
     const a = this.art,
       root = new T.Group();
-    const sandMap = a.texture('pillbox-sand-diffuse.jpg', true);
-    const sandNormal = a.texture('pillbox-sand-normal.jpg');
+    const sandMap = a.texture('pillbox-sand-diffuse.webp', true);
+    const sandNormal = a.texture('pillbox-sand-normal.webp');
     const sand = coastalMaterial(sandMap, sandNormal, {
       shoreAxis: 'z',
       shoreOffset: -82,
@@ -243,18 +248,13 @@ export class FlakScene {
     terrain.castShadow = false;
     terrain.receiveShadow = true;
     const concrete = a.mat('#939383', 0.98);
-    concrete.map = a.texture('pillbox-concrete-diffuse.jpg', true);
-    concrete.normalMap = a.texture('pillbox-concrete-normal.jpg');
-    concrete.roughnessMap = a.texture('pillbox-concrete-roughness.jpg');
+    concrete.map = a.texture('pillbox-concrete-diffuse.webp', true);
+    concrete.normalMap = a.texture('pillbox-concrete-normal.webp');
+    concrete.roughnessMap = a.texture('pillbox-concrete-roughness.webp');
     for (const t of [concrete.map, concrete.normalMap, concrete.roughnessMap])
       t.repeat.set(3, 3);
-    a.mesh(
-      root,
-      a.geo(new T.CylinderGeometry(8, 8.5, 1.6, 48)),
-      concrete,
-      [0, 3.7, 4],
-      [1, 1, 1],
-    );
+    const baseCylinder = new T.CylinderGeometry(8, 8.5, 1.6, 48);
+    a.mesh(root, baseCylinder, concrete, [0, 3.7, 4], [1, 1, 1]);
     for (let i = 0; i < 28; i++) {
       const angle = (i / 28) * Math.PI * 2;
       const block = a.block(
@@ -325,8 +325,8 @@ export class FlakScene {
     bagMaterial.map = bagColorTex;
     bagMaterial.bumpMap = bagBumpTex;
     bagMaterial.bumpScale = 0.04;
-    const bagGeometry = a.geo(new T.SphereGeometry(1, 16, 10));
-    const seamGeometry = a.geo(new T.TorusGeometry(1, 0.01, 4, 24));
+    const bagGeometry = new T.SphereGeometry(1, 16, 10);
+    const seamGeometry = new T.TorusGeometry(1, 0.01, 4, 24);
     const bp = bagGeometry.attributes.position;
     for (let i = 0; i < bp.count; i++) {
       const x = bp.getX(i),
@@ -374,6 +374,9 @@ export class FlakScene {
       seam.rotation.y = angle;
     }
     consolidate(root, a);
+    baseCylinder.dispose();
+    bagGeometry.dispose();
+    seamGeometry.dispose();
     this.scene.add(root);
     const tuftPositions: number[] = [];
     for (let b = 0; b < 3; b++) {
@@ -458,6 +461,7 @@ export class FlakScene {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.post?.setSize(w, h);
+    this.onResize?.();
   }
   reset() {
     this.puffs = [];
@@ -557,12 +561,15 @@ export class FlakScene {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(eye.x + d.x * 500, eye.y + d.y * 500, eye.z + d.z * 500);
     const wantedFov = zoom ? 35 : this.camera.aspect < 0.85 ? 70 : 59;
-    const nextFov = T.MathUtils.damp(
-      this.camera.fov,
-      wantedFov,
-      14,
-      Math.max(dt, 1 / 120),
-    );
+    const nextFov =
+      s.status === 'playing'
+        ? T.MathUtils.damp(
+            this.camera.fov,
+            wantedFov,
+            14,
+            Math.max(dt, 1 / 120),
+          )
+        : wantedFov;
     if (Math.abs(nextFov - this.camera.fov) > 1e-4) {
       this.camera.fov = nextFov;
       this.camera.updateProjectionMatrix();
@@ -572,9 +579,11 @@ export class FlakScene {
     this.weapon.cradle.position.z = this.flash * 0.035;
     this.light.intensity = this.flash * 9;
     this.shells.count = Math.min(48, s.fired);
-    const active = new Set(s.planes.map((p) => p.id));
+    this.activeIds.clear();
+    for (let i = 0; i < s.planes.length; i++)
+      this.activeIds.add(s.planes[i].id);
     for (const slot of this.planes)
-      if (!active.has(slot.id)) {
+      if (!this.activeIds.has(slot.id)) {
         slot.id = -1;
         slot.root.visible = false;
       }
@@ -601,8 +610,8 @@ export class FlakScene {
       for (const prop of slot.props)
         prop.rotation.z = s.time * (p.health > 0 ? 41 : 12);
       if (p.hit && this.smokeClock > 0.095) {
-        const point = new T.Vector3(p.hit.x, p.hit.y, p.hit.z); // Impact offset starts at the damaged part and follows the wreck.
-        point.applyAxisAngle(new T.Vector3(0, 1, 0), -slot.root.rotation.y);
+        const point = this.smokePoint.set(p.hit.x, p.hit.y, p.hit.z); // Impact offset starts at the damaged part and follows the wreck.
+        point.applyAxisAngle(FLAK_UP, -slot.root.rotation.y);
         point.applyEuler(slot.root.rotation);
         point.add(slot.root.position);
         this.puff(
@@ -615,9 +624,11 @@ export class FlakScene {
       }
     }
     if (this.smokeClock > 0.095) this.smokeClock = 0;
-    const troopers = new Set(s.troops.map((t) => t.id));
+    this.activeIds.clear();
+    for (let i = 0; i < s.troops.length; i++)
+      this.activeIds.add(s.troops[i].id);
     for (const slot of this.troops)
-      if (!troopers.has(slot.id)) {
+      if (!this.activeIds.has(slot.id)) {
         slot.id = -1;
         slot.root.visible = false;
       }

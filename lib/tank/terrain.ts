@@ -94,8 +94,8 @@ export function buildTerrain(
   touch: boolean,
 ) {
   const ground = a.mat('#ffffff', 0.96);
-  ground.map = a.texture('pillbox-sand-diffuse.jpg', true);
-  ground.normalMap = a.texture('pillbox-sand-normal.jpg');
+  ground.map = a.texture('pillbox-sand-diffuse.webp', true);
+  ground.normalMap = a.texture('pillbox-sand-normal.webp');
   ground.normalScale.set(0.35, 0.35);
   ground.map.repeat.set(200, 200);
   ground.normalMap.repeat.copy(ground.map.repeat);

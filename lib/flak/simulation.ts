@@ -161,17 +161,49 @@ export function spawnAircraft(s: FlakState, index: number) {
     hit: null,
   });
 }
+const _phFrom: Vec = { x: 0, y: 0, z: 0 };
+const _phTo: Vec = { x: 0, y: 0, z: 0 };
+const _phRadius: Vec = { x: 0, y: 0, z: 0 };
+
+function compactInPlace<T>(items: T[], keep: (item: T) => boolean) {
+  let write = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (keep(item)) items[write++] = item;
+  }
+  items.length = write;
+}
+
+function writePlaneLocal(
+  out: Vec,
+  v: Vec,
+  p: Aircraft,
+  fx: number,
+  fz: number,
+  cosPitch: number,
+  sinPitch: number,
+  oldDt: number,
+) {
+  const x = v.x - p.x + p.vx * oldDt,
+    z = v.z - p.z + p.vz * oldDt;
+  const dy = v.y - p.y + p.vy * oldDt;
+  const forward = fx * x + fz * z;
+  out.x = -fz * x + fx * z;
+  out.y = dy * cosPitch - forward * sinPitch;
+  out.z = forward * cosPitch + dy * sinPitch;
+}
+
 /** First segment intersection with an ellipsoid; tests swept rounds rather than frame endpoints. */
 export function ellipsoidHit(a: Vec, b: Vec, radius: Vec): number | null {
-  const p = { x: a.x / radius.x, y: a.y / radius.y, z: a.z / radius.z },
-    d = {
-      x: (b.x - a.x) / radius.x,
-      y: (b.y - a.y) / radius.y,
-      z: (b.z - a.z) / radius.z,
-    };
-  const A = d.x * d.x + d.y * d.y + d.z * d.z,
-    B = 2 * (p.x * d.x + p.y * d.y + p.z * d.z),
-    C = p.x * p.x + p.y * p.y + p.z * p.z - 1;
+  const px = a.x / radius.x,
+    py = a.y / radius.y,
+    pz = a.z / radius.z;
+  const dx = (b.x - a.x) / radius.x,
+    dy = (b.y - a.y) / radius.y,
+    dz = (b.z - a.z) / radius.z;
+  const A = dx * dx + dy * dy + dz * dz,
+    B = 2 * (px * dx + py * dy + pz * dz),
+    C = px * px + py * py + pz * pz - 1;
   if (C <= 0) return 0;
   if (A < 1e-12) return null;
   const disc = B * B - 4 * A * C;
@@ -183,33 +215,22 @@ function planeHit(a: Vec, b: Vec, p: Aircraft, dt: number) {
   const length = Math.hypot(p.vx, p.vz),
     fx = p.vx / length,
     fz = p.vz / length;
-  const local = (v: Vec, old: boolean): Vec => {
-    const x = v.x - p.x + (old ? p.vx * dt : 0),
-      z = v.z - p.z + (old ? p.vz * dt : 0);
-    const dy = v.y - p.y + (old ? p.vy * dt : 0);
-    const forward = fx * x + fz * z;
-    const pitch = Math.atan2(p.vy, length);
-    return {
-      x: -fz * x + fx * z,
-      y: dy * Math.cos(pitch) - forward * Math.sin(pitch),
-      z: forward * Math.cos(pitch) + dy * Math.sin(pitch),
-    };
-  };
-  const from = local(a, true),
-    to = local(b, false);
-  const hits = [
-    ellipsoidHit(from, to, {
-      x: p.kind === 'fighter' ? 0.9 : 1.6,
-      y: p.kind === 'fighter' ? 1 : 1.7,
-      z: p.kind === 'fighter' ? 5 : p.kind === 'bomber' ? 8 : 10,
-    }),
-    ellipsoidHit(from, to, {
-      x: p.kind === 'fighter' ? 5.6 : p.kind === 'bomber' ? 10.5 : 14.7,
-      y: 1.1,
-      z: 2.4,
-    }),
-  ].filter((v): v is number => v !== null);
-  return hits.length ? Math.min(...hits) : null;
+  const pitch = Math.atan2(p.vy, length),
+    cosPitch = Math.cos(pitch),
+    sinPitch = Math.sin(pitch);
+  writePlaneLocal(_phFrom, a, p, fx, fz, cosPitch, sinPitch, dt);
+  writePlaneLocal(_phTo, b, p, fx, fz, cosPitch, sinPitch, 0);
+  _phRadius.x = p.kind === 'fighter' ? 0.9 : 1.6;
+  _phRadius.y = p.kind === 'fighter' ? 1 : 1.7;
+  _phRadius.z = p.kind === 'fighter' ? 5 : p.kind === 'bomber' ? 8 : 10;
+  const fuselageHit = ellipsoidHit(_phFrom, _phTo, _phRadius);
+  _phRadius.x = p.kind === 'fighter' ? 5.6 : p.kind === 'bomber' ? 10.5 : 14.7;
+  _phRadius.y = 1.1;
+  _phRadius.z = 2.4;
+  const wingHit = ellipsoidHit(_phFrom, _phTo, _phRadius);
+  if (fuselageHit === null) return wingHit;
+  if (wingHit === null) return fuselageHit;
+  return Math.min(fuselageHit, wingHit);
 }
 export function stepFlak(s: FlakState, seconds: number, firing = false) {
   s.events = [];
@@ -404,11 +425,11 @@ export function stepFlak(s: FlakState, seconds: number, firing = false) {
         r.age = 99;
       }
     }
-    s.planes = s.planes.filter((p) => p.y > 0);
-    s.troops = s.troops.filter((p) => p.y > 0);
-    s.bombs = s.bombs.filter((p) => p.age !== -1);
-    s.enemyRounds = s.enemyRounds.filter((r) => r.age < 3);
-    s.rounds = s.rounds.filter((r) => r.age < 3);
+    compactInPlace(s.planes, (p) => p.y > 0);
+    compactInPlace(s.troops, (p) => p.y > 0);
+    compactInPlace(s.bombs, (p) => p.age !== -1);
+    compactInPlace(s.enemyRounds, (r) => r.age < 3);
+    compactInPlace(s.rounds, (r) => r.age < 3);
     s.integrity = clamp(s.integrity, 0, 100);
     if (!s.integrity) s.status = 'lost';
     else if (
